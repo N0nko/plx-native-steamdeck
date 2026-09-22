@@ -1922,7 +1922,9 @@ impl<H: HomeLike> Screen<H> for HomeScreen {
         RenderStrategy::Page
     }
     fn strip_reachable(&self) -> bool {
-        self.snap.pos < 0.5
+        // Back seats the strip in the same delivery as starting the fold. Waiting for the
+        // drawn midpoint makes that seat fall back to a poster, whose focus cancels the fold.
+        self.snap.pos < 0.5 || self.snap_target < 0.5
     }
     fn links(&self, out: &mut Vec<Link>) {
         out.push(Link {

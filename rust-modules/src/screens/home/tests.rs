@@ -1790,6 +1790,8 @@ fn back_from_grid_or_hero_returns_to_navigation_before_root_back() {
         .iter()
         .any(|stamped| matches!(&stamped.fx, Fx::App(AppFx::Loop(LoopReq::BackAtRoot)))));
 
+    assert!(<HomeScreen as Screen<TestHost>>::strip_reachable(&s),
+        "the container must accept the navigation seat before the fold spring reaches its midpoint");
     s.snap.jump(0.0);
     let hero = FocusKey {
         entry: s.entry,
