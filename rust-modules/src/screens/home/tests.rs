@@ -1459,7 +1459,7 @@ fn activation_across_the_snap_midpoint_is_not_a_canonical_collision() {
     let (_, a, _) = step(&mut hero_picture, snapshot.view(), Some(card), &event);
     let (_, b, _) = step(&mut grid_picture, snapshot.view(), Some(card), &event);
     assert!(has_home(&a, |r| matches!(r, HomeReq::Play { rk, .. } if rk == "2")));
-    assert!(has_home(&b, |r| matches!(r, HomeReq::Play { rk, .. } if rk == "1")));
+    assert!(has_home(&b, |r| matches!(r, HomeReq::Detail { rk, .. } if rk == "1")));
     assert_ne!(hero_picture.hash(), grid_picture.hash(),
         "the same input activates different items, so these cannot be the same logical state");
 }
@@ -1608,7 +1608,7 @@ fn visible_tick_emits_both_store_work_requests_after_the_step() {
 }
 
 #[test]
-fn continue_watching_commit_plays_while_an_ordinary_shelf_opens_detail() {
+fn continue_watching_and_ordinary_cards_open_details_before_playback() {
     let _guard = crate::testlock::serial();
     let mut state = crate::pms::PmsState::default();
     let adapter = std::sync::Arc::new(crate::pms::PmsAdapter::default());
@@ -1624,7 +1624,7 @@ fn continue_watching_commit_plays_while_an_ordinary_shelf_opens_detail() {
     );
     assert!(has_home(
         &play,
-        |r| matches!(r, HomeReq::Play { rk, .. } if rk == "1")
+        |r| matches!(r, HomeReq::Detail { rk, .. } if rk == "1")
     ));
     s.rows[0].identity = HomeHubIdentity::Key {
         sid: crate::plex::ServerId::UNSET,

@@ -417,9 +417,9 @@ fn a_midframe_reorder_keeps_painted_keys_matched_and_a_click_activates_the_seen_
     frame(&mut d, &mut rig, AppArg::Home, tick(41), vec![release_input(tick(41))]);
     for i in 42..60 { frame(&mut d, &mut rig, AppArg::Home, tick(i), vec![]); }
     let requests = rig.take_home_reqs();
-    assert!(requests.iter().any(|(_, request, _)| matches!(request, HomeReq::Play { rk, .. } if rk == "1")),
+    assert!(requests.iter().any(|(_, request, _)| matches!(request, HomeReq::Detail { rk, .. } if rk == "1")),
         "the old presented map named item 1, not the replacement now at its old position");
-    assert!(!requests.iter().any(|(_, request, _)| matches!(request, HomeReq::Play { rk, .. } if rk == "3")));
+    assert!(!requests.iter().any(|(_, request, _)| matches!(request, HomeReq::Detail { rk, .. } if rk == "3")));
 }
 
 #[test]

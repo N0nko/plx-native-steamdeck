@@ -35,7 +35,7 @@ impl LogicalState for CatalogDetailsArg {
         out.push_str("catalog_credit");
     }
 }
-pub(crate) const SHAPE: &str = "CatalogDetails{watchlist_v1:profile_status_summary,catalog_id:str,title:str,person:str,department:str,role:str,year:i32}";
+pub(crate) const SHAPE: &str = "CatalogDetails{watchlist_v2:profile_status_summary_local_sid_rk,catalog_id:str,title:str,person:str,department:str,role:str,year:i32}";
 pub(crate) struct CatalogDetailsScreen {
     entry: EntryId,
     arg: CatalogDetailsArg,
@@ -43,8 +43,10 @@ pub(crate) struct CatalogDetailsScreen {
     profile: u32,
 }
 const WATCHLIST: u32 = 1;
-fn button_rect() -> Rect {
-    Rect::new(456.0, 736.0, 1008.0, 64.0)
+const LIBRARY: u32 = 2;
+fn button_rect(elem: u32, local: bool) -> Rect {
+    let width=if local {496.0}else{1008.0};
+    Rect::new(456.0 + if elem==LIBRARY {512.0}else{0.0}, 736.0, width, 64.0)
 }
 impl CatalogDetailsScreen {
     pub(crate) fn new(entry: EntryId, arg: CatalogDetailsArg) -> Self {
@@ -55,6 +57,22 @@ impl CatalogDetailsScreen {
             profile: 0,
         }
     }
+    fn has_local(&self)->bool {self.state.as_ref().is_some_and(|s|s.local.is_some())}
+    fn activate<H:AppLike>(&mut self, elem:u32, fx:&mut Effects<'_,H>) {
+        if self.profile!=crate::plex::session::current_gen(){return;}
+        let Some(state)=self.state.as_ref().filter(|s|!s.busy) else{return;};
+        if elem==LIBRARY {
+            if let Some((sid,rk))=&state.local {
+                fx.push(Fx::App(AppFx::Content(crate::screens::registry::ContentReq::Present(
+                    crate::screens::registry::ContentArg::Detail{sid:*sid,rk:rk.clone()}))));
+            }
+        } else if elem==WATCHLIST {
+            let request=crate::catalog_action::Request{id:self.arg.catalog_id.clone(),profile:self.profile,desired:state.watchlisted.map(|v|!v)};
+            if let Some(state)=&mut self.state {state.busy=true;}
+            fx.push(Fx::App(AppFx::Catalog(request)));
+            fx.invalidate(crate::ui::present::Provenance::Input);
+        }
+    }
 }
 impl LogicalState for CatalogDetailsScreen {
     fn write(&self, c: &mut Canon) {
@@ -62,6 +80,7 @@ impl LogicalState for CatalogDetailsScreen {
         c.u32(self.profile);
         c.option(self.state.as_ref(), |c, s| {
             c.bool(s.busy).bool(s.failed).str(&s.summary).str(&s.title);
+            c.option(s.local.as_ref(),|c,(sid,rk)|{c.u32(sid.raw() as u32).str(rk);});
             c.option(s.watchlisted, |c, v| {
                 c.bool(v);
             });
@@ -73,7 +92,7 @@ impl LogicalState for CatalogDetailsScreen {
 }
 impl<H: AppLike> Machine<H> for CatalogDetailsScreen {
     type Ev = ScreenEvent<H>;
-    fn step(&mut self, ev: &Self::Ev, _cx: &Cx<'_, H>, fx: &mut Effects<'_, H>) -> Handled {
+    fn step(&mut self, ev: &Self::Ev, cx: &Cx<'_, H>, fx: &mut Effects<'_, H>) -> Handled {
         match ev {
             ScreenEvent::Mount => {
                 self.profile = crate::plex::session::current_gen();
@@ -100,19 +119,8 @@ impl<H: AppLike> Machine<H> for CatalogDetailsScreen {
                 self.state = Some(state.clone());
                 fx.invalidate(crate::ui::present::Provenance::Landing(fx.from()));
             }
-            ScreenEvent::Activate(WATCHLIST) | ScreenEvent::PressCommit(_) => {
-                if let Some(state) = self.state.as_ref().filter(|s| !s.busy) {
-                    let desired = state.watchlisted.map(|v| !v);
-                    let request = crate::catalog_action::Request {
-                        id: self.arg.catalog_id.clone(),
-                        profile: self.profile,
-                        desired,
-                    };
-                    self.state = Some(crate::catalog_action::Snapshot::pending(&request));
-                    fx.push(Fx::App(AppFx::Catalog(request)));
-                    fx.invalidate(crate::ui::present::Provenance::Input);
-                }
-            }
+            ScreenEvent::Activate(elem)=>self.activate(*elem,fx),
+            ScreenEvent::PressCommit(_)=>{if let Some(key)=cx.focus.current {self.activate(key.elem,fx);}},
             ScreenEvent::Tick(_) if self.profile != crate::plex::session::current_gen() => {
                 fx.push(Fx::Nav(NavOp::Dismiss(self.entry)));
             }
@@ -141,27 +149,30 @@ impl<H: AppLike> Focusable<H> for CatalogDetailsScreen {
             seat: Seat::First,
             reachable: AxisMask::BOTH,
             edge: [EdgeRule::Stop; 4],
-            extent: button_rect(),
-            len: 1,
+            extent: Rect::new(456.0,736.0,1008.0,64.0),
+            len: if self.has_local(){2}else{1},
             elem: ElemKind::Control,
         });
     }
     fn group_of(&self, e: &u32, _: &Cx<'_, H>) -> Option<GroupId> {
-        (*e == WATCHLIST).then_some(GroupId(1))
+        (*e == WATCHLIST || *e==LIBRARY && self.has_local()).then_some(GroupId(1))
     }
-    fn neighbour(&self, _: FocusKey<u32>, _: Dir, _: &Cx<'_, H>) -> Step<u32> {
+    fn neighbour(&self, from: FocusKey<u32>, dir: Dir, _: &Cx<'_, H>) -> Step<u32> {
+        if self.has_local() && matches!((from.elem,dir),(WATCHLIST,Dir::Right)|(LIBRARY,Dir::Left)){
+            return Step::Move(FocusKey{entry:self.entry,elem:if from.elem==WATCHLIST{LIBRARY}else{WATCHLIST}});
+        }
         Step::Edge
     }
     fn place(&self, e: &u32, _: &Cx<'_, H>, _: At) -> Option<Placed> {
-        (*e == WATCHLIST).then_some(Placed {
-            rect: button_rect(),
-            rest_rect: button_rect(),
+        (*e == WATCHLIST || *e==LIBRARY && self.has_local()).then_some(Placed {
+            rect: button_rect(*e,self.has_local()),
+            rest_rect: button_rect(*e,self.has_local()),
             clip: Rect::new(0.0, 0.0, 1920.0, 1080.0),
-            index: Some(0),
+            index: Some(e-1),
         })
     }
     fn reconcile(&self, want: FocusKey<u32>, _: &Cx<'_, H>) -> FocusKey<u32> {
-        want
+        if want.elem==LIBRARY && !self.has_local(){FocusKey{entry:self.entry,elem:WATCHLIST}}else{want}
     }
     fn seat(&self, _: GroupId, _: Placed, _: &Cx<'_, H>) -> FocusKey<u32> {
         FocusKey {
@@ -239,7 +250,7 @@ impl<H: AppLike> Screen<H> for CatalogDetailsScreen {
             .as_ref()
             .map(|s| s.summary.as_str())
             .filter(|s| !s.is_empty())
-            .unwrap_or("This title is not available in your library.");
+            .unwrap_or("Catalog information is unavailable.");
         text(summary, 310.0, theme::size::BODY, theme::TEXT_READING, 4);
         let label = match self.state.as_ref() {
             Some(s) if s.busy => c"Loading…",
@@ -248,23 +259,27 @@ impl<H: AppLike> Screen<H> for CatalogDetailsScreen {
             _ => c"Add to Watchlist",
         };
         use crate::ui::View;
-        crate::ui::widgets::Button::new(label.as_ptr(), theme::size::BODY, button_rect())
-            .focused(true)
+        for (elem,label) in [(WATCHLIST,label),(LIBRARY,c"Open in Library")] {
+        if elem==LIBRARY && !self.has_local(){continue;}
+        let rect=button_rect(elem,self.has_local());
+        crate::ui::widgets::Button::new(label.as_ptr(), theme::size::BODY, rect)
+            .focused(f.cx.focus.current.is_some_and(|key|key.entry==self.entry && key.elem==elem))
             .draw(&crate::ui::Env::inert(), p);
         f.stop(
             f.painter,
             crate::ui::screen::Stop {
                 key: FocusKey {
                     entry: self.entry,
-                    elem: WATCHLIST,
+                    elem,
                 },
-                rect: button_rect(),
-                rest_rect: button_rect(),
+                rect,
+                rest_rect: rect,
                 clip: Rect::new(0.0, 0.0, 1920.0, 1080.0),
                 hover: crate::ui::screen::Hover::Focus,
                 activate: crate::ui::screen::Activate::Immediate,
             },
         );
+        }
 
         let hint = crate::ui::widgets::KeyHint::new(c"Press", c"BACK", c"to return");
         hint.draw(p, x + w - hint.width(f.measure), r.y + 572.0, f.measure);

@@ -96,6 +96,8 @@ impl Fixture {
         let mut screen = SearchScreen::new(ENTRY, INSTANCE);
         let field = Some(FocusKey { entry: ENTRY, elem: FIELD });
         deliver(&mut screen, self, field, ScreenEvent::Mount);
+        // Most geometry fixtures exercise browsing after the user dismisses the keyboard.
+        deliver(&mut screen, self, field, key_event(Key::Back, 0));
         // Settled WITH the field focused, because that is where `Mount` reseats focus: ticking a
         // mount with no focus at all cools the field's own fill and every later assertion would
         // then be about that fade arriving rather than about what the test is asking.
@@ -642,9 +644,9 @@ fn a_mount_seats_the_field_and_parks_every_cursor_without_replacing_the_search()
     assert_eq!(fixture.store.query(), "wallace", "a mount must not wipe the term still on screen");
     assert_eq!(fixture.store.query_gen(), generation, "…nor supersede the answer under it");
     assert!(out.iter().any(|effect| matches!(&effect.fx, Fx::Deliver(_, Delivery::Screen(
-        ScreenEvent::Enter(Enter::Fresh { focus: FocusTarget::Elem(key) }))) if key.elem == FIELD)),
-        "a mount opens on the field, whatever the last visit left");
-    assert!(!screen.editing, "…and does NOT raise the keyboard: an arrival has nothing to type");
+        ScreenEvent::Enter(Enter::Fresh { focus: FocusTarget::Elem(key) }))) if key.elem == keypad::BASE+keypad::FIRST_KEY as u32)),
+        "a mount opens the keyboard, whatever the last visit left");
+    assert!(screen.keypad_open && !screen.editing, "arrival opens the integrated keyboard");
 
     // A seeded entry — the boot trigger's, now a store command — puts the term in the field with
     // the caret at its live end, which is where somebody who had just typed it would be standing.
@@ -922,11 +924,31 @@ fn t9_backspace_removes_pending_character_without_resurrecting_it(){
  deliver(&mut screen,&fixture,field,key_event(Key::Other,48));
  deliver(&mut screen,&fixture,field,text_event(TextEdit::Commit("0".into())));
  deliver(&mut screen,&fixture,field,key_event(Key::Other,48));
- assert_eq!(screen.draft.query(),"  ","zero inserts a space each time, never cycles to a digit");
+ assert_eq!(screen.draft.query(),"-","a second zero replaces the pending space with a dash");
  deliver(&mut screen,&fixture,field,ScreenEvent::Activate(keypad::BASE+9));
- deliver(&mut screen,&fixture,field,ScreenEvent::Activate(keypad::BASE+11));
- assert_eq!(screen.draft.query(),"  -'");
+ deliver(&mut screen,&fixture,field,ScreenEvent::Activate(keypad::BASE+10));
+ assert!(!screen.numeric,"ABC returns to letters without changing the query");
+ assert_eq!(screen.draft.query()," ");
  drop(session);
+}
+
+#[test]
+fn opening_search_immediately_opens_letters_and_field_does_not_toggle_them_off(){
+ let _serial=crate::testlock::serial();let fixture=Fixture::new();let mut screen=SearchScreen::new(ENTRY,INSTANCE);
+ deliver(&mut screen,&fixture,None,ScreenEvent::Mount);
+ assert!(screen.keypad_open);assert!(!screen.numeric);
+ deliver(&mut screen,&fixture,None,ScreenEvent::Activate(FIELD));
+ assert!(screen.keypad_open);
+}
+
+#[test]
+fn contextual_card_opens_its_details_on_the_first_click(){
+ let _serial=crate::testlock::serial();let mut fixture=Fixture::new();fixture.query("seed").shelves(vec![shelf(Kind::Movie,"local",1)]);let mut screen=fixture.screen();
+ screen.discovery.preview=Some(crate::discovery::Page{label:"Related".into(),rows:vec![shelf(Kind::Movie,"related",1)],headings:vec!["Similar movies".into()]});screen.content_dirty=true;
+ deliver(&mut screen,&fixture,None,ScreenEvent::Tick(tick(1)));
+ let elem=screen.rows[1].elems[0];let focus=Some(screen.key(elem));
+ let(_,effects,_)=deliver(&mut screen,&fixture,focus,ScreenEvent::Activate(elem));
+ assert!(effects.iter().any(|e|matches!(&e.fx,Fx::App(AppFx::Search(SearchReq::Detail{rk,..})) if rk=="related-0")));
 }
 #[test]
 fn discovery_feeds_keep_separate_identity_and_reject_retired_profile_landings(){

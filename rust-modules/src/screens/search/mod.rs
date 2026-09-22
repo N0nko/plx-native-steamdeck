@@ -145,21 +145,21 @@ impl SearchScreen {
     }
     fn digit<H:SearchLike>(&mut self,digit:u8,now:u32,fx:&mut Effects<'_,H>){
         self.keypad_open=true;self.numeric=true;self.draft.to_end();
-        if digit<=1 {
+        if digit==1 {
             let _=self.multitap.press(digit,now); // retain suppression of the matching SDL digit echo
             self.multitap.cancel();
-            self.edit(&if digit==1 {TextEdit::Backspace}else{TextEdit::Commit(" ".into())},fx);
+            self.edit(&TextEdit::Backspace,fx);
         } else if let Some((replace,ch))=self.multitap.press(digit,now){
             if replace {self.draft.edit(&TextEdit::Backspace);}
             self.edit(&TextEdit::Commit(ch.to_string().into()),fx);
         }
-        self.reseat(FocusTarget::Elem(self.key(keypad::BASE+if digit==0 {10}else{digit as u32-1})),fx);
+        self.reseat(FocusTarget::Elem(self.key(keypad::BASE+if digit==0 {9}else{digit as u32-1})),fx);
     }
     fn keypad_action<H:SearchLike>(&mut self,i:usize,now:u32,fx:&mut Effects<'_,H>){
         if self.numeric {
             match i {
-                9 | 11=>{self.multitap.cancel();self.edit(&TextEdit::Commit(if i==9 {"-"}else{"'"}.into()),fx);},
-                _=>self.digit(if i==10 {0}else{(i+1) as u8},now,fx),
+                10=>self.keyboard(true,false,fx),
+                _=>self.digit(if i==9 {0}else{(i+1) as u8},now,fx),
             }
         } else {match i {
             0=>{self.multitap.cancel();self.edit(&TextEdit::Commit(" ".into()),fx);},
@@ -287,7 +287,7 @@ impl SearchScreen {
         if let Some(tab) = elem.checked_sub(crate::ui::dispatch::STRIP_BASE) {
             let request = match tab {
                 0 => SearchReq::Tab(HomeTab::Home), 1 => SearchReq::Tab(HomeTab::Movies),
-                2 => SearchReq::Tab(HomeTab::Shows), 3 => return Handled::Yes,
+                2 => SearchReq::Tab(HomeTab::Shows), 3 => {self.keyboard(true,false,fx);return Handled::Yes;},
                 4 => SearchReq::Account, _ => return Handled::No,
             };
             self.keyboard(false, true, fx);
@@ -305,7 +305,7 @@ impl SearchScreen {
             fx.invalidate(Provenance::Input);return Handled::Yes;
         }
         if elem == FIELD {
-            self.keyboard(!self.keypad_open, true, fx);
+            self.keyboard(true, false, fx);
             return Handled::Yes;
         }
         if elem == CLEAR && !self.recents.is_empty() {
@@ -332,7 +332,6 @@ impl SearchScreen {
         }
         for (row_index, row) in self.rows.iter().enumerate() {
             let Some(col) = row.elems.iter().position(|key| *key == elem) else { continue };
-            if row_index>=self.base_rows {let row=row_index-self.base_rows;let from=cx.focus.current.map_or(elem,|k|k.elem);self.discover_enter(row,col,from,fx);self.sync(cx,false,fx);return Handled::Yes;}
             let Some(shelf) = self.shown.rows.get(row_index) else { return Handled::No };
             let Some(item) = shelf.items.get(col) else { return Handled::No };
             match item {
@@ -367,6 +366,7 @@ impl SearchScreen {
 impl<H: SearchLike> Machine<H> for SearchScreen {
     type Ev = ScreenEvent<H>;
     fn step(&mut self, ev: &Self::Ev, cx: &Cx<'_, H>, fx: &mut Effects<'_, H>) -> Handled {
+        let restoring = matches!(ev, ScreenEvent::Mount) && self.restored.is_some();
         let store_changed = matches!(ev, ScreenEvent::StoreChanged(store, _) if *store == StoreId::Search.ord());
         if store_changed { self.notices += 1; }
         let acknowledged = matches!(ev, ScreenEvent::Mount) || store_changed;
@@ -376,8 +376,9 @@ impl<H: SearchLike> Machine<H> for SearchScreen {
             ScreenEvent::RestoreMemory(PageMemory::Search(memory)) => { self.restore(memory); self.sync(cx, true, fx); }
             ScreenEvent::Mount => {
                 self.fade.mount();
-                self.reseat(FocusTarget::Elem(self.key(FIELD)), fx);
+                if !restoring { self.keyboard(true, false, fx); }
             }
+            ScreenEvent::Resume => self.keyboard(true, false, fx),
             ScreenEvent::WillLeave(_) | ScreenEvent::Unmount | ScreenEvent::Cover | ScreenEvent::Suspend => self.keyboard(false, false, fx),
             ScreenEvent::Activate(elem) => return self.activate(*elem, false, cx, fx),
             ScreenEvent::PressCommit(_) => {

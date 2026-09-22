@@ -183,7 +183,7 @@ pub enum Icon {
     /// It negates by DRAINING to [`theme::RATING_MUTED`] rather than going hollow: a single fruit
     /// can carry an outline, but outlining every shape in a crowd is a tangle of strokes at 30px.
     Crowd,
-    /// User-supplied white-outline audience-rating mark.
+    /// User-supplied popcorn mark, reserved for Get Ready (never audience ratings).
     PopcornAudience,
 }
 

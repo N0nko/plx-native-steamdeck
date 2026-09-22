@@ -15,6 +15,7 @@ pub(crate) struct Snapshot {
     pub watchlisted: Option<bool>,
     pub busy: bool,
     pub failed: bool,
+    pub local: Option<(crate::plex::ServerId, String)>,
 }
 impl Snapshot {
     pub(crate) fn pending(r: &Request) -> Self {
@@ -27,6 +28,7 @@ impl Snapshot {
             watchlisted: None,
             busy: true,
             failed: false,
+            local: None,
         }
     }
 }

@@ -1812,7 +1812,7 @@ path. Never run only this one before a release. `tests/README.md` has the tier t
   still is, and `closeByAppId` is still how `make kill`, `tests/run.py` and `tools/tv-session.sh`
   close the app — so the `/tmp/plxnative-noexitconfirm` bypass went with the "Exit PlxNative?"
   alert it existed for (both retired 2026-09-03). Text
-  entry defaults to the custom keyboard and remote multitap layout. Its **System** action opens
+  entry defaults to the custom keyboard and remote multitap layout. The **Blue (LG) / F2 (desktop)** shortcut opens
   the television's own keyboard through `SDL_StartTextInput`; LG's backend is in the Wayland
   driver. **`docs/search.md`** documents the field, shelves, filters, contextual Back behavior and
   platform input traps. This custom integration also includes Plex catalog/Watchlist and bounded

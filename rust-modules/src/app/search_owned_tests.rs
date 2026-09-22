@@ -282,6 +282,7 @@ fn owned_search_wheel_scrolls_without_moving_focus_and_dpad_reveals_again() {
                 rk: format!("synthetic-{kind:?}"), title: "Synthetic wheel result".into(), ..Default::default()
             })] }).collect());
     frame(&mut d, &mut rig, AppArg::Search, tick(0), vec![]);
+    frame(&mut d, &mut rig, AppArg::Search, tick(0), script_key(Key::Back, tick(0)));
     let field = d.focus().unwrap();
     let field_y = |d: &Dispatcher<AppHost>, rig: &Bridge| {
         let parts = CxParts { tick: tick(0), press: Default::default(),
@@ -401,6 +402,7 @@ fn owned_search_adopts_panel_text_without_restarting_or_losing_the_commit() {
             rk: "adopt-result".into(), title: "Synthetic result".into(), ..Default::default()
         })] }]);
     frame(&mut d, &mut rig, AppArg::Search, tick(0), vec![]);
+    frame(&mut d, &mut rig, AppArg::Search, tick(0), script_key(Key::Back, tick(0)));
     let field = d.focus();
     frame(&mut d, &mut rig, AppArg::Search, tick(1), through_filters(tick(1)));
     assert_ne!(d.focus(), field);
@@ -600,6 +602,7 @@ fn owned_search_result_keys_are_server_scoped_and_survive_same_query_reordering(
     rig.stores.search.publish_shelves_for_test(vec![crate::search::Shelf { kind: crate::search::Kind::Movie,
         items: vec![item(a), item(b)] }]);
     frame(&mut d, &mut rig, AppArg::Search, tick(0), vec![]);
+    frame(&mut d, &mut rig, AppArg::Search, tick(0), script_key(Key::Back, tick(0)));
     frame(&mut d, &mut rig, AppArg::Search, tick(1), through_filters(tick(1)));
     let first = d.focus().unwrap();
     frame(&mut d, &mut rig, AppArg::Search, tick(2), script_key(Key::Right, tick(2)));
@@ -674,6 +677,7 @@ fn owned_search_return_memory_reconstructs_positions_with_a_query_guard() {
     rig.search_run(crate::stores::search::SearchCmd::SetQuery("memory".into()));
     rig.stores.search.publish_shelves_for_test(catalog());
     frame(&mut d, &mut rig, AppArg::Search, tick(0), vec![]);
+    frame(&mut d, &mut rig, AppArg::Search, tick(0), script_key(Key::Back, tick(0)));
     frame(&mut d, &mut rig, AppArg::Search, tick(1), through_filters(tick(1)));
     for i in 2..9 { frame(&mut d, &mut rig, AppArg::Search, tick(i), script_key(Key::Right, tick(i))); }
     for i in 9..100 { frame(&mut d, &mut rig, AppArg::Search, tick(i), vec![]); }
@@ -728,6 +732,7 @@ fn owned_search_walks_the_shared_strip_to_the_chip_and_back_to_the_field() {
     let mut d = Dispatcher::<AppHost>::new();
     let mut rig = Bridge::for_test(|| 0);
     frame(&mut d, &mut rig, AppArg::Search, tick(0), vec![]);
+    frame(&mut d, &mut rig, AppArg::Search, tick(0), script_key(Key::Back, tick(0)));
     let field = d.focus().unwrap();
     let base = crate::ui::dispatch::STRIP_BASE;
 
@@ -1014,7 +1019,8 @@ fn owned_search_content_probe_reports_zone_row_col_pill_and_card_as_focus_moves(
         })] }]);
     frame(&mut d, &mut rig, AppArg::Search, tick(0), vec![]);
 
-    // Mount seats focus on the field: no shelf/strip position, not editing.
+    // Dismiss the keyboard opened at entry; the field has no shelf/strip position.
+    frame(&mut d, &mut rig, AppArg::Search, tick(0), script_key(Key::Back, tick(0)));
     let on_field = content_probe(&d, &rig);
     assert!(on_field.contains("zone=Field"), "mount must seat focus on the field: {on_field}");
     assert!(on_field.contains(" row=-1 col=-1 recent=-1 pill=-1 card=0 "),
@@ -1023,7 +1029,7 @@ fn owned_search_content_probe_reports_zone_row_col_pill_and_card_as_focus_moves(
     assert!(on_field.contains("below=Results"), "a real query with a shelf draws Results below the field: {on_field}");
 
     // Down, with no recents remembered, reaches the one seeded shelf's one card directly.
-    frame(&mut d, &mut rig, AppArg::Search, tick(1), through_filters(tick(1)));
+    frame(&mut d, &mut rig, AppArg::Search, tick(1), {let mut keys=script_key(Key::Down,tick(1));keys.extend(script_key(Key::Down,tick(1)));keys});
     for i in 2..10 { frame(&mut d, &mut rig, AppArg::Search, tick(i), vec![]); }
     let on_shelf = content_probe(&d, &rig);
     assert!(on_shelf.contains("zone=Results"), "Down from the field must reach the shelf: {on_shelf}");
@@ -1058,6 +1064,23 @@ fn system_key(at:Tick)->Vec<InputEvent<u32>> {
  events
 }
 fn through_filters(at:Tick)->Vec<InputEvent<u32>> {let mut input=script_key(Key::Down,at);input.extend(script_key(Key::Down,at));input}
+
+#[test]
+fn catalog_library_action_opens_exact_detail_without_watchlist_or_play(){
+ let _serial=crate::testlock::serial();let session=crate::plex::session::TempSession::new("catalog-library-open");session.watching("catalog-profile");
+ let mut rig=Bridge::for_test(||0);let entry=EntryId(81);let instance=InstanceId(82);
+ let parts=CxParts{tick:tick(0),press:Default::default(),focus:Default::default(),owner:InputOwner::Entry(entry)};
+ let split=rig.split();let cx=parts.cx::<AppHost>(split.views,split.measure);
+ let id="0123456789abcdef01234567".to_owned();let mut screen=crate::screens::catalog_details::CatalogDetailsScreen::new(entry,crate::screens::registry::CatalogDetailsArg{catalog_id:id.clone(),title:"Exact title".into(),person:String::new(),department:String::new(),role:String::new(),year:2026});
+ let mut present=Present::new();let mut out=Vec::new();
+ {let mut fx=Effects::new(&mut out,MachineId::Instance(instance),&mut present);screen.step(&ScreenEvent::Mount,&cx,&mut fx);}
+ out.clear();
+ {let mut fx=Effects::new(&mut out,MachineId::Instance(instance),&mut present);
+ screen.step(&ScreenEvent::App(crate::screens::registry::AppMsg::Catalog(crate::catalog_action::Snapshot{id,profile:crate::plex::session::current_gen(),title:"Exact title".into(),summary:String::new(),year:2026,watchlisted:Some(false),busy:false,failed:false,local:Some((crate::plex::ServerId::UNSET,"server-key-42".into()))})),&cx,&mut fx);
+ screen.step(&ScreenEvent::Activate(2),&cx,&mut fx);}
+ assert!(out.iter().any(|e|matches!(&e.fx,Fx::App(AppFx::Content(crate::screens::registry::ContentReq::Present(crate::screens::registry::ContentArg::Detail{rk,..}))) if rk=="server-key-42")));
+ assert!(!out.iter().any(|e|matches!(&e.fx,Fx::App(AppFx::Catalog(_))|Fx::App(AppFx::Content(crate::screens::registry::ContentReq::Play{..})))));
+}
 
 #[test]
 fn compact_keyboard_and_optional_native_shortcut() {

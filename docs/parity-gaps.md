@@ -89,7 +89,9 @@ still take focus, and LEFT/RIGHT still walks between them, so the control looks 
    handler. This is why Remove-from-Continue-Watching, per-episode mark-watched, Play-from-Start and
    Go-to-Show have nowhere to live.
 
-3. **"Go to Show" is unreachable.** *Not* because OK plays immediately — **that is intentional**: a
+3. **Historical upstream gap, superseded by the custom detail-first navigation (2026-09-22).**
+   Continue Watching now opens the information page. The original finding follows for context:
+   **"Go to Show" was unreachable.** *Not* because OK plays immediately — **that is intentional**: a
    Continue Watching tile resumes on OK by design, and the amber play badge on the card is the
    affordance that says so (`home_activate`, `app.rs:888`). The gap is the **other** half of that
    interaction: long-press should open the item menu with **Go to Show** in it, and #2 above is why

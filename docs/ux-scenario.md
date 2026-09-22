@@ -191,20 +191,9 @@ DOWN from the hero enters the shelves; DOWN again steps between them; LEFT/RIGHT
 The focused card grows, and its title and a status line appear beneath it — here *"2 hr 6 min
 left"*, which is the resume state. A watched item carries a check mark in its corner.
 
-**OK on a card in *Continue Watching* plays it directly**, and the amber ▶ on the card is what
-announces that. **Every other card opens a page, an episode included**: an episode tile on a
-discovery shelf ("Recently Released Episodes", "Recently Added…") opens that EPISODE's own page and
-carries no ▶, precisely so nothing on it promises playback. The difference is intentional: the deck
-is a list of things already in progress, and one press is the whole point of it — everywhere else,
-a press is a question rather than a commitment. A card's resume bar is a fact about how far in you
-are and appears on both kinds, so it is never the thing that says a press will play; that is the
-triangle's job alone. (Until 2026-09-05 an episode played from wherever it sat, which put the
-triangle on cards that navigated.)
-
-One refinement inside the deck rule: a **show** or **season** card there has no single stream to
-start, so it opens its page, waits for the load to land on the expected item, and fires that page's
-Play only then — never blindly, because a failed fetch would otherwise play whatever page was open
-before. On any other shelf, a show or season card simply opens its page.
+**OK on every library/Home card opens its information page**, including Continue Watching,
+episodes, shows and seasons. Playback requires an explicit Play/Resume control on the hero or
+detail page. The resume bar and remaining-time caption describe progress, not an autoplay action.
 
 **BACK** from the shelves returns focus to the hero row; BACK at the hero row is the ROOT press and
 shows the television's own Home screen, with the app still running (§5.9).

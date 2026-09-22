@@ -24,7 +24,7 @@ impl MultiTap {
     }
     pub(super) fn press(&mut self, digit: u8, now: u32) -> Option<(bool, char)> {
         let letters = *[
-            " 0", ".,?!1", "abc2", "def3", "ghi4", "jkl5", "mno6", "pqrs7", "tuv8", "wxyz9",
+            " -", ".,?!1", "abc2", "def3", "ghi4", "jkl5", "mno6", "pqrs7", "tuv8", "wxyz9",
         ]
         .get(digit as usize)?;
         let same = self
@@ -62,6 +62,16 @@ mod tests {
         assert_eq!(m.press(9, u32::MAX - 20), Some((false, 'w')));
         assert_eq!(m.press(9, 10), Some((true, 'x')));
         assert_eq!(m.press(10, 20), None);
+    }
+    #[test]
+    fn zero_cycles_space_dash_then_commits_after_timeout_or_cancel() {
+        let mut m=MultiTap::new();
+        assert_eq!(m.press(0,100),Some((false,' ')));
+        assert!(m.eat_echo("0",101));
+        assert_eq!(m.press(0,400),Some((true,'-')));
+        assert_eq!(m.press(0,1250),Some((false,' ')));
+        m.cancel();
+        assert_eq!(m.press(0,1300),Some((false,' ')));
     }
     #[test]
     fn only_matching_immediate_digit_echo_is_dropped_once() {

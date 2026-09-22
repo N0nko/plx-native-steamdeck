@@ -1002,30 +1002,7 @@ impl HomeScreen {
                 let Some(item) = self.item_at(view, row, col) else {
                     return;
                 };
-                if self
-                    .rows
-                    .get(row)
-                    .is_some_and(|h| h.identity == HomeHubIdentity::ContinueWatching)
-                {
-                    let resume_ns =
-                        crate::metadata::resume_ns(item.resume_ms, item.dur_ns / 1_000_000);
-                    (
-                        item,
-                        HomeReq::Play {
-                            sid: item.sid,
-                            rk: item.rk.clone(),
-                            resume_ns,
-                        },
-                    )
-                } else {
-                    (
-                        item,
-                        HomeReq::Detail {
-                            sid: item.sid,
-                            rk: item.rk.clone(),
-                        },
-                    )
-                }
+                (item, HomeReq::Detail { sid: item.sid, rk: item.rk.clone() })
             }
         };
         if !item.rk.is_empty() {
@@ -1234,11 +1211,7 @@ impl HomeScreen {
         };
         let (rect, scale) = self.drawn_card_geometry(row, col, press_scale);
         let cw = self.rows[row].identity == HomeHubIdentity::ContinueWatching;
-        let mut label = if cw {
-            card_row::TileLabel::played(&item.title)
-        } else {
-            card_row::TileLabel::title(&item.title)
-        };
+        let mut label = card_row::TileLabel::title(&item.title);
         label.caption = card_row::focused_caption(item, cw);
         let label = label.revealed(self.grid.shelves[row].band_reveal());
         card_row::draw_focused(

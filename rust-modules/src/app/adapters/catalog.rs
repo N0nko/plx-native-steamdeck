@@ -34,6 +34,15 @@ impl Controller {
                     None => client.watchlisted(&worker.id),
                 };
                 if let Some(meta) = client.catalog_detail(&worker.id) {
+                    for sid in crate::plex::server_ids() {
+                        if worker.profile != crate::plex::session::current_gen() { break; }
+                        let Some(server) = crate::plex::client_for(sid) else { continue };
+                        let Some(found) = server.find_by_guid(&meta.guid) else { continue };
+                        if let Some(rk) = exact_local(&meta.guid, &found.metadata) {
+                            reply.local = Some((sid, rk));
+                            break;
+                        }
+                    }
                     reply.title = meta.title;
                     reply.summary = meta.summary;
                     reply.year = meta.year as i32;
@@ -72,5 +81,27 @@ impl Controller {
             }
         }
         None
+    }
+}
+
+/// A title match or a provider ID is never a playable library identity.
+fn exact_local(guid: &str, rows: &[crate::plex::Metadata]) -> Option<String> {
+    let kind = guid.strip_prefix("plex://")?.split_once('/')?.0;
+    if !matches!(kind, "movie" | "show") { return None; }
+    rows.iter().find(|m| m.guid == guid && m.kind == kind && !m.rating_key.is_empty())
+        .map(|m| m.rating_key.clone())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn library_match_requires_exact_guid_kind_and_server_key() {
+        let guid="plex://movie/0123456789abcdef01234567";
+        let mut m=crate::plex::Metadata{guid:guid.into(),kind:"show".into(),rating_key:"42".into(),..Default::default()};
+        assert!(exact_local(guid,std::slice::from_ref(&m)).is_none());
+        m.kind="movie".into();assert_eq!(exact_local(guid,std::slice::from_ref(&m)),Some("42".into()));
+        m.guid="plex://movie/1123456789abcdef01234567".into();assert!(exact_local(guid,std::slice::from_ref(&m)).is_none());
+        m.guid=guid.into();m.rating_key.clear();assert!(exact_local(guid,&[m]).is_none());
     }
 }

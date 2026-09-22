@@ -7,11 +7,11 @@ pub(super) const WIDTH: f32 = 396.0;
 pub(super) const TOP: f32 = 360.0;
 const STEP: f32 = 56.0;
 const HEIGHT: f32 = 48.0;
-pub(super) fn len(numeric: bool) -> usize { FIRST_KEY + if numeric { 10 } else { 36 } }
+pub(super) fn len(numeric: bool) -> usize { if numeric { 11 } else { 38 } }
 pub(super) fn columns(numeric: bool) -> usize { if numeric { 3 } else { 6 } }
 pub(super) fn label(index: usize, numeric: bool) -> String {
     if numeric { return ["1 ⌫", "2 abc", "3 def", "4 ghi", "5 jkl", "6 mno",
-        "7 pqrs", "8 tuv", "9 wxyz", "−", "0 Space", "’"][index].into(); }
+        "7 pqrs", "8 tuv", "9 wxyz", "0 ␣ / −", "ABC"][index].into(); }
     match index {
         0 => "Space".into(),
         1 => "⌫".into(),
@@ -22,7 +22,7 @@ pub(super) fn input(index: usize) -> char {
     b"abcdefghijklmnopqrstuvwxyz1234567890"[index-FIRST_KEY] as char
 }
 pub(super) fn rect(index: usize, numeric: bool) -> Rect {
-    if numeric {return Rect::new(96.0+(index%3) as f32*(WIDTH/3.0),TOP+(index/3) as f32*STEP,WIDTH/3.0-8.0,HEIGHT);}
+    if numeric {let cell=if index>=9 {index+1}else{index};return Rect::new(96.0+(cell%3) as f32*(WIDTH/3.0),TOP+(cell/3) as f32*STEP,WIDTH/3.0-8.0,HEIGHT);}
     let cols = columns(numeric);
     let (row,col,width) = if index<FIRST_KEY {(0,index,WIDTH/2.0)} else {
         let key=index-FIRST_KEY;
@@ -42,13 +42,13 @@ mod tests {
     use super::*;
     #[test]
     fn compact_keyboard_and_centered_filters() {
-        assert_eq!(len(false),38);assert_eq!(len(true),12);
-        assert_eq!(label(0,true),"1 ⌫");assert_eq!(label(10,true),"0 Space");
-        for row in 0..4 {for col in 0..3 {
-            let key=rect(row*3+col,true);
+        assert_eq!(len(false),38);assert_eq!(len(true),11);
+        assert_eq!(label(0,true),"1 ⌫");assert_eq!(label(10,true),"ABC");
+        for i in 0..len(true) {let cell=if i>=9{i+1}else{i};let row=cell/3;let col=cell%3;
+            let key=rect(i,true);
             assert_eq!(key.w,124.0);assert_eq!(key.h,48.0);
             assert_eq!(key.x,96.0+col as f32*132.0);assert_eq!(key.y,360.0+row as f32*56.0);
-        }}
+        }
         let first = filter_rect(0);
         let last = filter_rect(2);
         assert_eq!((first.x + last.x + last.w) / 2.0, 960.0);
