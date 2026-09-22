@@ -1318,28 +1318,13 @@ fn poster_worker() {
             }
         };
 
-        if let (Some(k), Some(b)) = (&disk, &fetched) {
-            // gated on the generation read before the fetch: a sign-out in between means these
-            // bytes belong to an account that has left, and they are dropped
-            crate::imgcache::write_at(cache_gen, k, b);
-        }
-
-        let mut g = store();
-        let s = &mut g.slots[idx];
-        if s.gen == gen && s.state == P_LOADING {
-            if !px.is_null() {
-                s.px = px as usize;
-                s.pw = w;
-                s.ph = h;
-                s.state = P_DECODED;
-            } else if transient {
-                park_retry(s);
-            } else {
-                s.state = P_FAILED;
-            }
-        } else if !px.is_null() {
-            drop(g);
+        // Publish first, and release STORE before any disk or refresh I/O. Retaining that
+        // guard across a refresh also parks the UI's texture probes behind the network.
+        if !publish_decoded(idx, gen, px as usize, w, h, transient) && !px.is_null() {
             img::img_free(px); // recycled while we worked: discard
+        }
+        if let (Some(k), Some(b)) = (&disk, &fetched) {
+            crate::imgcache::write_at(cache_gen, k, b);
         }
 
         // The cached picture is on its way to the screen; now, and only now, look again at a
@@ -1361,6 +1346,26 @@ fn poster_worker() {
             }
         }
     }
+}
+
+/// Transfer a decode into its original slot. No lock escapes this function; callers may
+/// perform slow cache/network work only after it returns. False leaves pixel ownership with
+/// the worker because the slot was recycled while its request was in flight.
+fn publish_decoded(idx: usize, gen: u32, px: usize, w: i32, h: i32, transient: bool) -> bool {
+    let mut g = store();
+    let s = &mut g.slots[idx];
+    if s.gen != gen || s.state != P_LOADING { return false; }
+    if px != 0 {
+        s.px = px;
+        s.pw = w;
+        s.ph = h;
+        s.state = P_DECODED;
+    } else if transient {
+        park_retry(s);
+    } else {
+        s.state = P_FAILED;
+    }
+    true
 }
 
 /// Spawn the poster workers. No config is threaded in: each request carries its own server
@@ -1425,6 +1430,25 @@ mod tests {
     //! server in the registry, which is a crate global. They still touch no socket and no GL —
     //! `poster_key` only formats a string.
     use super::*;
+
+    #[test]
+    fn decoded_publication_releases_the_store_before_refresh_and_rejects_recycled_slots() {
+        let _serial = crate::testlock::serial();
+        {
+            let mut g = store();
+            g.slots[0] = Pslot::ZERO;
+            g.slots[0].gen = 17;
+            g.slots[0].state = P_LOADING;
+        }
+        assert!(!publish_decoded(0, 16, 0, 0, 0, false));
+        assert_eq!(store().slots[0].state, P_LOADING);
+        assert!(publish_decoded(0, 17, 1, 300, 450, false));
+        // The caller is now free to do a slow refresh. A renderer on another thread can
+        // immediately inspect the published slot; no pixel pointer is dereferenced here.
+        let state = std::thread::spawn(|| store().slots[0].state).join().unwrap();
+        assert_eq!(state, P_DECODED);
+        store().slots[0] = Pslot::ZERO;
+    }
 
     /// A synthetic headshot URL of the SHAPE the server really returns for a `/hubs/search`
     /// `actor` row: absolute, on Plex's metadata CDN, with a 32-hex digest. A made-up digest

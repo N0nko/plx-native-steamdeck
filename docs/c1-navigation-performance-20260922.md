@@ -7,6 +7,7 @@ Changes:
 - Promote pointer/geometric entries into contextual rows just like the remote Down path. Filtering an active context keeps its parent trail.
 - Replace quadratic discovery key lookup/pruning with temporary indexed lookup; preserve identities and remove a full-page clone.
 - Seed native detail heroes from retained library/search rows as well as Home before the asynchronous metadata/extras work completes. Exact server/item matching prevents borrowing another server's artwork.
+- Release the shared poster-store lock before refresh I/O, and publish pixels before cache writes. Previously a refresh could hold the renderer behind a network request.
 - Add a bounded encoded-art disk tier using existing poster workers: 192 files, 512 KiB each, at most 96 MiB. Full request and origin are hashed, partitioning sizes and credential grants. Sign-out clears it; GPU residency limits stay unchanged.
 - Simplify the search placeholder to `Search`.
 
