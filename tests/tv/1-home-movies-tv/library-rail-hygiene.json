@@ -15,7 +15,7 @@
       "covers": [
         "library-rail-hygiene"
       ],
-      "review": "No Recently Watched row or single-title cast/director row. Recently Added, Continue Watching and explicit collections remain, even if a collection has only one title."
+      "review": "No Recently Watched row or single-title recommendation row, including cast/director, genre and top-movie recommendations. Recently Added, Continue Watching and explicit collections remain, even if a collection has only one title."
     }
   ]
 }

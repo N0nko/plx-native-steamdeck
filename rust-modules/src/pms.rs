@@ -483,7 +483,8 @@ pub(crate) enum HubIdentity<'a> {
 /// person names do not affect it. Explicit collections and Continue Watching remain intact.
 pub(crate) fn keep_library_shelf(id: &str, item_count: usize) -> bool {
     !id.split('.').any(|part|matches!(part,"recentlyviewed"|"recentlywatched"))
-        && !(id.contains(".by.actor.or.director.") && item_count < 2)
+        && (item_count >= 2 || id.split('.').any(|part|matches!(part,
+            "continue"|"inprogress"|"ondeck"|"recent"|"recentlyadded"|"recentlyreleased"|"collection"|"collections")))
 }
 
 fn stable_hub_identity<'a>(row: &'a HubRow, items: &[PmsMovie]) -> Option<HubIdentity<'a>> {
@@ -2188,7 +2189,8 @@ mod library_shelf_policy_tests {
         assert!(!keep_library_shelf("movie.recentlyviewed.6",24));
         assert!(!keep_library_shelf("video.recentlyviewed.7",16));
         assert!(!keep_library_shelf("movie.by.actor.or.director.6.3932",1));
+        assert!(!keep_library_shelf("movie.top.genre.6.indie",1));
         assert!(keep_library_shelf("movie.by.actor.or.director.6.3932",2));
-        for id in ["home.continue","movie.inprogress.6","movie.recentlyadded.6","custom.collection.6.14"] { assert!(keep_library_shelf(id,1)); }
+        for id in ["home.continue","home.movies.recent","movie.inprogress.6","movie.recentlyadded.6","custom.collection.6.14"] { assert!(keep_library_shelf(id,1)); }
     }
 }

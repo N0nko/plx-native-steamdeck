@@ -113,7 +113,7 @@ impl Metrics {
         self.missing=d.seasons.iter().map(|s|crate::metadata::series_catalog::synthetic_season(&s.rk)).collect();
         self.lays = widgets::strip_layout_measured(
             d.seasons.iter().map(|season| {
-                if season.title.is_empty() {
+                if season.index==0 { "Specials".into() } else if season.title.is_empty() {
                     format!("Season {}", season.index)
                 } else {
                     season.title.clone()

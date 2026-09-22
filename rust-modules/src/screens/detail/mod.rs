@@ -55,7 +55,8 @@ use super::registry::{AppFx, AppMsg, ContentArg, ContentLike, ContentReq, PageMe
 const FIRST_ITEM_ELEM: u32 = 2048;
 
 const SECTION_GAP: f32 = theme::space::XL;
-const TAB_EP_GAP: f32 = theme::space::MD;
+const SEASON_HINT_H: f32 = theme::space::LG;
+const TAB_EP_GAP: f32 = SEASON_HINT_H + theme::space::MD * 2.0;
 /// How present the pinned compact title is: the hero's own fade brings it IN, and the first block
 /// below the hero taking its first stretch of travel takes it out again.
 ///
@@ -1930,7 +1931,7 @@ impl<H: ContentLike + crate::screens::registry::MetadataLike> Screen<H> for Deta
                             else if d.seasons.get(d.cur_season).is_some_and(|s|crate::metadata::series_catalog::synthetic_season(&s.rk)) { "Missing season · Press OK on the season to request episodes" }
                             else { "" };
                         if !hint.is_empty() { crate::ui::text_view::TextView::new(hint,theme::size::CAPTION,theme::TEXT_SECONDARY)
-                            .with_measure(measure).max_lines(1).draw(below_hero,Rect::new(crate::ui::consts::MARGIN_X,top-40.0,1600.0,32.0)); }
+                            .with_measure(measure).max_lines(1).draw(below_hero,Rect::new(crate::ui::consts::MARGIN_X,top-TAB_EP_GAP+theme::space::MD,crate::ui::consts::SCR_W-2.0*crate::ui::consts::MARGIN_X,SEASON_HINT_H)); }
                         episodes::draw(
                             below_hero,
                             d,
@@ -2906,9 +2907,9 @@ impl DetailScreen {
         self.pump_restore(meta, fx);
         let d = self.detail(meta);
         let loaded = d.is_some();
-        if d.is_some_and(|d|d.is_show && !d.series_attempted) {
+        if d.is_some_and(|d|crate::metadata::series_catalog::read_due(d,t.ms)) {
             fx.push(Fx::App(AppFx::Store(StoreId::Metadata, StoreCmd::Metadata(MetadataCmd::SeriesCatalog {
-                sid:self.sid,rk:self.rk.clone(),action:crate::metadata::series_catalog::Action::Read,
+                sid:self.sid,rk:self.rk.clone(),action:crate::metadata::series_catalog::Action::Read {now:t.ms},
             }))));
         }
         if let Some(d) = d {

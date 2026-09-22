@@ -5,6 +5,10 @@
 //! package, either in this module or beside the factored helper it exercises.
 
 use super::*;
+#[test]
+fn season_hint_has_its_own_space_between_buttons_and_episodes() {
+    assert!(TAB_EP_GAP >= 32.0 + theme::space::MD * 2.0);
+}
 use crate::ui::machine::{Chrome, Host, InputEvent, PressRead, ScreenId};
 use crate::ui::screen::{At, Focusable, ScreenArg};
 

@@ -402,7 +402,7 @@
   {
     "group": "3-playback-details-watchlist",
     "id": "missing-season-episodes",
-    "title": "Background season catalog, muted missing cards, exact episode or season request, no writes on hover"
+    "title": "Background season catalog, muted missing cards, exact episode or season request, no writes on hover; full catalogs, retry recovery, Specials and non-overlapping hint"
   },
   {
     "group": "3-playback-details-watchlist",
@@ -412,6 +412,6 @@
   {
     "group": "1-home-movies-tv",
     "id": "library-rail-hygiene",
-    "title": "No Recently Watched or single-title actor/director shelves; Continue Watching and collections preserved"
+    "title": "No Recently Watched or single-title actor/director shelves; Continue Watching and collections preserved; sparse genre/top-movie recommendations"
   }
 ]

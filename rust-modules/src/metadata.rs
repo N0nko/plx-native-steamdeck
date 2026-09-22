@@ -1218,6 +1218,8 @@ pub(crate) struct Detail {
     #[serde(default)]
     pub(crate) series_attempted: bool,
     #[serde(default)]
+    pub(crate) series_retry_at: u32,
+    #[serde(default)]
     pub(crate) series_notice: String,
     pub(crate) preview_part_id: Option<i64>,
     #[serde(default)]
@@ -1756,7 +1758,7 @@ fn fetch_detail(sid: crate::plex::ServerId, rk: &str) -> Option<(Detail, String)
     let media0 = it.primary_media();
     // one read, both fields (see `Detail::blur`)
     let blur = it.ultra_blur_colors.and_then(|u| u.corners());
-    let mut d = Detail { series_catalog:None,series_attempted:false,series_notice:String::new(),preview_part_id: media0.and_then(|m| m.part.first()).and_then(|p| p.preview_part_id()),
+    let mut d = Detail { series_catalog:None,series_attempted:false,series_retry_at:0,series_notice:String::new(),preview_part_id: media0.and_then(|m| m.part.first()).and_then(|p| p.preview_part_id()),
         sid,
         rk: rk.to_string(),
         // the portable identity — what "Also available" resolves across the other sources

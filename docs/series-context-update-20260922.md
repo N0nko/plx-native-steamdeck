@@ -6,7 +6,7 @@ This update keeps the existing library, catalog panel, Watchlist, version select
 
 Selected result tabs stay white and dim slightly under focus; the checkmark is removed. Context remains exclusive to typed Movies/TV Shows searches. After two seconds on a title, cast appears first and similar titles below. Each level appends to the same document. Parent rows and scroll positions remain. Back focuses the owning parent; holding a different sibling replaces only its descendants. Cached results obey the same dwell. At most 20 contextual levels remain resident; explicit Discover directory navigation retains its existing page/Back behavior.
 
-Library/Home omit Recently Watched and single-title actor/director recommendation shelves using Plex hub identifiers. Continue Watching, recently added/released titles and explicit collections retain their existing behavior. Live Plex evidence showed `movie.by.actor.or.director.*` with one item and `movie.recentlyviewed.*` for Recently Watched.
+Library/Home omit Recently Watched and all single-title recommendation shelves, including actor/director and genre/top-movie recommendations. Continue Watching, recently added/released titles and explicit collections retain their existing behavior. Filtering uses Plex hub identifiers rather than changing display titles.
 
 ## Series
 
@@ -20,6 +20,8 @@ Companion endpoints are HTTPS with the existing private certificate pin and bear
 The Rust companion uses its existing ArrClient and Sonarr EpisodeSearch with explicit episode IDs, leaving profiles and language policy untouched. It excludes existing Plex episodes, Sonarr files, unaired/unknown-date episodes, queued downloads and recent grabs. Commands are capped at 32 missing episodes and five explicit requests/minute. Durable reservations prevent retries for 30 minutes, including lost responses. The normal controller config stays noop with global apply disabled. No NzbDAV database edits, media deletion, shared-service restart, or broad SeasonSearch occurs.
 
 Unmapped/unmanaged shows and nonstandard episode numbering degrade to the existing local series view; they are not matched by title. Missing episode stills use muted series art when no local still exists. Request errors remain distinct from acceptance. Repair can succeed even if checking season gaps fails; the status says gaps unknown.
+
+The companion transport gives the response an independent bounded byte budget compatible with the TV's 2 MB JSON limit. The earlier shared 64 KB request/response allowance truncated larger shows (Desperate Housewives reproduced this with 187 episodes), hiding the additional seasons. Failed catalog reads now retry at most once per 30 seconds while the detail page is active, preserving local playback data. Season zero displays as Specials. Request/queue states refresh after explicit requests, so deduplicated searches explain that work was already requested or queued. The season hint has a reserved band below the season buttons.
 
 ## Verification
 

@@ -1,6 +1,6 @@
 {
   "group": "3-playback-details-watchlist",
-  "description": "Mock-only acquisition fixture. Start in a seeded series with owned S2E1, missing aired S2E2, missing S1, and unaired S3. Point its private companion pairing at the controlled TLS fixture. Never run write steps on the household pairing.",
+  "description": "Mock-only acquisition fixture. Start in a seeded series with owned S2E1, missing aired S2E2, missing S1, and unaired S3. Point its private companion pairing at the controlled TLS fixture. Never run write steps on the household pairing. Include a catalog larger than 64 KB, Specials plus seasons 1-8, and an initial failed GET followed by recovery. Queued/reserved episodes must retain distinct status.",
   "steps": [
     {
       "name": "01-season-preview",
@@ -14,7 +14,7 @@
       "covers": [
         "missing-season-episodes"
       ],
-      "review": "Missing season is muted but focusable; episode metadata appears without blocking the hero. Hover produces GET only."
+      "review": "Missing season is muted but focusable; episode metadata appears without blocking the hero. Hover produces GET only. Specials is named correctly. The missing-season hint occupies its own band below the buttons without overlap. After a transient GET failure, the full index recovers without reopening."
     },
     {
       "name": "02-request-season",
@@ -27,7 +27,7 @@
       "covers": [
         "missing-season-episodes"
       ],
-      "review": "Mock receives only POST /v1/request-episodes with exact show and season. Repeated OK is deduplicated; other seasons and existing files remain untouched."
+      "review": "Mock receives only POST /v1/request-episodes with exact show and season. Repeated OK is deduplicated; other seasons and existing files remain untouched. A repeated request says already requested or queued rather than implying episodes do not exist."
     },
     {
       "name": "03-request-episode",
