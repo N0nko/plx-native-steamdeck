@@ -1,0 +1,31 @@
+{
+  "group": "3-playback-details-watchlist",
+  "description": "Setup: a library/Home/Search episode card selected, without a play indicator. Record its server, show, season and episode identity first. Opening details only.",
+  "steps": [
+    {
+      "name": "01-episode-series-opening",
+      "keys": [
+        "OK"
+      ],
+      "before": "(?:home|library|search)",
+      "after": "(?:search/)?detail",
+      "settle": 0.2,
+      "covers": [
+        "episode-series-entry",
+        "series-fast-load"
+      ],
+      "review": "Still/title appear promptly. No 30-second wait on a separate OnDeck metadata GET."
+    },
+    {
+      "name": "02-selected-season-episode",
+      "before": "(?:search/)?detail",
+      "after": "(?:search/)?detail",
+      "settle": 2,
+      "covers": [
+        "episode-series-entry",
+        "series-fast-load"
+      ],
+      "review": "Series hero and season strip present; exact clicked episode selected, including gaps in episode numbering. Read detail ms= log; capture alone does not prove latency."
+    }
+  ]
+}

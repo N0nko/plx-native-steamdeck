@@ -949,6 +949,7 @@ enum Action {
     Legal,
     AutoSignIn,
     TrailerAutoplay,
+    TrailerVolume,
     About,
 }
 
@@ -962,22 +963,24 @@ pub(crate) struct RootPage {
     session_snapshot: std::sync::Arc<crate::plex::session::Session>,
     pending_auto: Option<(bool, crate::storage_worker::TypedTicket<bool>)>,
     pending_trailer: Option<(bool, crate::storage_worker::TypedTicket<bool>)>,
+    pending_volume: Option<(u8, crate::storage_worker::TypedTicket<bool>)>,
 }
 
 struct RootState {
     sel: i32,
     auto_sign_in: bool,
     trailer_autoplay: bool,
+    trailer_volume: u8,
 }
 
 impl LogicalState for RootState {
     fn write(&self, w: &mut Canon) {
-        w.u32(self.sel as u32).bool(self.auto_sign_in).bool(self.trailer_autoplay);
+        w.u32(self.sel as u32).bool(self.auto_sign_in).bool(self.trailer_autoplay).u32(self.trailer_volume as u32);
     }
     fn probe(&self, out: &mut String) {
         out.push_str(&format!(
-            "root sel={} auto_sign_in={} trailer_autoplay={}",
-            self.sel, self.auto_sign_in, self.trailer_autoplay
+            "root sel={} auto_sign_in={} trailer_autoplay={} trailer_volume={}",
+            self.sel, self.auto_sign_in, self.trailer_autoplay, self.trailer_volume
         ));
     }
 }
@@ -990,11 +993,11 @@ impl RootPage {
             rows: Vec::new(),
             session_watch: Default::default(),
             session_snapshot: Default::default(),
-            pending_auto: None, pending_trailer: None,
+            pending_auto: None, pending_trailer: None, pending_volume: None,
             state: RootState {
                 sel: 0,
                 auto_sign_in: false,
-                trailer_autoplay: true,
+                trailer_autoplay: true, trailer_volume: 50,
             },
         };
         s.rebuild(0, directory);
@@ -1012,6 +1015,7 @@ impl RootPage {
         let multi_user = sess.home_users.len() > 1;
         self.state.auto_sign_in = auto_sign_in;
         self.state.trailer_autoplay = trailer_autoplay;
+        self.state.trailer_volume = self.pending_volume.as_ref().map_or_else(|| sess.trailer_volume(), |(v, _)| *v);
 
         let mut actions = Vec::new();
         let mut sections = Vec::new();
@@ -1063,6 +1067,9 @@ impl RootPage {
                     .toggle(trailer_autoplay),
             );
             actions.push(Action::TrailerAutoplay);
+            system = system.row(Row::new(&format!("Background trailer volume: {}%", self.state.trailer_volume))
+                .detail("Select to change. Full trailers use TV volume."));
+            actions.push(Action::TrailerVolume);
         }
         system = system.row(
             Row::new("About PlxNative")
@@ -1103,6 +1110,14 @@ impl RootPage {
                 if let Ok(ticket) = crate::plex::session::queue_update_ticket(move |current|
                     (current.auto_sign_in() != on).then(|| current.with_auto_sign_in(on))) {
                     self.pending_auto = Some((on, ticket));
+                }
+                self.rebuild(self.table.sel, directory);
+            }
+            Action::TrailerVolume => {
+                let volume = (self.state.trailer_volume / 25 + 1) % 5 * 25;
+                if let Ok(ticket) = crate::plex::session::queue_update_ticket(move |current|
+                    (current.trailer_volume() != volume).then(|| current.with_trailer_volume(volume))) {
+                    self.pending_volume = Some((volume, ticket));
                 }
                 self.rebuild(self.table.sel, directory);
             }
@@ -1150,6 +1165,11 @@ impl Machine<InnerHost> for RootPage {
                             *pending = None;
                             landed = true;
                         }
+                    }
+                }
+                if self.pending_volume.as_ref().is_some_and(|(_, ticket)| !matches!(ticket.try_recv(), Err(std::sync::mpsc::TryRecvError::Empty))) {
+                    if let Some(snapshot) = crate::plex::session::peek_settled() {
+                        self.session_snapshot = snapshot; self.pending_volume = None; landed = true;
                     }
                 }
                 if landed { self.rebuild(self.table.sel, cx.views); fx.invalidate(crate::ui::present::Provenance::Landing(MachineId::Session)); }

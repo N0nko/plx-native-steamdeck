@@ -11,10 +11,11 @@
         "media-status",
         "get-ready",
         "repair",
-        "detail-first-image"
+        "detail-first-image",
+        "repair-artwork"
       ],
       "settle": 6,
-      "review": "Observe opening from a Library/Search card: title and still appear before metadata and trailer. For latency, watch the transition live; this settled capture alone cannot grade first-frame time."
+      "review": "Observe opening from a Library/Search card: title and still appear before metadata and trailer. For latency, watch the transition live; this settled capture alone cannot grade first-frame time. Repair has two circular arrows, with rounded strokes on the shared 24-unit icon grid; Get Ready uses the new supplied popcorn trace; audience ratings keep the original rating mark."
     },
     {
       "name": "02-play-version-focused",

@@ -1536,6 +1536,7 @@ impl crate::ui::screen::ScreenArg for AppArg {
 /// `ui::trail::Node` until phase 12, i.e. a whole history entry used as a carrier for its `Spot`.
 #[derive(Clone)]
 pub(crate) struct DetailSeed {
+    pub(crate) episode: Option<String>,
     pub(crate) sid: crate::plex::ServerId,
     pub(crate) rk: String,
     pub(crate) spot: crate::metadata::Spot,
@@ -1632,7 +1633,7 @@ where
                 if let PageMemory::Detail(spot) = &ret.memory {
                     page.restore_memory(spot, H::metadata(cx));
                 } else if let Some(seed) = self.seed.take() {
-                    if seed.sid == *sid && seed.rk == *rk { page.restore(&seed.spot, H::metadata(cx)); }
+                    if seed.sid == *sid && seed.rk == *rk { page.restore_episode(&seed.spot, seed.episode.as_deref(), H::metadata(cx)); }
                 }
                 Box::new(page)
             }

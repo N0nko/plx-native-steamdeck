@@ -1,0 +1,33 @@
+{
+  "group": "3-playback-details-watchlist",
+  "description": "Setup: guest/mock movie playing well before credits, HUD closed; record visible position. Real-account testing only by user authorization. This fixture exits and resumes playback.",
+  "steps": [
+    {
+      "name": "01-back-preserves-position",
+      "before": "player",
+      "after": "(?:search/)?detail",
+      "keys": [
+        "BACK"
+      ],
+      "settle": 0.3,
+      "covers": [
+        "back-resume-cache"
+      ],
+      "review": "Resume button immediately reflects the position at Back, without waiting for a metadata refetch."
+    },
+    {
+      "name": "02-immediate-resume",
+      "before": "(?:search/)?detail",
+      "after": "player",
+      "keys": [
+        "OK"
+      ],
+      "settle": 5,
+      "covers": [
+        "back-resume-cache",
+        "resume-position"
+      ],
+      "review": "Resumes within the normal keyframe interval of the stopped position. Confirm ordered timeline stopped ok=1; repeat on a paused movie and an episode."
+    }
+  ]
+}

@@ -84,6 +84,11 @@ impl Browse {
     }
 }
 impl SearchScreen {
+    fn directory_pending(&self) -> bool {
+        self.discovery.request.as_ref().is_some_and(|r|
+            matches!(r.seed, Some(crate::plex::catalog::DiscoverySeed::Hub { .. })))
+    }
+
     pub(super) fn discover_tick<H: SearchLike>(
         &mut self,
         tick: crate::ui::machine::Tick,
@@ -107,6 +112,18 @@ impl SearchScreen {
                     .next()
                     .unwrap_or(crate::plex::ServerId::UNSET),
             })));
+        }
+        if !self.context_enabled() {
+            if self.directory_pending() { return; }
+            if self.discovery.pending.is_some() || self.discovery.preview.is_some() || self.discovery.request.is_some() {
+                self.discovery.serial = self.discovery.serial.wrapping_add(1);
+                self.discovery.pending = None;
+                self.discovery.preview = None;
+                self.discovery.request = None;
+                self.discovery.pending_down = None;
+                self.content_dirty = true;
+            }
+            return;
         }
         if cx.focus.current.is_some_and(|key| {
             self.rows
@@ -189,6 +206,7 @@ impl SearchScreen {
         if reply.request.profile != self.draft.profile() {
             return;
         }
+        if reply.request.seed.is_some() && !matches!(reply.request.seed, Some(crate::plex::catalog::DiscoverySeed::Hub { .. })) && !self.context_enabled() { return; }
         let mut page = reply.page.clone();
         if let Some(p) = &mut page {
             p.upgrade(H::search(cx).shelves());
@@ -228,6 +246,7 @@ impl SearchScreen {
         from: u32,
         fx: &mut Effects<'_, H>,
     ) -> bool {
+        if !self.context_enabled() && !self.directory_pending() { return false; }
         let Some(page) = self.discovery.preview.take().filter(|p| !p.rows.is_empty()) else {
             return false;
         };

@@ -1,0 +1,48 @@
+{
+  "group": "3-playback-details-watchlist",
+  "description": "Setup: Settings root, autoplay row focused. App preferences only; restore original values after the sweep.",
+  "steps": [
+    {
+      "name": "01-autoplay-toggle",
+      "before": "settings",
+      "after": "settings",
+      "keys": [
+        "OK",
+        "OK"
+      ],
+      "covers": [
+        "trailer-settings"
+      ],
+      "review": "Autoplay toggles off/on."
+    },
+    {
+      "name": "02-background-volume",
+      "before": "settings",
+      "after": "settings",
+      "keys": [
+        "DOWN"
+      ],
+      "covers": [
+        "trailer-settings"
+      ],
+      "review": "Default 50% on first use."
+    },
+    {
+      "name": "03-volume-cycle",
+      "before": "settings",
+      "after": "settings",
+      "keys": [
+        "OK",
+        "OK",
+        "OK",
+        "OK",
+        "OK"
+      ],
+      "settle": 2,
+      "covers": [
+        "trailer-settings"
+      ],
+      "review": "Cycle 75/100/0/25/50; leave and reopen Settings to verify persistence."
+    }
+  ]
+}

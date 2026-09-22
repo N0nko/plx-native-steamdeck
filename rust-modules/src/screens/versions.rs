@@ -414,6 +414,7 @@ impl VersionsScreen {
                         } else {
                             "Requires a paired companion and a fresh repair permission"
                         })
+                        .licon(crate::ui::icons::Icon::Repair)
                         .dim(!can_repair),
                     )
                     .row(
@@ -427,7 +428,7 @@ impl VersionsScreen {
                         } else {
                             "Prepare the highlighted file through the paired companion"
                         })
-                        .licon(crate::ui::icons::Icon::PopcornAudience)
+                        .licon(crate::ui::icons::Icon::ReadyStore)
                         .dim(!can_prepare),
                     ),
             );

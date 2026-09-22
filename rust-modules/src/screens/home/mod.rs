@@ -139,6 +139,7 @@ struct Backdrop {
     outgoing_art: Spring,
     tex: (u32, f32, f32),
     outgoing_tex: (u32, f32, f32),
+    art_keys: [Option<(crate::plex::ServerId, String)>; 2],
     keyed: Option<(crate::plex::ServerId, String)>,
 }
 
@@ -151,6 +152,7 @@ impl Backdrop {
             outgoing_art: Spring::at(0.0),
             tex: (0, 0.0, 0.0),
             outgoing_tex: (0, 0.0, 0.0),
+            art_keys: [None, None],
             keyed: None,
         }
     }
@@ -164,6 +166,7 @@ impl Backdrop {
         snap: f32,
         dt: f32,
     ) {
+        self.art_keys = [hero, outgoing].map(|h| h.map(|h| (h.item.sid, h.item.art.clone())));
         let resolve = |h: Option<HeroRef<'_>>| {
             h.map(|h| crate::ui::widgets::resolve_tex_wh_on(h.item.sid, &h.item.art, 1280, 720, 0))
                 .unwrap_or((0, 0.0, 0.0))
@@ -208,8 +211,14 @@ impl Backdrop {
     }
 
     fn draw(&self, p: Painter, env: &Env, slide: Option<(f32, f32)>) {
-        let incoming_a = reveal(self.tex.0, &self.art);
-        let outgoing_a = reveal(self.outgoing_tex.0, &self.outgoing_art);
+        // Upload/eviction runs between update and paint. Never paint a recycled GL name
+        // with the dimensions saved before uploads; resolve the artwork identity now.
+        let [tex, outgoing_tex] = self.art_keys.each_ref().map(|key| key.as_ref()
+            .map(|(sid, art)| crate::ui::widgets::resolve_tex_wh_on(*sid, art, 1280, 720, 0))
+            .unwrap_or((0, 0.0, 0.0)));
+
+        let incoming_a = reveal(tex.0, &self.art);
+        let outgoing_a = reveal(outgoing_tex.0, &self.outgoing_art);
         if !wash_hidden(env.sp, incoming_a, slide.map(|_| outgoing_a))
             && !self.wash.is_flat(theme::SURFACE_APP, AmbientWash::FLAT_EPS)
         {
@@ -219,14 +228,14 @@ impl Backdrop {
         let folded = env.hero_a > 0.01
             && env.sp < 0.001
             && slide.is_none()
-            && self.tex.0 != 0
+            && tex.0 != 0
             && incoming_a > 0.01
             && crate::ui::widgets::hero_ground_armed();
         if folded {
             crate::ui::widgets::hero_ground(
                 p,
-                self.tex.0,
-                art_rect(self.tex, env.sp, 0.0),
+                tex.0,
+                art_rect(tex, env.sp, 0.0),
                 incoming_a * (1.0 - env.sp),
                 base_scrim_ramp(env.hero_a),
                 env.hero_a,
@@ -234,10 +243,10 @@ impl Backdrop {
         }
         if !folded && env.sp < HERO_ART_CULL {
             if let Some((out_x, in_x)) = slide {
-                backdrop_art(p, self.outgoing_tex, env.sp, out_x, outgoing_a);
-                backdrop_art(p, self.tex, env.sp, in_x, incoming_a);
+                backdrop_art(p, outgoing_tex, env.sp, out_x, outgoing_a);
+                backdrop_art(p, tex, env.sp, in_x, incoming_a);
             } else {
-                backdrop_art(p, self.tex, env.sp, 0.0, incoming_a);
+                backdrop_art(p, tex, env.sp, 0.0, incoming_a);
             }
         }
         if !folded && env.hero_a > 0.01 {

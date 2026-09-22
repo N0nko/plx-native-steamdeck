@@ -1484,6 +1484,25 @@ pub(crate) fn install_for_test(state: &mut MetadataState, d: Option<Detail>) {
 /// episode keeping its old `viewOffset` would still draw its resume bar and no check.
 ///
 /// The landed refresh is the truth and silently corrects any of this; see [`crate::viewstate`].
+/// Retain the actual exit position while the ordered PMS stopped report runs asynchronously.
+/// Returning to an existing detail page does not fetch it again, so server success alone cannot
+/// update its Resume button. Match the server as well as the leaf, including both show projections.
+fn set_resume_local(state: &mut MetadataState, sid: crate::plex::ServerId, rk: &str, position_ms: i64) -> bool {
+    if rk.is_empty() || position_ms < 0 { return false; }
+    let Some(d) = state.current.as_mut() else { return false; };
+    let mut changed = false;
+    if d.sid == sid {
+        if d.rk == rk { d.resume_ms = position_ms; changed = true; }
+        for episode in d.episodes.iter_mut().chain(d.on_deck.iter_mut()) {
+            if episode.rk == rk { episode.resume_ms = position_ms; changed = true; }
+        }
+    }
+    for item in &mut d.related {
+        if item.sid == sid && item.rk == rk { item.resume_ms = position_ms; changed = true; }
+    }
+    changed
+}
+
 fn set_watched_local(state: &mut MetadataState, sid: crate::plex::ServerId, rk: &str, on: bool) -> bool {
     {
         let Some(d) = state.current.as_mut() else {
@@ -1815,6 +1834,11 @@ fn fetch_detail(sid: crate::plex::ServerId, rk: &str) -> Option<(Detail, String)
     // audio/subtitle streams (movies carry Media/Part/Stream; a show does not — its
     // episodes do, so load_detail backfills a show's streams from its first episode).
     parse_streams(&it, &mut d);
+    if d.is_show {
+        if let Some(episode) = it.on_deck.as_ref().and_then(|h| h.metadata.as_deref()) {
+            parse_streams(episode, &mut d);
+        }
+    }
     Some((d, it.primary_extra_key.clone()))
 }
 
@@ -1983,7 +2007,7 @@ fn convert_streams(streams: &[crate::plex::Stream]) -> Streams {
 /// parse an item's Media[0].Part[0].Stream[] into d.audio / d.subs (the About footer), plus that
 /// same version's technical fields (resolution/size/bitrate — the hero's media badge). Both ride
 /// the ONE version (see `plex::Metadata::primary_media`), and both are borrowed from a show's
-/// first episode by the same call in `fetch_item_streams`, so they can't describe different files.
+/// hero episode by the same parse, so they cannot describe different files.
 fn parse_streams(it: &crate::plex::Metadata, d: &mut Detail) {
     // A show borrows its technical read-out from a leaf, but owns no Media[] itself.
     if d.rk == it.rating_key {
@@ -2219,14 +2243,6 @@ pub(crate) fn sub_render_ordinal(subs: &[Stream], i: usize) -> i32 {
         .enumerate()
         .filter(|(j, s)| !s.external && (s.index, *j) < me)
         .count() as i32
-}
-
-/// fetch one item's full metadata and parse its streams into `d` — used to borrow a
-/// show's first-episode audio/subtitle tracks (the show container carries none).
-fn fetch_item_streams(sid: crate::plex::ServerId, rk: &str, d: &mut Detail) {
-    if let Some(it) = crate::plex::client_for(sid).and_then(|c| c.metadata(rk)) {
-        parse_streams(&it, d);
-    }
 }
 
 fn fetch_seasons(sid: crate::plex::ServerId, rk: &str) -> Vec<Season> {
@@ -2533,30 +2549,19 @@ fn fetch_full(sid: crate::plex::ServerId, rk: &str) -> Option<Detail> {
             // a first-season failure is not worth failing the whole page over — the hero, cast
             // and Related still load, and there is no previous list here to protect. It is still
             // named, because the `eps=` below cannot tell it from a season with no episodes.
-            d.episodes = fetch_episodes(sid, &s0.rk).unwrap_or_else(|| {
-                crate::log(&format!(
-                    "detail: rk={rk} season rk={} /children did not answer — the eps= below is that refusal",
-                    s0.rk));
-                Vec::new()
-            });
+            let season_rk = s0.rk.clone();
+            if let Some(mc) = crate::plex::client_for(sid).and_then(|c| c.children(&season_rk)) {
+                // Both OnDeck and /children already carry Media/Part/Stream. A second leaf
+                // metadata GET can stall for 30 seconds on a busy PMS (captured on device).
+                if d.on_deck.is_none() {
+                    if let Some(episode) = mc.metadata.first() { parse_streams(episode, &mut d); }
+                }
+                d.episodes = mc.metadata.iter().map(convert_episode).collect();
+            } else {
+                crate::log(&format!("detail: rk={rk} season rk={season_rk} /children did not answer"));
+            }
         }
-        // A show carries no streams itself — backfill from ONE episode: the one the hero is
-        // about, which is the one Play starts (`on_deck` when the show has been started, else
-        // its first). Everything downstream reads this as "the show's" media, so borrowing from
-        // a different episode than the button plays would have the chips, the About footer and
-        // "how this plays" describing a file the user is not about to watch.
-        let hero_ep = d.on_deck.as_ref().map(|e| e.rk.clone());
-        let ep = hero_ep.or_else(|| d.episodes.first().map(|e| e.rk.clone()));
-        if let Some(ep_rk) = ep {
-            fetch_item_streams(sid, &ep_rk, &mut d);
-            // NB `part`/`vcodec`/`acodec` are deliberately NOT backfilled. They are the item's OWN
-            // playable file, and "a show has an empty part" is load-bearing elsewhere — `app.rs`'s
-            // play trigger reads it as "this is a show, take the episode's resume point instead",
-            // so filling it here would silently hand a show's duration to an episode's playback.
-            // A consumer that wants to know how the HERO's episode will play asks the episode
-            // (`ui::detail::draw_play_mode`), which is also the only place that knows which
-            // episode the button would start.
-        }
+        // Leave the show's own part/codecs empty: Play still resolves the chosen episode.
     }
     // Movie/show: extras GET overlaps `/related` on a sibling thread so serial depth stays 2 / 5.
     // Episode/season pages never show the Trailer control, so they must not pay extras I/O.
@@ -2814,6 +2819,7 @@ pub(crate) fn run(state: &mut MetadataState, adapter: &std::sync::Arc<MetadataAd
             set_now_playing(state, np);
             true
         }
+        MetadataCmd::SetResumeLocal { sid, rk, position_ms } => set_resume_local(state, sid, &rk, position_ms),
         MetadataCmd::SetWatchedLocal { sid, rk, on } => set_watched_local(state, sid, &rk, on),
         MetadataCmd::InstallPlaying(p) => {
             install_playing(state, p);
@@ -4450,5 +4456,76 @@ mod named_related_tests {
         let (items, groups) = related_projection(&mc, crate::plex::ServerId::from_raw(1));
         assert_eq!(items.len(), 120); assert_eq!(groups.len(), 6);
         for (i, group) in groups.iter().enumerate() { assert_eq!((group.start, group.len), (i*20,20)); }
+    }
+}
+
+#[cfg(test)]
+mod series_latency_tests {
+    #![cfg(feature = "devtriggers")]
+    use super::*;
+    #[test]
+    fn series_borrows_embedded_streams_without_fetching_the_slow_leaf() {
+        use std::io::{Read,Write};
+        use std::sync::{Arc,atomic::{AtomicBool,Ordering}};
+        let _serial=crate::testlock::serial();
+        crate::plex::reset_servers_for_test();
+        for on_deck in [true,false] {
+            let listener=std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            let port=listener.local_addr().unwrap().port();listener.set_nonblocking(true).unwrap();
+            let done=Arc::new(AtomicBool::new(false));let stop=done.clone();
+            let server=std::thread::spawn(move || {
+                let leaf=serde_json::json!({"type":"episode","ratingKey":"leaf","index":3,"parentIndex":2,
+                    "Media":[{"id":1,"Part":[{"key":"/file","Stream":[{"id":10,"streamType":2,"codec":"aac","language":"English"}]}]}]});
+                let mut requests=Vec::new();
+                while !stop.load(Ordering::Relaxed) {
+                    let Ok((mut socket,_))=listener.accept() else {std::thread::sleep(std::time::Duration::from_millis(2));continue;};
+                    socket.set_read_timeout(Some(std::time::Duration::from_secs(1))).unwrap();
+                    let mut request=[0;8192];let n=socket.read(&mut request).unwrap_or(0);
+                    let request=String::from_utf8_lossy(&request[..n]);
+                    let path=request.split_whitespace().nth(1).unwrap_or("").split('?').next().unwrap_or("").to_owned();
+                    let body=match path.as_str() {
+                        "/library/metadata/show" => {
+                            let mut show=serde_json::json!({"type":"show","ratingKey":"show","title":"Series"});
+                            if on_deck {show["OnDeck"]=serde_json::json!({"Metadata":leaf.clone()});}
+                            serde_json::json!({"MediaContainer":{"Metadata":[show]}})
+                        },
+                        "/library/metadata/show/children"=>serde_json::json!({"MediaContainer":{"Metadata":[{"type":"season","ratingKey":"season","index":2}]}}),
+                        "/library/metadata/season/children"=>serde_json::json!({"MediaContainer":{"Metadata":[leaf]}}),
+                        _=>serde_json::json!({"MediaContainer":{}}),
+                    }.to_string();
+                    requests.push(path);
+                    let _=write!(socket,"HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",body.len());
+                }
+                requests
+            });
+            let sid=crate::plex::register_for_test(&format!("series-{on_deck}"),"127.0.0.1",port as i32,"synthetic","fixture");
+            let detail=fetch_full(sid,"show");done.store(true,Ordering::Relaxed);
+            let requests=server.join().unwrap();let d=detail.unwrap();
+            assert!(!requests.iter().any(|r|r=="/library/metadata/leaf"),"redundant leaf fetch blocks the page: {requests:?}");
+            assert_eq!(d.audio.len(),1);assert_eq!(d.episodes.len(),1);assert!(d.versions.is_empty());assert_eq!(d.episodes[0].versions.len(),1);
+            assert!(d.part.is_empty(),"a show must retain episode playback semantics");
+        }
+        crate::plex::reset_servers_for_test();
+    }
+}
+
+#[cfg(test)]
+mod resume_return_tests {
+    use super::*;
+    #[test] fn stopping_updates_movie_and_both_episode_projections_without_crossing_servers() {
+        let sid=crate::plex::ServerId::from_raw(1); let other=crate::plex::ServerId::from_raw(2);
+        let mut state=MetadataState::default();
+        state.current=Some(Detail {sid,rk:"movie".into(),resume_ms:100_000,..Default::default()});
+        assert!(!set_resume_local(&mut state,other,"movie",2_357_000));
+        assert_eq!(state.current.as_ref().unwrap().resume_ms,100_000);
+        assert!(set_resume_local(&mut state,sid,"movie",2_357_000));
+        assert_eq!(resume_ns(state.current.as_ref().unwrap().resume_ms,5_930_000),2_357_000_000_000);
+        state.current=Some(Detail {sid,rk:"show".into(),is_show:true,
+            episodes:vec![Episode {rk:"episode".into(),resume_ms:100_000,..Default::default()}],
+            on_deck:Some(Episode {rk:"episode".into(),resume_ms:100_000,..Default::default()}),..Default::default()});
+        assert!(set_resume_local(&mut state,sid,"episode",500_000));
+        let d=state.current.as_ref().unwrap();assert_eq!(d.episodes[0].resume_ms,500_000);
+        assert_eq!(d.on_deck.as_ref().unwrap().resume_ms,500_000);assert_eq!(d.resume_ms,0);
+        assert!(!set_resume_local(&mut state,sid,"episode",-1));
     }
 }

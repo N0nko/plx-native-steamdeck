@@ -2424,8 +2424,8 @@ impl DetailScreen {
                 ctl => {
                     let icon = match ctl {
                         hero::HeroCtl::Versions=>crate::ui::icons::Icon::ChevronDown,
-                        hero::HeroCtl::Repair=>crate::ui::icons::Icon::Restart,
-                        hero::HeroCtl::Prepare=>crate::ui::icons::Icon::PopcornAudience,
+                        hero::HeroCtl::Repair=>crate::ui::icons::Icon::Repair,
+                        hero::HeroCtl::Prepare=>crate::ui::icons::Icon::ReadyStore,
                         hero::HeroCtl::Restart => crate::ui::icons::Icon::Restart,
                         hero::HeroCtl::Trailer => crate::ui::icons::Icon::Trailer,
                         hero::HeroCtl::MarkWatched => crate::ui::icons::Icon::Check,
@@ -3110,6 +3110,7 @@ impl DetailScreen {
             self.preview_dwell = 0.0;
         }
         let full_trailer = self.preview_promoted && view.picture;
+        crate::player::preview::set_promoted(full_trailer);
         let chrome_target = if full_trailer { 0.0 } else { 1.0 };
         // Synopsis stays through background autoplay and only fades once full-trailer mode takes
         // the whole page off the screen.

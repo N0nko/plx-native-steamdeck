@@ -154,22 +154,8 @@ pub(crate) unsafe fn activate_card(
                 });
             }
         }
-    } else if mm.kind == 2 {
-        // season: open the SHOW page with that season selected
-        super::bridge::open_detail(pages, bridge, mm.sid, &mm.show_rk, Some(mm.season_index), ret.take());
-    } else if mm.kind == 3 {
-        // **An episode opens its OWN page**, which is the same page the card menu's "Go to Episode"
-        // opens (`Action::GoToItem`) — `detail.rs` serves leaves. It used to open the SHOW's page
-        // with the episode's season selected, on the reasoning that the item the tile advertised
-        // should be in view; but a season tab is not the episode, and the tile the user pressed
-        // named one episode. With a press on a discovery shelf now MEANING "show me this", the
-        // most specific page that answers is the episode's.
-        //
-        // The show is still one press away: it is the card menu's second navigation row, and the
-        // episode page's own BACK returns to the shelf.
-        super::bridge::open_detail(pages, bridge, mm.sid, &rk, None, ret.take());
     } else {
-        super::bridge::open_detail(pages, bridge, mm.sid, &rk, None, ret.take());
+        super::bridge::open_media_detail(pages, bridge, mm, ret.take());
     }
 }
 
@@ -413,7 +399,8 @@ pub(super) unsafe fn apply_item_action<R: super::playback::PlaybackResources>(
         Action::None => {}
         Action::GoToItem(rk) => {
             let _ = from_home; // see the note below `apply_item_action`
-            super::bridge::open_detail(pages, bridge, sid, &rk, None, None);
+            if let Some(item) = item.as_ref().filter(|item| item.rk == rk) { super::bridge::open_media_detail(pages, bridge, item, None); }
+            else { super::bridge::open_detail(pages, bridge, sid, &rk, None, None); }
         }
         Action::GoToShow(show_rk, season) => {
             super::bridge::open_detail(pages, bridge, sid, &show_rk, (season > 0).then_some(season), None);
@@ -1178,10 +1165,11 @@ pub(crate) fn key_back(
     pa: &mut crate::player::adapter::PlayerAdapter,
     refresh_hubs_at: &mut u32,
     pages: &mut crate::ui::dispatch::Dispatcher<super::bridge::AppHost>,
+    bridge: &mut super::bridge::Bridge,
 ) {
     if super::bridge::nav_cancel(pages) {
     } else if super::bridge::player(pages).is_some() {
-        exit_player(ps, pa, refresh_hubs_at, pages);
+        exit_player(ps, pa, refresh_hubs_at, pages, bridge);
     } else if matches!(pages.top_arg(), Some(AppArg::Content(_))) {
         // The two stacking screens, through the page transition. All three
         // halves of the pop — the outgoing page's teardown, the trail move and

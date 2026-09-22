@@ -1,0 +1,41 @@
+{
+  "group": "3-playback-details-watchlist",
+  "description": "Setup: guest/mock title with background trailer already playing; hero Play control focused. Listen as well as capture. Do not start feature playback.",
+  "steps": [
+    {
+      "name": "01-background-half",
+      "before": "(?:search/)?detail",
+      "after": "(?:search/)?detail",
+      "covers": [
+        "trailer-volume"
+      ],
+      "review": "Background default 50%; sf_volume percent=50 accepted=1. Sound level requires listening."
+    },
+    {
+      "name": "02-full-trailer",
+      "keys": [
+        "UP"
+      ],
+      "before": "(?:search/)?detail",
+      "after": "(?:search/)?detail",
+      "settle": 1,
+      "covers": [
+        "trailer-volume"
+      ],
+      "review": "Full trailer HUD; percent=100 accepted=1, original TV volume unchanged."
+    },
+    {
+      "name": "03-collapse-trailer",
+      "keys": [
+        "BACK"
+      ],
+      "before": "(?:search/)?detail",
+      "after": "(?:search/)?detail",
+      "settle": 1,
+      "covers": [
+        "trailer-volume"
+      ],
+      "review": "Hero returns and pipeline percent=50. No global TV volume changes."
+    }
+  ]
+}

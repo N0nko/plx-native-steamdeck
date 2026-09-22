@@ -1078,6 +1078,7 @@ unsafe fn ingest_sdl_event(app: &mut App, fr: &mut Frame) {
                 &mut app.adapters.player,
                 &mut app.refresh_hubs_at,
                 &mut app.pages,
+                &mut app.bridge,
             );
         }
     } else if et == SDL_MOUSEMOTION {

@@ -107,6 +107,8 @@ impl SearchScreen {
     }
     fn key(&self, elem: u32) -> FocusKey<u32> { FocusKey { entry: self.entry, elem } }
     fn real_query(&self) -> bool { crate::search::terms(self.draft.query()).is_some() }
+    fn filters_visible(&self) -> bool { !self.editing && !self.draft.query().trim().is_empty() }
+    fn context_enabled(&self) -> bool { self.real_query() && matches!(self.filter, 1 | 2) }
     fn field_hot<H: SearchLike>(&self, cx: &Cx<'_, H>) -> bool {
         self.keypad_open || self.editing || cx.focus.current == Some(self.key(FIELD))
     }
@@ -242,9 +244,9 @@ impl SearchScreen {
             self.discovery=discovery::Browse{home,home_failed,home_requested:requested,serial,..Default::default()};
         }
         let root=if self.real_query(){crate::discovery::Page::search(view.shelves())}else{self.discovery.home.clone().unwrap_or_default()};
-        self.shown=self.discovery.page.as_ref().unwrap_or(&root).filter(self.filter);
+        self.shown=self.discovery.page.as_ref().unwrap_or(&root).filter(if self.real_query() {self.filter} else {0});
         self.base_rows=self.shown.rows.len();
-        if let Some(preview)=&self.discovery.preview {let p=preview.filter(self.filter);self.shown.rows.extend(p.rows);self.shown.headings.extend(p.headings);}
+        if self.context_enabled() { if let Some(preview)=&self.discovery.preview {let p=preview.filter(self.filter);self.shown.rows.extend(p.rows);self.shown.headings.extend(p.headings);} }
         if !self.shown.rows.is_empty(){self.recents.clear();}
         let shown=std::mem::take(&mut self.shown);
         let mut index: std::collections::HashMap<_, _> = self.keys.iter().enumerate()
@@ -311,9 +313,10 @@ impl SearchScreen {
         if self.keypad_open && elem>=keypad::BASE && elem<keypad::BASE+keypad::len(self.numeric) as u32 {
             self.keypad_action((elem-keypad::BASE) as usize,cx.tick.ms,fx);return Handled::Yes;
         }
-        if !self.editing && (keypad::FILTER_BASE..keypad::FILTER_BASE+3).contains(&elem) {
+        if self.filters_visible() && (keypad::FILTER_BASE..keypad::FILTER_BASE+3).contains(&elem) {
             if self.discovery.home_failed{self.discovery.home_requested=false;}
             self.filter=(elem-keypad::FILTER_BASE) as usize;self.scroll_target=0.0;
+            if self.filter == 0 { self.discovery.page=None; self.discovery.trail.clear(); }
             self.discovery.preview=None;self.discovery.pending=None;self.discovery.request=None;self.discovery.serial=self.discovery.serial.wrapping_add(1);self.content_dirty=true;
             if self.discovery.page.is_none() {
                 self.store(SearchCmd::SetFilter{profile_generation:self.draft.profile(),filter:self.filter},fx);
@@ -607,7 +610,7 @@ impl SearchScreen {
     }
     fn elem_at(&self, group: GroupId, index: usize) -> Option<u32> {
         if group == KEYPAD_GROUP { return (self.keypad_open && index<keypad::len(self.numeric)).then_some(keypad::BASE+index as u32); }
-        if group == FILTER_GROUP {return (index<3).then_some(keypad::FILTER_BASE+index as u32);}
+        if group == FILTER_GROUP && self.filters_visible() {return (index<3).then_some(keypad::FILTER_BASE+index as u32);}
         if group == FIELD_GROUP { return (index == 0).then_some(FIELD); }
         if group == CLEAR_GROUP { return (!self.recents.is_empty() && index == 0).then_some(CLEAR); }
         if group == RECENTS_GROUP {
@@ -617,7 +620,7 @@ impl SearchScreen {
     }
     fn index(&self, elem: u32) -> Option<(GroupId, usize)> {
         if self.keypad_open && (keypad::BASE..keypad::BASE+keypad::len(self.numeric) as u32).contains(&elem){return Some((KEYPAD_GROUP,(elem-keypad::BASE) as usize));}
-        if !self.editing && (keypad::FILTER_BASE..keypad::FILTER_BASE+3).contains(&elem){return Some((FILTER_GROUP,(elem-keypad::FILTER_BASE) as usize));}
+        if self.filters_visible() && (keypad::FILTER_BASE..keypad::FILTER_BASE+3).contains(&elem){return Some((FILTER_GROUP,(elem-keypad::FILTER_BASE) as usize));}
         if elem == FIELD { return Some((FIELD_GROUP, 0)); }
         if elem == CLEAR && !self.recents.is_empty() { return Some((CLEAR_GROUP, 0)); }
         if let Some(i) = self.recents.iter().position(|key| *key == elem) { return Some((RECENTS_GROUP, i)); }
@@ -717,7 +720,7 @@ fn group(id: GroupId, kind: GroupKind, len: usize, extent: Rect, elem: ElemKind,
 impl<H: SearchLike> Focusable<H> for SearchScreen {
     fn groups(&self, cx: &Cx<'_, H>, out: &mut Vec<GroupSpec>) {
         if self.keypad_open {out.push(group(KEYPAD_GROUP,GroupKind::Row{wrap:false},keypad::len(self.numeric),keypad::extent(self.numeric),ElemKind::Bare,Seat::First));}
-        if !self.editing {out.push(group(FILTER_GROUP,GroupKind::Row{wrap:false},3,Rect::new(keypad::filter_rect(0).x,278.0-self.scroll_target,592.0,48.0),ElemKind::Bare,Seat::Remembered));}
+        if self.filters_visible() {out.push(group(FILTER_GROUP,GroupKind::Row{wrap:false},3,Rect::new(keypad::filter_rect(0).x,278.0-self.scroll_target,592.0,48.0),ElemKind::Bare,Seat::Remembered));}
         let field = Rect::new(layout::FIELD.x, layout::FIELD.y - self.scroll_target, layout::FIELD.w, layout::FIELD.h);
         out.push(group(FIELD_GROUP, GroupKind::Row { wrap: false }, 1, field, ElemKind::Bare, Seat::First));
         if !self.recents.is_empty() {
@@ -804,19 +807,21 @@ impl<H: SearchLike> Screen<H> for SearchScreen {
     fn render(&self) -> RenderStrategy { RenderStrategy::Page }
     fn memory(&self) -> PageMemory { PageMemory::Search(self.page_memory()) }
     fn links(&self, out: &mut Vec<Link>) {
+        let above = if self.filters_visible() { FILTER_GROUP } else { FIELD_GROUP };
         if self.keypad_open {
-            out.push(Link {from:KEYPAD_GROUP,dir:Dir::Up,to:FILTER_GROUP});
+            out.push(Link {from:KEYPAD_GROUP,dir:Dir::Up,to:above});
             if let Some(first)=self.first_content(){out.push(Link{from:KEYPAD_GROUP,dir:Dir::Right,to:first});out.push(Link{from:KEYPAD_GROUP,dir:Dir::Down,to:first});}
         }
-        out.push(Link{from:FIELD_GROUP,dir:Dir::Down,to:FILTER_GROUP});
-        out.push(Link{from:FILTER_GROUP,dir:Dir::Up,to:FIELD_GROUP});
-        if let Some(first)=self.first_content(){out.push(Link{from:FILTER_GROUP,dir:Dir::Down,to:first});}
+        if self.filters_visible() {
+            for dir in [Dir::Down, Dir::Right] { out.push(Link{from:FIELD_GROUP,dir,to:FILTER_GROUP}); }
+            for dir in [Dir::Up, Dir::Left] { out.push(Link{from:FILTER_GROUP,dir,to:FIELD_GROUP}); }
+        }
+        if let Some(first)=self.first_content(){
+            out.push(Link{from:above,dir:Dir::Down,to:first});
+            out.push(Link{from:first,dir:Dir::Up,to:above});
+        }
         out.push(Link { from: STRIP, dir: Dir::Down, to: FIELD_GROUP });
         out.push(Link { from: FIELD_GROUP, dir: Dir::Up, to: STRIP });
-        if let Some(first) = self.first_content() {
-
-            out.push(Link { from: first, dir: Dir::Up, to: FILTER_GROUP });
-        }
         if !self.recents.is_empty() {
             out.push(Link { from: RECENTS_GROUP, dir: Dir::Down, to: CLEAR_GROUP });
             out.push(Link { from: CLEAR_GROUP, dir: Dir::Up, to: RECENTS_GROUP });

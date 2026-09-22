@@ -519,6 +519,34 @@ int sf_is_load_completed(void) {
     void *object = sf_ready_object();
     return object ? SMP_isLoadCompleted(object) : 0;
 }
+/* Optional per-pipeline volume, never the TV's global audio service. ABI and JSON proven
+ * against device libplayerAPIs.so.1 (SHA256 0b0f665415e61e24d2a9ace42c25b04c5386fe8756b5cdd9c72380fb1bb24e77).
+ * setVolume at 0x3db74 parses integer "volume"; ease.duration/type are optional.
+ * No C++ fields are accessed. Missing symbols disable this optional control. Main thread only. */
+int sf_set_volume(unsigned volume) {
+    typedef _Bool (*SetVolume)(void *, const char *);
+    static SetVolume set_volume;
+    static int resolved;
+    static void *applied_object;
+    static unsigned applied_volume;
+    static int applied_result;
+    void *object = sf_ready_object();
+    if (!object || !sf_is_load_completed()) return 0;
+    if (!resolved) {
+        set_volume = (SetVolume)dlsym(RTLD_DEFAULT, "_ZN17StarfishMediaAPIs9setVolumeEPKc");
+        resolved = 1;
+    }
+    if (!set_volume) return 0;
+    if (volume > 100) volume = 100;
+    if (applied_object == object && applied_volume == volume) return applied_result;
+    char payload[32];
+    snprintf(payload, sizeof(payload), "{\"volume\":%u}", volume);
+    int accepted = set_volume(object, payload);
+    applied_object = object; applied_volume = volume; applied_result = accepted;
+    if (elogf) fprintf(elogf, "sf_volume: percent=%u accepted=%d\n", volume, accepted);
+    return accepted;
+}
+
 int sf_play(void) {
     void *object = sf_ready_object();
     return object ? SMP_Play(object) : 0;

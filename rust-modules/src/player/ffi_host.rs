@@ -785,3 +785,5 @@ mod tests {
         );
     }
 }
+
+pub(super) unsafe fn sf_set_volume(_: c_uint) -> c_int { 0 }

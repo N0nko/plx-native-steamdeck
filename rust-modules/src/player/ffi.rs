@@ -38,6 +38,7 @@ mod sys {
         pub(super) fn sf_ready() -> c_int;
         pub(super) fn sf_is_load_completed() -> c_int;
         pub(super) fn sf_play() -> c_int;
+        pub(super) fn sf_set_volume(volume: c_uint) -> c_int;
         pub(super) fn sf_pause() -> c_int;
         pub(super) fn sf_flush() -> c_int;
         pub(super) fn sf_push_eos() -> c_int;
@@ -185,7 +186,12 @@ pub(crate) unsafe fn sf_is_load_completed(_: &MainThread) -> c_int {
     sys::sf_is_load_completed()
 }
 #[inline]
-pub(crate) unsafe fn sf_play(_: &MainThread) -> c_int {
+pub(crate) unsafe fn sf_set_volume(_: &MainThread, volume: u8) -> c_int {
+    sys::sf_set_volume(volume.min(100) as c_uint)
+}
+
+pub(crate) unsafe fn sf_play(mt: &MainThread) -> c_int {
+    sf_set_volume(mt, super::preview::desired_volume());
     sys::sf_play()
 }
 #[inline]

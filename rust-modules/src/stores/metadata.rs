@@ -171,6 +171,7 @@ pub(crate) enum MetadataCmd {
     SetNowPlaying(Option<crate::metadata::NowPlaying>),
     /// The optimistic half of a view-state write on the loaded item, its episodes and Related.
     SetWatchedLocal { sid: ServerId, rk: String, on: bool },
+    SetResumeLocal { sid: ServerId, rk: String, position_ms: i64 },
     /// The playback plan's leaf (`route.rs`).
     InstallPlaying(Option<crate::metadata::PlayingItem>),
     MarkSkipped(crate::metadata::Marker),

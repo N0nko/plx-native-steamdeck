@@ -214,8 +214,8 @@ fn down_from_the_field_reaches_only_a_region_that_is_drawn() {
     let mut screen = fixture.screen();
     let mut engine = seated(&screen, &fixture);
     assert!(screen.recents.is_empty());
-    assert_eq!(step_dir(&mut screen, &fixture, &mut engine, Dir::Down), Some(screen.key(keypad::FILTER_BASE)),
-        "filters remain available before discovery has loaded");
+    assert_eq!(step_dir(&mut screen, &fixture, &mut engine, Dir::Down), Some(screen.key(FIELD)),
+        "empty discovery has no filter row");
 
     // (2) no query, terms remembered: the recents list.
     watching(&session, "owned-search-handoff-terms", &["gromit", "wallace"]);
@@ -223,7 +223,6 @@ fn down_from_the_field_reaches_only_a_region_that_is_drawn() {
     let mut screen = fixture.screen();
     let mut engine = seated(&screen, &fixture);
     assert_eq!(screen.recents.len(), 2);
-    step_dir(&mut screen,&fixture,&mut engine,Dir::Down); // filter row
     let recent = step_dir(&mut screen, &fixture, &mut engine, Dir::Down).unwrap();
     assert_eq!(Some(recent.elem), screen.recents.first().copied(), "▼ lands on the first term");
 
@@ -405,7 +404,7 @@ fn the_recents_cursor_stops_on_the_clear_control() {
     for _ in 0..10 {
         seen.push(step_dir(&mut screen, &fixture, &mut engine, Dir::Down).unwrap().elem);
     }
-    let expected: Vec<u32> = std::iter::once(keypad::FILTER_BASE).chain(screen.recents.iter().copied()).chain(std::iter::repeat(CLEAR)).take(10).collect();
+    let expected: Vec<u32> = screen.recents.iter().copied().chain(std::iter::repeat(CLEAR)).take(10).collect();
     assert_eq!(seen, expected, "▼ walks every drawn term and then caps on Clear");
 
     // Clear is one row past the last term shown, and its own block is where the renderer draws it.
@@ -526,7 +525,8 @@ fn revealing_the_second_shelf_carries_the_query_field_under_the_track() {
 #[test]
 fn filters_scroll_with_search_content_and_return_when_revealed() {
     let _serial = crate::testlock::serial();
-    let fixture = Fixture::new();
+    let mut fixture = Fixture::new();
+    fixture.query("seed");
     let mut screen = fixture.screen();
     let elem = keypad::FILTER_BASE;
     let initial = screen.place(&elem, &fixture.cx(None), At::Drawn).unwrap().rect;
@@ -968,7 +968,7 @@ fn opening_search_immediately_opens_letters_and_field_does_not_toggle_them_off()
 
 #[test]
 fn contextual_card_opens_its_details_on_the_first_click(){
- let _serial=crate::testlock::serial();let mut fixture=Fixture::new();fixture.query("seed").shelves(vec![shelf(Kind::Movie,"local",1)]);let mut screen=fixture.screen();
+ let _serial=crate::testlock::serial();let mut fixture=Fixture::new();fixture.query("seed").shelves(vec![shelf(Kind::Movie,"local",1)]);let mut screen=fixture.screen(); screen.filter=1;
  screen.discovery.preview=Some(crate::discovery::Page{label:"Related".into(),rows:vec![shelf(Kind::Movie,"related",1)],headings:vec!["Similar movies".into()]});screen.content_dirty=true;
  deliver(&mut screen,&fixture,None,ScreenEvent::Tick(tick(1)));
  let elem=screen.rows[1].elems[0];let focus=Some(screen.key(elem));
@@ -988,7 +988,7 @@ fn discovery_feeds_keep_separate_identity_and_reject_retired_profile_landings(){
 }
 #[test]
 fn contextual_back_restores_the_previous_page_and_rejects_late_preview(){
- let _serial=crate::testlock::serial();let session=remembering("custom-context",&[]);let mut fixture=Fixture::new();fixture.query("seed").shelves(vec![shelf(Kind::Movie,"local",2)]);let mut screen=fixture.screen();
+ let _serial=crate::testlock::serial();let session=remembering("custom-context",&[]);let mut fixture=Fixture::new();fixture.query("seed").shelves(vec![shelf(Kind::Movie,"local",2)]);let mut screen=fixture.screen(); screen.filter=1;
  let focus=screen.rows[0].elems[1];let page=crate::discovery::Page{label:"Related title".into(),rows:vec![shelf(Kind::Movie,"related",2)],headings:vec!["More like title".into()]};screen.discovery.preview=Some(page);
  let mut out=vec![];let mut present=Present::new();let mut fx=Effects::<HostFixture>::new(&mut out,MachineId::Instance(INSTANCE),&mut present);
  assert!(screen.discover_enter(0,0,focus,&mut fx));screen.sync(&fixture.cx(None),false,&mut fx);assert_eq!(screen.shown.label,"Related title");
@@ -1061,7 +1061,7 @@ fn pointer_entered_context_promotes_and_filter_keeps_the_trail() {
     let _serial = crate::testlock::serial();
     let mut fixture = Fixture::new();
     fixture.query("seed").shelves(vec![shelf(Kind::Movie, "base", 2)]);
-    let mut screen = fixture.screen();
+    let mut screen = fixture.screen(); screen.filter=1;
     screen.discovery.preview = Some(crate::discovery::Page {
         label: "Next tier".into(), rows: vec![shelf(Kind::Movie, "context", 2)],
         headings: vec!["More like this".into()],
@@ -1079,4 +1079,32 @@ fn pointer_entered_context_promotes_and_filter_keeps_the_trail() {
     deliver(&mut screen, &fixture, None, ScreenEvent::Activate(keypad::FILTER_BASE + 1));
     assert_eq!(screen.discovery.trail.len(), 1);
     assert!(screen.discovery.page.is_some());
+}
+
+#[test]
+fn discovery_and_top_results_do_not_spawn_context_and_only_typed_queries_show_filters() {
+    let _serial = crate::testlock::serial();
+    for (query, filter, filters, context) in [("",0,false,false),("",1,false,false),("",2,false,false),("seed",0,true,false),("seed",1,true,true),("seed",2,true,true)] {
+        let mut fixture=Fixture::new(); fixture.query(query).shelves(vec![shelf(Kind::Movie,"base",1)]);
+        let mut screen=fixture.screen(); screen.filter=filter;
+        assert_eq!(screen.filters_visible(),filters); assert_eq!(screen.context_enabled(),context);
+        let mut groups=Vec::new(); screen.groups(&fixture.cx(None), &mut groups);
+        assert_eq!(groups.iter().any(|g|g.id==FILTER_GROUP),filters);
+        if !context {
+            screen.discovery.preview=Some(crate::discovery::Page {label:"unwanted".into(),rows:vec![shelf(Kind::Movie,"wrong",1)],headings:vec![]});
+            screen.content_dirty=true;
+            deliver(&mut screen,&fixture,None,ScreenEvent::Tick(tick(400)));
+            assert!(screen.discovery.preview.is_none()); assert!(screen.discovery.request.is_none());
+            assert!(screen.discovery.trail.is_empty());
+        }
+    }
+}
+#[test]
+fn search_and_filters_connect_horizontally_without_trapping_filter_navigation() {
+    let _serial=crate::testlock::serial(); let mut fixture=Fixture::new();fixture.query("seed");
+    let mut screen=fixture.screen();let mut engine=seated(&screen,&fixture);
+    assert_eq!(step_dir(&mut screen,&fixture,&mut engine,Dir::Right),Some(screen.key(keypad::FILTER_BASE)));
+    assert_eq!(step_dir(&mut screen,&fixture,&mut engine,Dir::Right),Some(screen.key(keypad::FILTER_BASE+1)));
+    assert_eq!(step_dir(&mut screen,&fixture,&mut engine,Dir::Left),Some(screen.key(keypad::FILTER_BASE)));
+    assert_eq!(step_dir(&mut screen,&fixture,&mut engine,Dir::Left),Some(screen.key(FIELD)));
 }

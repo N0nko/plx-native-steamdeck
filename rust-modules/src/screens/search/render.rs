@@ -1307,9 +1307,11 @@ fn controls<H:SearchLike>(screen:&SearchScreen,f:&mut DrawFrame<'_, '_, H>){
     let _clip=f.clip(p,clip);
     let mut draw=|elem:u32,label:&str,rect:Rect,selected:bool|{
         let label=cstring(label);let focused=f.cx.focus.current==Some(screen.key(elem));
-        Button::new(label.as_ptr(),theme::size::LABEL,rect).style(crate::ui::widgets::ControlStyle::Glass).focused(focused||selected).draw(&Env::inert(),p);
+        let mut button=Button::new(label.as_ptr(),theme::size::LABEL,rect).style(crate::ui::widgets::ControlStyle::Glass).focused(focused);
+        if selected { button=button.trailing_icon(crate::ui::icons::Icon::Check); }
+        button.draw(&Env::inert(),p);
         f.stop(p,Stop{key:screen.key(elem),rect,rest_rect:rect,clip,hover:Hover::Focus,activate:Activate::Immediate});
     };
-    if !screen.editing {for (i,label) in ["Top Results","Movies","TV Shows"].iter().enumerate(){draw(super::keypad::FILTER_BASE+i as u32,label,screen.filter_rect(i,At::Drawn),screen.filter==i);}}
+    if screen.filters_visible() {for (i,label) in ["Top Results","Movies","TV Shows"].iter().enumerate(){draw(super::keypad::FILTER_BASE+i as u32,label,screen.filter_rect(i,At::Drawn),screen.filter==i);}}
     if screen.keypad_open {for i in 0..super::keypad::len(screen.numeric){draw(super::keypad::BASE+i as u32,&super::keypad::label(i,screen.numeric),super::keypad::rect(i,screen.numeric),false);}}
 }

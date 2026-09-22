@@ -20,6 +20,7 @@ int  sf_load(const char *payload, unsigned int epoch); /* Load callback context 
 int  sf_ready(void);
 int  sf_is_load_completed(void);
 int  sf_play(void);
+int  sf_set_volume(unsigned volume);
 int  sf_pause(void);
 int  sf_flush(void);
 int  sf_set_time_to_decode(long long position_ns); /* Kodi in-place seek: setTimeToDecode (returns 0 on webOS<11) */

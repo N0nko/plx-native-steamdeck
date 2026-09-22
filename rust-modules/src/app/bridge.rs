@@ -698,7 +698,7 @@ impl Bridge {
     /// Restore a detail page that is about to mount to a `Spot` no `ReturnState` holds — see
     /// [`crate::screens::registry::DetailSeed`].
     pub(crate) fn seed_detail(&mut self, sid: crate::plex::ServerId, rk: &str, spot: crate::metadata::Spot) {
-        self.mounter.seed = Some(crate::screens::registry::DetailSeed { sid, rk: rk.to_string(), spot });
+        self.mounter.seed = Some(crate::screens::registry::DetailSeed { sid, rk: rk.to_string(), spot, episode: None });
     }
 
     /// Where the next player instance returns to — see `AppMounter::player_origin`.
@@ -2717,6 +2717,22 @@ pub(crate) fn open_detail(
     match ret {
         Some(ret) => nav_push_with_return(d, arg, ret),
         None => nav_push(d, arg),
+    }
+}
+
+/// Card navigation keeps episodes inside their series, restoring by identity after season load.
+pub(crate) fn open_media_detail(
+    d: &mut Dispatcher<AppHost>, rig: &mut Bridge, item: &crate::pms::PmsMovie,
+    ret: Option<ReturnState<u32, PageMemory>>,
+) {
+    let series = matches!(item.kind, 2 | 3) && !item.show_rk.is_empty();
+    let rk = if series { &item.show_rk } else { &item.rk };
+    open_detail(d, rig, item.sid, rk, series.then_some(item.season_index), ret);
+    if series && item.kind == 3 {
+        if let Some(seed) = &mut rig.mounter.seed {
+            seed.spot.section = 2;
+            seed.episode = Some(item.rk.clone());
+        }
     }
 }
 

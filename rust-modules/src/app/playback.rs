@@ -549,7 +549,7 @@ pub(crate) fn player_requests(
             // The STOP key, a BACK with nothing else open and the failure read-out's own BACK
             // escape all reach the same ritual.
             PlayerReq::Exit => {
-                exit_player(ps, pa, refresh_hubs_at, pages);
+                exit_player(ps, pa, refresh_hubs_at, pages, bridge);
             }
         }
     }
@@ -609,7 +609,16 @@ pub(crate) fn exit_player(
     pa: &mut crate::player::adapter::PlayerAdapter,
     refresh_hubs_at: &mut u32,
     pages: &mut crate::ui::dispatch::Dispatcher<super::bridge::AppHost>,
+    bridge: &mut super::bridge::Bridge,
 ) {
+    // Snapshot before teardown clears route identity and clocks. A cancelled load must not
+    // overwrite a useful resume point with its initial zero; trailers have no watch state.
+    if pa.is_live() && crate::player::seen_frame() && !crate::route::is_preview(ps) && crate::player::duration_ns() > 0 {
+        bridge.metadata_mut().run(crate::stores::metadata::MetadataCmd::SetResumeLocal {
+            sid: crate::route::cur_sid(ps), rk: crate::route::cur_rk(ps),
+            position_ms: crate::player::playpos_ns().max(0) / 1_000_000,
+        });
+    }
     crate::route::cancel_play(ps); // BACK during a load: supersede, drop the landing
     close_player_overlays(pages);
     crate::player::stop_bufferfeed(ps, pa);
@@ -645,7 +654,7 @@ pub(crate) fn finish_playback(
     if play_up_next(ps, pa, HUD_LINGER_MS, pages, bridge) {
         return;
     }
-    exit_player(ps, pa, refresh_hubs_at, pages);
+    exit_player(ps, pa, refresh_hubs_at, pages, bridge);
     // The ring goes back to the scrubber for the NEXT session, and the next session is a fresh
     // instance — so there is nothing to park here any more (`start_playback`'s note).
 }
@@ -892,7 +901,7 @@ fn apply_info_action(
                 let sid = bridge.metadata_view().playing()
                     .map(|p| p.sid)
                     .unwrap_or_else(crate::plex::current_server);
-                exit_player(ps, pa, refresh_hubs_at, pages);
+                exit_player(ps, pa, refresh_hubs_at, pages, bridge);
                 // A LANDING, not a navigation, so the page is SHOWN rather than pushed blindly:
                 // the exit above has usually already put this very page on top (the show playback
                 // started from), and `show_page` is a no-op there. It is also strictly better than

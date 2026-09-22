@@ -1,0 +1,62 @@
+{
+  "group": "2-search-discover",
+  "description": "Setup: Search field selected, empty query, keyboard closed. Uses a harmless typed query; no account mutations.",
+  "steps": [
+    {
+      "name": "01-typed-top-results",
+      "before": "search",
+      "after": "search",
+      "keys": [
+        "3",
+        "2",
+        "BACK",
+        "DOWN"
+      ],
+      "settle": 4,
+      "covers": [
+        "filters",
+        "filter-focus-policy"
+      ],
+      "review": "Query da shows centered Top Results/Movies/TV Shows. Selected tab has a checkmark; cursor has the focus pill."
+    },
+    {
+      "name": "02-field-horizontal-roundtrip",
+      "before": "search",
+      "after": "search",
+      "keys": [
+        "LEFT",
+        "RIGHT",
+        "RIGHT",
+        "LEFT"
+      ],
+      "covers": [
+        "filter-roundtrip",
+        "filter-focus-policy"
+      ],
+      "review": "First-tab Left reaches Search; Search Right returns to tabs; Right/Left within tabs retains ordinary movement."
+    },
+    {
+      "name": "03-top-results-scroll",
+      "before": "search",
+      "after": "search",
+      "keys": [
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN"
+      ],
+      "settle": 3,
+      "covers": [
+        "discovery-context-policy",
+        "keyboard-auto-close"
+      ],
+      "review": "Only movie/show result rows remain. No appended context or collapsing rails. Use context-loop separately after selecting Movies/TV Shows."
+    }
+  ]
+}

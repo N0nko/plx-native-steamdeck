@@ -1,6 +1,6 @@
 {
   "group": "2-search-discover",
-  "description": "Setup: focus the last base result shelf in a local search with related titles/cast already loaded. Capture each tier; verify headings change and Back restores its parent. No acquisition actions.",
+  "description": "Setup: focus the last base result shelf in a typed search with Movies or TV Shows selected (never Top Results or empty Discover) with related titles/cast already loaded. Capture each tier; verify headings change and Back restores its parent. No acquisition actions.",
   "steps": [
     {
       "name": "01-context-enter",

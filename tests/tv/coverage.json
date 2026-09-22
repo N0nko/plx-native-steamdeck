@@ -353,5 +353,45 @@
     "group": "2-search-discover",
     "id": "context-depth",
     "title": "Repeated related-title/cast tiers remain navigable and Back restores the parent"
+  },
+  {
+    "group": "2-search-discover",
+    "id": "discovery-context-policy",
+    "title": "Empty Discover and typed Top Results never request similar-title tiers"
+  },
+  {
+    "group": "2-search-discover",
+    "id": "filter-focus-policy",
+    "title": "Filters only while typing; selected checkmark differs from focus; horizontal field handoff"
+  },
+  {
+    "group": "3-playback-details-watchlist",
+    "id": "episode-series-entry",
+    "title": "Episode cards open series, select its season and restore the exact episode"
+  },
+  {
+    "group": "3-playback-details-watchlist",
+    "id": "series-fast-load",
+    "title": "Series usable without redundant OnDeck metadata request"
+  },
+  {
+    "group": "3-playback-details-watchlist",
+    "id": "trailer-volume",
+    "title": "Background defaults 50%; full trailer 100%; collapse restores preference"
+  },
+  {
+    "group": "3-playback-details-watchlist",
+    "id": "trailer-settings",
+    "title": "Autoplay toggle and persisted background volume"
+  },
+  {
+    "group": "3-playback-details-watchlist",
+    "id": "back-resume-cache",
+    "title": "Back preserves the current position for immediate Resume"
+  },
+  {
+    "group": "3-playback-details-watchlist",
+    "id": "repair-artwork",
+    "title": "Repair uses the supplied two-arrow design with the app stroke weight"
   }
 ]

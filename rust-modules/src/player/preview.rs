@@ -37,8 +37,8 @@
 //! `player::pause`/`resume` on a live engine, and `TX.reset()` on a real stop clears the flag, so
 //! a collapsed or ended preview cannot strand it.
 //!
-//! Sound stays on. The bound Starfish surface has no mute. The Settings toggle is the only
-//! sound control, and that is a platform limit.
+//! Background volume is a per-pipeline preference (default 50%). Promoting a trailer uses
+//! full volume; the TV global volume and feature playback are unchanged.
 //!
 //! **Cycle budget is source arithmetic, not a measured leak.** Spike 0a never produced a delta.
 //! `sf_load` keeps a 64 KiB slot (`src/starfish.c`) and the conservative RSS headroom cited by
@@ -458,6 +458,16 @@ pub(crate) fn bound_or_playing() -> bool {
     with_mut(|m| phase_bound_or_playing(m.phase))
 }
 
+static PROMOTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+pub(crate) fn set_promoted(promoted: bool) {
+    PROMOTED.store(promoted, std::sync::atomic::Ordering::Relaxed);
+}
+pub(crate) fn desired_volume() -> u8 {
+    if occupies() && !PROMOTED.load(std::sync::atomic::Ordering::Relaxed) {
+        crate::plex::session::peek().trailer_volume()
+    } else { 100 }
+}
+
 pub(crate) fn request_start(sid: ServerId, rk: &str, now_ms: u32) -> Start {
     with_mut(|m| m.start(sid, rk, now_ms, enabled()))
 }
@@ -487,6 +497,7 @@ pub(crate) fn note_abandon() {
 }
 
 pub(crate) fn note_stopped() {
+    set_promoted(false);
     with_mut(|m| m.stopped());
 }
 
@@ -536,6 +547,7 @@ pub(crate) fn after_pump(
     if !crate::route::is_preview(ps) && !occupies() {
         return;
     }
+    unsafe { super::ffi::sf_set_volume(pa.mt(), desired_volume()); }
     let failed = super::SHARED.load_failed.load(std::sync::atomic::Ordering::Acquire);
     if abandoning() {
         // KNOWN GAP (code review, unresolved): this poll has no timeout. If the native load
@@ -965,5 +977,19 @@ mod tests {
         assert_eq!(m.start(sid(), "rk", 0, false), Start::Disabled);
         assert_eq!(m.phase(), Phase::Idle);
         assert_eq!(m.cycles(), 0);
+    }
+}
+
+#[cfg(test)]
+mod volume_tests {
+    use super::*;
+    #[test] fn feature_and_promoted_trailers_use_full_volume() {
+        let _serial=crate::testlock::serial();
+        let _session=crate::plex::session::TempSession::new("trailer-volume");
+        reset_for_test();assert_eq!(desired_volume(),100);
+        force_playing_for_test();set_promoted(false);assert_eq!(desired_volume(),50);
+        set_promoted(true);assert_eq!(desired_volume(),100);
+        set_promoted(false);assert_eq!(desired_volume(),50);
+        note_stopped();assert_eq!(desired_volume(),100);
     }
 }

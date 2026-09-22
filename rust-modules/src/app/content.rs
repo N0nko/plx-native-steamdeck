@@ -577,7 +577,11 @@ fn search_requests(app: &mut App) {
             SearchReq::Detail { .. } | SearchReq::Person { .. } => {
                 let Some((item, _)) = app.bridge.search_selection(&app.pages, entry, ret.focus) else { continue };
                 let Some(target) = search_target(&item, &request) else { continue };
-                bridge::nav_push_with_return(&mut app.pages, target, ret);
+                if let crate::search::Item::Media(media) = &item {
+                    bridge::open_media_detail(&mut app.pages, &mut app.bridge, media, Some(ret));
+                } else {
+                    bridge::nav_push_with_return(&mut app.pages, target, ret);
+                }
             }
             SearchReq::ItemMenu { sid, rk } => {
                 let Some((crate::search::Item::Media(item), opener)) = app.bridge.search_selection(&app.pages, entry, ret.focus) else { continue };

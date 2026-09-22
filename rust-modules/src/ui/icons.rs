@@ -105,6 +105,8 @@ pub enum Icon {
     /// nothing beside it is a play triangle. So the row keeps `PlayStart` and the disc takes this,
     /// and the divergence is the point rather than drift — see [`Icon::PlayStart`].
     Restart,
+    /// Two circular arrows, traced from the supplied Repair reference.
+    Repair,
     /// A play triangle knocked out of a landscape frame — the detail hero's Trailer disc and
     /// the item menu's Play Trailer row. One path, evenodd knockout, same construction as
     /// [`Icon::CheckCircleFill`].
@@ -184,7 +186,7 @@ pub enum Icon {
     /// can carry an outline, but outlining every shape in a crowd is a tangle of strokes at 30px.
     Crowd,
     /// User-supplied popcorn mark, reserved for Get Ready (never audience ratings).
-    PopcornAudience,
+    ReadyStore,
 }
 
 /// **Where a mark's INK sits inside its 24-unit viewBox**, as `(left, right)` fractions — and
@@ -243,6 +245,7 @@ fn src(id: Icon) -> &'static str {
         Icon::Rewind => include_str!("../../../assets/icons/rewind.svg"),
         Icon::FastForward => include_str!("../../../assets/icons/fast-forward.svg"),
         Icon::Restart => include_str!("../../../assets/icons/restart.svg"),
+        Icon::Repair => include_str!("../../../assets/icons/repair.svg"),
         Icon::Trailer => include_str!("../../../assets/icons/trailer.svg"),
         Icon::Info => include_str!("../../../assets/icons/info.svg"),
         Icon::Alert => include_str!("../../../assets/icons/alert.svg"),
@@ -258,7 +261,7 @@ fn src(id: Icon) -> &'static str {
         Icon::TomatoCalyx => include_str!("../../../assets/icons/tomato-calyx.svg"),
         Icon::TomatoHollow => include_str!("../../../assets/icons/tomato-hollow.svg"),
         Icon::Crowd => include_str!("../../../assets/icons/crowd.svg"),
-        Icon::PopcornAudience => include_str!("../../../assets/icons/popcorn-audience.svg"),
+        Icon::ReadyStore => include_str!("../../../assets/icons/readystore.svg"),
     }
 }
 

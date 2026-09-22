@@ -504,10 +504,11 @@ pub struct Session {
     pub(crate) auto_sign_in: bool,
     /// **Hero trailer autoplay.** Detail default is on. Absence is on, so a session written
     /// before this field existed does not silently lose the preview. Explicit `false` stays off.
-    /// Soft-parsed to on rather than failing the credentials file. The bound Starfish surface
-    /// has no mute, so this is also the only sound control.
+    /// Soft-parsed to on rather than failing the credentials file.
     #[serde(default = "default_true", deserialize_with = "de_soft_bool_on")]
     pub(crate) trailer_autoplay: bool,
+    #[serde(default, deserialize_with = "de_soft_trailer_volume")]
+    pub(crate) trailer_volume: Option<u8>,
     /// **How bright the client-rendered subtitles are drawn** — white, or a rung of the grey
     /// ladder under it. Install-wide like [`Session::playback_quality`], because it answers a fact
     /// about the PANEL (an HDR picture maps graphics white to a searing level) rather than about
@@ -562,6 +563,8 @@ struct CanonicalSessionPreferences {
     last_hero_blur: Option<[[f32; 3]; 4]>,
     #[serde(default = "default_true", deserialize_with = "de_soft_bool_on")]
     trailer_autoplay: bool,
+    #[serde(default, deserialize_with = "de_soft_trailer_volume")]
+    trailer_volume: Option<u8>,
     #[serde(default, deserialize_with = "de_soft_subtitle_tone")]
     subtitle_tone: SubtitleTone,
     /// Parsed only so a future preference does not make the known fields disappear. The shipping
@@ -586,6 +589,7 @@ impl Default for CanonicalSessionPreferences {
             last_library: Vec::new(),
             last_hero_blur: None,
             trailer_autoplay: true,
+            trailer_volume: None,
             subtitle_tone: SubtitleTone::White,
             extensions: BTreeMap::new(),
         }
@@ -626,6 +630,7 @@ fn split_public(session: &Session) -> Result<crate::storage::state::PublicPayloa
         last_library: session.last_library.clone(),
         last_hero_blur: session.last_hero_blur,
         trailer_autoplay: session.trailer_autoplay,
+        trailer_volume: session.trailer_volume,
         subtitle_tone: session.subtitle_tone,
         extensions: BTreeMap::new(),
     })
@@ -688,6 +693,7 @@ pub(crate) fn join_canonical(
         last_library: preferences.last_library,
         last_hero_blur: preferences.last_hero_blur,
         trailer_autoplay: preferences.trailer_autoplay,
+        trailer_volume: preferences.trailer_volume,
         subtitle_tone: preferences.subtitle_tone,
         profiles,
         extensions: auth.extensions,
@@ -709,6 +715,7 @@ fn public_session(public: &crate::storage::state::PublicPayload) -> Session {
         last_library: preferences.last_library,
         last_hero_blur: preferences.last_hero_blur,
         trailer_autoplay: preferences.trailer_autoplay,
+        trailer_volume: preferences.trailer_volume,
         subtitle_tone: preferences.subtitle_tone,
         home_pins, recent_searches,
         ..Default::default()
@@ -1526,6 +1533,11 @@ where
     Ok(v.as_bool().unwrap_or(false))
 }
 
+fn de_soft_trailer_volume<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<u8>, D::Error> {
+    let value = Value::deserialize(d)?;
+    Ok(value.as_u64().map(|n| n.min(100) as u8))
+}
+
 fn default_true() -> bool {
     true
 }
@@ -1609,6 +1621,11 @@ impl Session {
         let mut next = self.clone();
         next.auto_sign_in = on;
         next
+    }
+
+    pub(crate) fn trailer_volume(&self) -> u8 { self.trailer_volume.unwrap_or(50).min(100) }
+    pub(crate) fn with_trailer_volume(&self, volume: u8) -> Self {
+        let mut next = self.clone(); next.trailer_volume = Some(volume.min(100)); next
     }
 
     pub(crate) fn trailer_autoplay(&self) -> bool {
@@ -4339,3 +4356,18 @@ mod migration_tests;
 
 #[allow(dead_code)] // Stage B connects typed owner admission/completions.
 pub(crate) mod async_persistence;
+
+#[cfg(test)]
+mod trailer_volume_tests {
+    use super::*;
+    #[test] fn trailer_volume_defaults_clamps_and_survives_public_preferences() {
+        for (raw, expected) in [("{}",50),(r#"{"trailer_volume":null}"#,50),(r#"{"trailer_volume":"bad"}"#,50),(r#"{"trailer_volume":250}"#,100),(r#"{"trailer_volume":0}"#,0)] {
+            let session:Session=serde_json::from_str(raw).unwrap();assert_eq!(session.trailer_volume(),expected);
+        }
+        let session=Session::default().with_trailer_volume(25);
+        let payload=split_public(&session).unwrap();
+        let prefs:CanonicalSessionPreferences=serde_json::from_value(payload.preferences).unwrap();
+        assert_eq!(prefs.trailer_volume,Some(25));
+        assert_eq!(CanonicalSessionPreferences::default().trailer_volume,None);
+    }
+}
