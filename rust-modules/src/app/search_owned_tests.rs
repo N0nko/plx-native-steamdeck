@@ -1036,8 +1036,8 @@ fn owned_search_content_probe_reports_zone_row_col_pill_and_card_as_focus_moves(
     assert!(on_shelf.contains(" row=0 col=0 recent=-1 pill=-1 card=1 "),
         "the one seeded Movie result sits at (0,0) and is a card, off the strip: {on_shelf}");
 
-    // Up leaves the shelf for the field again.
-    frame(&mut d, &mut rig, AppArg::Search, tick(10), script_key(Key::Up, tick(10)));
+    // Up goes through the filters, then returns to the field.
+    frame(&mut d, &mut rig, AppArg::Search, tick(10), {let mut keys=script_key(Key::Up,tick(10));keys.extend(script_key(Key::Up,tick(10)));keys});
     for i in 11..20 { frame(&mut d, &mut rig, AppArg::Search, tick(i), vec![]); }
     let back_on_field = content_probe(&d, &rig);
     assert!(back_on_field.contains("zone=Field"), "Up from the shelf must return to the field: {back_on_field}");

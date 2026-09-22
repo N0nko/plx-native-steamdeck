@@ -485,10 +485,14 @@ impl<H: SearchLike> Machine<H> for SearchScreen {
                 _ => return Handled::No,
             },
             ScreenEvent::Tick(tick) => self.tick(*tick, cx, fx),
-            ScreenEvent::FocusMoved { from, to, .. } => {
+            ScreenEvent::FocusMoved { from, to, by } => {
                 let on_keypad = to.entry == self.entry
                     && (keypad::BASE..keypad::BASE + keypad::len(self.numeric) as u32).contains(&to.elem);
-                if self.keypad_open && !on_keypad || self.editing && to.elem != FIELD {
+                let left_keypad = from.is_some_and(|key| key.entry == self.entry
+                    && (keypad::BASE..keypad::BASE + keypad::len(self.numeric) as u32).contains(&key.elem));
+                let deliberate = matches!(by, crate::ui::screen::By::Dir | crate::ui::screen::By::Pointer);
+                if self.keypad_open && !on_keypad && (left_keypad || deliberate)
+                    || self.editing && to.elem != FIELD {
                     self.keyboard(false, true, fx);
                 }
                 // Pointer and geometric focus can enter an appended context without the Down

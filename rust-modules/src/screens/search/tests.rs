@@ -1026,6 +1026,10 @@ fn leaving_keyboard_closes_it_and_filters_roundtrip_to_results() {
     let mut screen = fixture.screen();
     let field = screen.key(FIELD);
     deliver(&mut screen, &fixture, Some(field), ScreenEvent::Activate(FIELD));
+    deliver(&mut screen, &fixture, Some(field), ScreenEvent::FocusMoved {
+        from: None, to: field, by: By::Restore,
+    });
+    assert!(screen.keypad_open, "initial focus reconciliation is not a user leaving the keyboard");
     let keyboard = screen.key(keypad::BASE + keypad::FIRST_KEY as u32);
     let mut keyboard_engine = FocusEngine::new();
     keyboard_engine.set(OWNER, screen.key(keypad::BASE + 7), Some(KEYPAD_GROUP), By::Restore);
