@@ -542,6 +542,7 @@ impl DetailScreen {
             return None;
         }
         let ep = self.detail(meta)?.episodes.get(i)?;
+        if crate::metadata::series_catalog::missing(ep) { return None; }
         Some((ep.rk.clone(), episodes::watch_state(ep)))
     }
 
@@ -555,7 +556,7 @@ impl DetailScreen {
         }
         let i = self.focused_index(focus, season::SEASON_GROUP, meta)?;
         let s = self.detail(meta)?.seasons.get(i)?;
-        (!s.rk.is_empty()).then(|| (s.rk.clone(), season::watch_state(s)))
+        (!s.rk.is_empty() && !crate::metadata::series_catalog::synthetic_season(&s.rk)).then(|| (s.rk.clone(), season::watch_state(s)))
     }
 
     pub(crate) fn focused_related<'a>(
@@ -1925,6 +1926,11 @@ impl<H: ContentLike + crate::screens::registry::MetadataLike> Screen<H> for Deta
                         self.season_pop.scale(0),
                     ),
                     2 => {
+                        let hint=if !d.series_notice.is_empty() { d.series_notice.as_str() }
+                            else if d.seasons.get(d.cur_season).is_some_and(|s|crate::metadata::series_catalog::synthetic_season(&s.rk)) { "Missing season · Press OK on the season to request episodes" }
+                            else { "" };
+                        if !hint.is_empty() { crate::ui::text_view::TextView::new(hint,theme::size::CAPTION,theme::TEXT_SECONDARY)
+                            .with_measure(measure).max_lines(1).draw(below_hero,Rect::new(crate::ui::consts::MARGIN_X,top-40.0,1600.0,32.0)); }
                         episodes::draw(
                             below_hero,
                             d,
@@ -2900,6 +2906,11 @@ impl DetailScreen {
         self.pump_restore(meta, fx);
         let d = self.detail(meta);
         let loaded = d.is_some();
+        if d.is_some_and(|d|d.is_show && !d.series_attempted) {
+            fx.push(Fx::App(AppFx::Store(StoreId::Metadata, StoreCmd::Metadata(MetadataCmd::SeriesCatalog {
+                sid:self.sid,rk:self.rk.clone(),action:crate::metadata::series_catalog::Action::Read,
+            }))));
+        }
         if let Some(d) = d {
             self.season_metrics.update(d, cx.measure);
             self.about_rows.update(d);
@@ -3401,6 +3412,10 @@ impl DetailScreen {
         match self.locate(elem, meta) {
             Some(Located::Hero(ctl)) => self.activate_hero(ctl, cx, fx, meta),
             Some(Located::Season(i)) => {
+                if let Some(s)=self.detail(meta).and_then(|d|d.seasons.get(i)).filter(|s|crate::metadata::series_catalog::synthetic_season(&s.rk)) {
+                    fx.push(Fx::App(AppFx::Store(StoreId::Metadata, StoreCmd::Metadata(MetadataCmd::SeriesCatalog {sid:self.sid,rk:self.rk.clone(),
+                        action:crate::metadata::series_catalog::Action::Request {season:s.index,episode:None}}))));
+                }
                 // A direct press skips the dwell entirely — pre-loading `season_settle` past the
                 // threshold fires on the very NEXT `tick` rather than after a full `SETTLE_S`.
                 self.pending_season = Some(i);
@@ -3412,6 +3427,10 @@ impl DetailScreen {
                     .map(|d| episodes::action(d, local, meta.season_loading()))
                     .unwrap_or(episodes::Action::None);
                 match action {
+                    episodes::Action::Request(season,episode) => {
+                        fx.push(Fx::App(AppFx::Store(StoreId::Metadata, StoreCmd::Metadata(MetadataCmd::SeriesCatalog {sid:self.sid,rk:self.rk.clone(),
+                            action:crate::metadata::series_catalog::Action::Request {season,episode:Some(episode)}}))));
+                    }
                     episodes::Action::Play(i) => {
                         self.play_episode_at(i, false, fx, meta);
                     }
@@ -3596,7 +3615,7 @@ impl DetailScreen {
             match i {
                 Some(i) => self.play_episode_at(i, from_start, fx, meta),
                 None => self.play_episode_value(
-                    hero::hero_episode(d).or_else(|| d.episodes.first()),
+                    hero::hero_episode(d).or_else(|| crate::metadata::series_catalog::first_local_episode(d)),
                     d,
                     from_start,
                     fx,
@@ -3635,7 +3654,7 @@ impl DetailScreen {
         from_start: bool,
         fx: &mut Effects<'_, H>,
     ) -> bool {
-        let Some(ep) = episode else { return false };
+        let Some(ep) = episode.filter(|e| !crate::metadata::series_catalog::missing(e)) else { return false };
         // Clone the complete command/request payload before the store write. `Detail` and
         // `Episode` live in the metadata store's replaceable slot; no borrow of either may cross a
         // mutation, even when this particular command currently replaces only NowPlaying.

@@ -156,11 +156,11 @@ pub(crate) fn fetch(req: &Request) -> Option<Page> {
             })
             .collect::<Vec<_>>();
         if !items.is_empty() {
-            page.rows.push(Shelf {
+            page.rows.insert(0, Shelf {
                 kind: Kind::Person,
                 items,
             });
-            page.headings.push(format!("Cast of {}", req.name));
+            page.headings.insert(0, format!("Cast of {}", req.name));
         }
     } else {
         let key=match &req.seed {Some(DiscoverySeed::Hub{key})=>Some(key.as_str()),_=>None};

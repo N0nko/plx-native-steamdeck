@@ -6,6 +6,7 @@ use std::os::raw::c_int;
 pub(crate) mod record;
 mod versions;
 pub(crate) mod preplay;
+pub(crate) mod series_catalog;
 pub(crate) use versions::{collect_versions, version_episode, version_target, MediaVersion};
 
 use std::panic::catch_unwind;
@@ -123,6 +124,7 @@ pub(crate) struct MetadataAdapter {
     season_done: std::sync::atomic::AtomicU32,
     season_result: std::sync::Mutex<Option<SeasonResult>>,
     tracker: std::sync::Mutex<record::Tracker>,
+    series: std::sync::Mutex<series_catalog::Controller>,
     /// TEST ONLY: the detail fetches [`request_detail`] admitted, parked here instead of on a
     /// worker thread — see [`MetadataAdapter::run_held_detail_fetches_for_test`].
     #[cfg(test)]
@@ -144,6 +146,7 @@ impl Default for MetadataAdapter {
             season_done: std::sync::atomic::AtomicU32::new(0),
             season_result: std::sync::Mutex::new(None),
             tracker: std::sync::Mutex::new(record::Tracker::new(false)),
+            series: std::sync::Mutex::new(series_catalog::Controller::default()),
             #[cfg(test)]
             held_detail: std::sync::Mutex::new(Vec::new()),
         }
@@ -1210,6 +1213,12 @@ fn convert_ratings(it: &crate::plex::Metadata) -> Vec<Rating> {
 #[derive(Default, Clone)]
 #[derive(serde::Serialize, serde::Deserialize)]
 pub(crate) struct Detail {
+    #[serde(default)]
+    pub(crate) series_catalog: Option<series_catalog::Catalog>,
+    #[serde(default)]
+    pub(crate) series_attempted: bool,
+    #[serde(default)]
+    pub(crate) series_notice: String,
     pub(crate) preview_part_id: Option<i64>,
     #[serde(default)]
     pub(crate) versions: Vec<MediaVersion>,
@@ -1747,7 +1756,7 @@ fn fetch_detail(sid: crate::plex::ServerId, rk: &str) -> Option<(Detail, String)
     let media0 = it.primary_media();
     // one read, both fields (see `Detail::blur`)
     let blur = it.ultra_blur_colors.and_then(|u| u.corners());
-    let mut d = Detail { preview_part_id: media0.and_then(|m| m.part.first()).and_then(|p| p.preview_part_id()),
+    let mut d = Detail { series_catalog:None,series_attempted:false,series_notice:String::new(),preview_part_id: media0.and_then(|m| m.part.first()).and_then(|p| p.preview_part_id()),
         sid,
         rk: rk.to_string(),
         // the portable identity — what "Also available" resolves across the other sources
@@ -2797,6 +2806,7 @@ pub(crate) fn run(state: &mut MetadataState, adapter: &std::sync::Arc<MetadataAd
             request_detail(adapter, sid, &rk);
             true
         }
+        MetadataCmd::SeriesCatalog { sid, rk, action } => series_catalog::request(state,adapter,sid,&rk,action),
         MetadataCmd::SetPreplay { sid, rk, part, choice } => preplay::set(state, sid, &rk, &part, choice),
         MetadataCmd::SelectVersion { sid, rk, part } => versions::select_version(state, sid, &rk, &part),
         MetadataCmd::Clear => {
@@ -3602,6 +3612,11 @@ fn load_season(state: &mut MetadataState, adapter: &std::sync::Arc<MetadataAdapt
     if let Some(d) = state.current.as_mut() {
         d.cur_season = idx;
     }
+    if series_catalog::synthetic_season(&season_rk) {
+        supersede_season(adapter);
+        if let Some(d)=state.current.as_mut() { d.episodes.clear(); series_catalog::merge_episodes(d); }
+        return;
+    }
     let gen = adapter.season_gen.fetch_add(1, Ordering::SeqCst) + 1;
     let adapter_worker = std::sync::Arc::clone(adapter);
     let spawned = crate::task::spawn_small("season", move || {
@@ -3634,6 +3649,11 @@ fn load_season_now(state: &mut MetadataState, adapter: &MetadataAdapter, idx: us
         // `open_rk_season`'s chained play of `episodes[0]` launches — the WRONG season's first
         // episode under the requested season's name — and that path has no host coverage and needs
         // the full on-device suite. Deferred deliberately.
+        if series_catalog::synthetic_season(&season_rk) {
+            supersede_season(adapter);
+            if let Some(d)=state.current.as_mut() { d.episodes.clear(); d.cur_season=idx; series_catalog::merge_episodes(d); }
+            return;
+        }
         let eps = fetch_episodes(sid, &season_rk).unwrap_or_default();
         supersede_season(adapter); // drop any async fetch in flight; this synchronous list wins
         if let Some(d) = state.current.as_mut() {
@@ -3686,6 +3706,7 @@ pub(crate) fn pump_season_with_gate(state: &mut MetadataState, adapter: &Metadat
         Some(eps) => {
             d.episodes = eps;
             d.cur_season = r.idx;
+            series_catalog::merge_episodes(d);
             true
         }
         None => {

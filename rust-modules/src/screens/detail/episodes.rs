@@ -58,6 +58,7 @@ pub(crate) fn locate(key: u32) -> Option<(usize, Row)> {
 pub(crate) enum Action {
     None,
     Play(usize),
+    Request(i64,i64),
     OpenDetail(crate::plex::ServerId, String),
 }
 
@@ -71,6 +72,9 @@ pub(crate) fn action(d: &Detail, key: u32, loading: bool) -> Action {
     let Some(ep) = d.episodes.get(i) else {
         return Action::None;
     };
+    if crate::metadata::series_catalog::missing(ep) {
+        return if crate::metadata::series_catalog::requestable(d,ep.season,Some(ep.index)) { Action::Request(ep.season,ep.index) } else { Action::None };
+    }
     match row {
         Row::Still => Action::Play(i),
         Row::Text => Action::OpenDetail(d.sid, ep.rk.clone()),
@@ -254,7 +258,7 @@ fn draw_cell(
     let still_focused = row == Some(Row::Still);
     let card = Rect::new(x, 0.0, W, H);
     widgets::draw_card(
-        p,
+        p.alpha(if crate::metadata::series_catalog::missing(ep) {0.45} else {1.0}),
         card,
         d.sid,
         &ep.thumb,
@@ -268,7 +272,8 @@ fn draw_cell(
     } else {
         card
     };
-    let st = state(ep);
+    let mut st = state(ep);
+    if crate::metadata::series_catalog::missing(ep) { st.glyph=Glyph::None; st.label=crate::metadata::series_catalog::status(d,ep).into(); }
     widgets::art_scrim(
         p,
         drawn,
@@ -491,5 +496,19 @@ mod tests {
                 .x
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod missing_tests {
+    use super::*;
+    #[test]
+    fn unavailable_episode_requests_only_its_number_and_never_opens_a_fake_library_key() {
+        let mut d=Detail {episodes:vec![Episode {rk:"missing:2:4".into(),season:2,index:4,..Default::default()}],..Default::default()};
+        d.series_catalog=Some(crate::metadata::series_catalog::Catalog {episodes:vec![crate::metadata::series_catalog::Row {
+            season:2,number:4,title:"Episode".into(),summary:String::new(),aired:String::new(),state:"Missing".into()}]});
+        for row in [Row::Still,Row::Text] { assert_eq!(action(&d,elem(0,row).unwrap(),false),Action::Request(2,4)); }
+        d.series_catalog.as_mut().unwrap().episodes[0].state="Not aired".into();
+        assert_eq!(action(&d,elem(0,Row::Still).unwrap(),false),Action::None);
     }
 }

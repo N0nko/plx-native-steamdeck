@@ -1,0 +1,59 @@
+{
+  "group": "3-playback-details-watchlist",
+  "description": "Mock-only acquisition fixture. Start in a seeded series with owned S2E1, missing aired S2E2, missing S1, and unaired S3. Point its private companion pairing at the controlled TLS fixture. Never run write steps on the household pairing.",
+  "steps": [
+    {
+      "name": "01-season-preview",
+      "before": "detail",
+      "after": "detail",
+      "keys": [
+        "DOWN",
+        "LEFT"
+      ],
+      "settle": 3,
+      "covers": [
+        "missing-season-episodes"
+      ],
+      "review": "Missing season is muted but focusable; episode metadata appears without blocking the hero. Hover produces GET only."
+    },
+    {
+      "name": "02-request-season",
+      "before": "detail",
+      "after": "detail",
+      "keys": [
+        "OK"
+      ],
+      "settle": 3,
+      "covers": [
+        "missing-season-episodes"
+      ],
+      "review": "Mock receives only POST /v1/request-episodes with exact show and season. Repeated OK is deduplicated; other seasons and existing files remain untouched."
+    },
+    {
+      "name": "03-request-episode",
+      "before": "detail",
+      "after": "detail",
+      "keys": [
+        "DOWN",
+        "RIGHT",
+        "OK"
+      ],
+      "settle": 3,
+      "covers": [
+        "missing-season-episodes"
+      ],
+      "review": "Mock receives explicit episode number. Missing cards never issue a Plex playback request; unaired cards do not acquire."
+    },
+    {
+      "name": "04-episode-repair",
+      "before": "detail",
+      "after": "detail",
+      "keys": [],
+      "settle": 1,
+      "covers": [
+        "repair-season-gaps"
+      ],
+      "review": "Select Repair for seeded owned S2E1 in fixture: verify existing Replace request plus missing-only EpisodeSearch for S2E2. No search of S1 or unaired S3."
+    }
+  ]
+}

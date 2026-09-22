@@ -1,0 +1,21 @@
+{
+  "group": "1-home-movies-tv",
+  "description": "Setup: Movies library, first shelf selected. Read-only browsing; no playback or account writes.",
+  "steps": [
+    {
+      "name": "01-library-rails",
+      "before": "library",
+      "after": "library",
+      "keys": [
+        "DOWN",
+        "DOWN",
+        "DOWN"
+      ],
+      "settle": 1,
+      "covers": [
+        "library-rail-hygiene"
+      ],
+      "review": "No Recently Watched row or single-title cast/director row. Recently Added, Continue Watching and explicit collections remain, even if a collection has only one title."
+    }
+  ]
+}

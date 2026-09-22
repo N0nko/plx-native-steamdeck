@@ -170,7 +170,7 @@ pub(crate) fn version_episode(d: &Detail) -> Option<&super::Episode> {
         .on_deck
         .as_ref()
         .filter(|_| started)
-        .or_else(|| d.episodes.first())?;
+        .or_else(|| super::series_catalog::first_local_episode(d))?;
     d.episodes
         .iter()
         .find(|other| other.rk == ep.rk)

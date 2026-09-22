@@ -46,7 +46,7 @@ pub(super) const OWNER_FLOOR: f32 = 0.02;
 const BLINK_MS: u32 = 530;
 const BLINK_US: u32 = BLINK_MS * 1000;
 
-pub(crate) const SHAPE: &str = "SearchScreen{custom_v1:{keypad_open:bool,numeric:bool,filter:u64,multitap:pending_echo,discovery:owned_pages_trail_v4_provider_hub_seed_directory,shown:rows,base_rows:u64},entry:u32,instance:u32,draft:{text:str,caret:u64,profile:u32,pending:bool},mounted:bool,editing:bool,blink_us:u32,hot:Spring,scroll:Spring,scroll_target:f32,next_elem:u32,query_gen:u32,recent_clear_pending:bool,content_dirty:bool,fade:Xfade,ground:PageGround,owner_row:Option<u64>,owner:str,owner_alpha:Spring,restored:Option<SearchMemory>,keys:[SearchKey],recents:[u32],rows:[{kind:u32,group:u32,elems:[u32],motion:CardRow}]}";
+pub(crate) const SHAPE: &str = "SearchScreen{custom_v1:{keypad_open:bool,numeric:bool,filter:u64,multitap:pending_echo,discovery:owned_context_branches_v5_dwell_two_seconds,shown:rows,base_rows:u64},entry:u32,instance:u32,draft:{text:str,caret:u64,profile:u32,pending:bool},mounted:bool,editing:bool,blink_us:u32,hot:Spring,scroll:Spring,scroll_target:f32,next_elem:u32,query_gen:u32,recent_clear_pending:bool,content_dirty:bool,fade:Xfade,ground:PageGround,owner_row:Option<u64>,owner:str,owner_alpha:Spring,restored:Option<SearchMemory>,keys:[SearchKey],recents:[u32],rows:[{kind:u32,group:u32,elems:[u32],motion:CardRow}]}";
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 enum Identity {
@@ -246,7 +246,10 @@ impl SearchScreen {
         let root=if self.real_query(){crate::discovery::Page::search(view.shelves())}else{self.discovery.home.clone().unwrap_or_default()};
         self.shown=self.discovery.page.as_ref().unwrap_or(&root).filter(if self.real_query() {self.filter} else {0});
         self.base_rows=self.shown.rows.len();
-        if self.context_enabled() { if let Some(preview)=&self.discovery.preview {let p=preview.filter(self.filter);self.shown.rows.extend(p.rows);self.shown.headings.extend(p.headings);} }
+        if self.context_enabled() {
+            for level in &self.discovery.levels { self.shown.rows.extend(level.page.rows.clone()); self.shown.headings.extend(level.page.headings.clone()); }
+            if let Some(preview)=&self.discovery.preview { self.shown.rows.extend(preview.rows.clone()); self.shown.headings.extend(preview.headings.clone()); }
+        }
         if !self.shown.rows.is_empty(){self.recents.clear();}
         let shown=std::mem::take(&mut self.shown);
         let mut index: std::collections::HashMap<_, _> = self.keys.iter().enumerate()
@@ -316,6 +319,7 @@ impl SearchScreen {
         if self.filters_visible() && (keypad::FILTER_BASE..keypad::FILTER_BASE+3).contains(&elem) {
             if self.discovery.home_failed{self.discovery.home_requested=false;}
             self.filter=(elem-keypad::FILTER_BASE) as usize;self.scroll_target=0.0;
+            self.discovery.levels.clear(); self.discovery.pending_from=None;
             if self.filter == 0 { self.discovery.page=None; self.discovery.trail.clear(); }
             self.discovery.preview=None;self.discovery.pending=None;self.discovery.request=None;self.discovery.serial=self.discovery.serial.wrapping_add(1);self.content_dirty=true;
             if self.discovery.page.is_none() {
@@ -472,13 +476,8 @@ impl<H: SearchLike> Machine<H> for SearchScreen {
                         self.reseat(FocusTarget::Elem(self.key(crate::ui::dispatch::STRIP_BASE + 3)), fx);
                         return Handled::Yes;
                     }
-                    if *key==Key::Down && !self.keypad_open {
-                        if let Some(focus)=cx.focus.current {if self.rows.get(self.base_rows.saturating_sub(1)).is_some_and(|r|r.elems.contains(&focus.elem)) && self.discovery.pending.is_some() {
-                            if !self.discover_enter(0,0,focus.elem,fx){self.discovery.pending_down=Some(focus.elem);if self.discovery.failed{self.discovery.failed=false;self.discovery.request=None;}}
-                            self.sync(cx,false,fx);return Handled::Yes;
-                        }}
-                    }
                     if *key == Key::Back {
+                        if self.context_back(cx.focus.current, fx) { return Handled::Yes; }
                         if self.discover_back(fx){self.sync(cx,false,fx);return Handled::Yes;}
                         fx.push(Fx::App(AppFx::Search(SearchReq::Back)));
                         return Handled::Yes;
@@ -498,21 +497,7 @@ impl<H: SearchLike> Machine<H> for SearchScreen {
                     || self.editing && to.elem != FIELD {
                     self.keyboard(false, true, fx);
                 }
-                // Pointer and geometric focus can enter an appended context without the Down
-                // key handler. Promote it too, so its cards can seed the next discovery tier.
-                if let Some((row, col)) = self.rows.iter().enumerate().skip(self.base_rows)
-                    .find_map(|(row, r)| r.elems.iter().position(|e| *e == to.elem).map(|col| (row, col))) {
-                    let origin = from.filter(|key| key.entry == self.entry && self.rows.iter()
-                        .take(self.base_rows).any(|r| r.elems.contains(&key.elem)))
-                        .map(|key| key.elem)
-                        .or_else(|| self.rows.get(self.base_rows.saturating_sub(1))?.elems.first().copied());
-                    if let Some(origin) = origin {
-                        if self.discover_enter(row - self.base_rows, col, origin, fx) {
-                            self.sync(cx, false, fx);
-                            return Handled::Yes;
-                        }
-                    }
-                }
+                // Context rows stay in the same vertical document; focus never promotes a page.
                 self.reveal(*to, cx);
                 fx.invalidate(Provenance::Input);
             }

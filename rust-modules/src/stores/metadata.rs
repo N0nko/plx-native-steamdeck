@@ -152,6 +152,7 @@ use super::StoreEv;
 pub(crate) enum MetadataCmd {
     /// Supersede any in-flight load and fetch `(sid, rk)` off-thread; lands through `pump_detail`.
     RequestDetail { sid: ServerId, rk: String },
+    SeriesCatalog { sid: ServerId, rk: String, action: crate::metadata::series_catalog::Action },
     /// Select a stored file on the mounted item, its on-deck leaf or an episode row.
     SelectVersion { sid: ServerId, rk: String, part: String },
     /// Local pre-play preference only; validated against the mounted file's own streams.
@@ -302,7 +303,8 @@ impl MetadataStore {
 
     /// The async season landing alone — `app/run.rs`'s own call site, pumped after detail.
     pub(crate) fn pump_season_with_gate(&mut self, gate: &crate::ui::landgate::Gate) -> bool {
-        let changed = crate::metadata::pump_season_with_gate(&mut self.state, &self.adapter, gate);
+        let changed = crate::metadata::pump_season_with_gate(&mut self.state, &self.adapter, gate)
+            | crate::metadata::series_catalog::pump(&mut self.state, &self.adapter, gate);
         if changed { self.bump(); }
         changed
     }

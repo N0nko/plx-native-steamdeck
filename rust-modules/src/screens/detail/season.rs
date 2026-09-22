@@ -76,6 +76,7 @@ pub(crate) struct Metrics {
     dirty: bool,
     fingerprint: u64,
     lays: Vec<StripLay>,
+    missing: Vec<bool>,
 }
 
 impl Metrics {
@@ -84,6 +85,7 @@ impl Metrics {
             dirty: true,
             fingerprint: 0,
             lays: Vec::new(),
+            missing: Vec::new(),
         }
     }
 
@@ -108,6 +110,7 @@ impl Metrics {
             return;
         }
         self.fingerprint = fp;
+        self.missing=d.seasons.iter().map(|s|crate::metadata::series_catalog::synthetic_season(&s.rk)).collect();
         self.lays = widgets::strip_layout_measured(
             d.seasons.iter().map(|season| {
                 if season.title.is_empty() {
@@ -157,7 +160,7 @@ pub(crate) fn draw(
     let p = p.translate(-scroll, 0.0);
     tabs.draw(p, 0.0, ROW_H, TabGround::Plated { pop });
     let env = Env::inert();
-    for lay in metrics.lays() {
+    for (index,lay) in metrics.lays().iter().enumerate() {
         let pill = widgets::strip_pill_rect(lay, 0.0, ROW_H);
         if !on_axis(pill.x - scroll, pill.w, crate::ui::consts::SCR_W, 0.0) {
             continue;
@@ -166,7 +169,7 @@ pub(crate) fn draw(
         TabPill::new(lay.label.as_ptr(), theme::size::BODY, pill)
             .plated()
             .mix(fm, sm)
-            .draw(&env, p);
+            .draw(&env, p.alpha(if metrics.missing.get(index)==Some(&true) && focused!=Some(index) {0.5} else {1.0}));
     }
     let _ = (selected, focused);
 }

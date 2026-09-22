@@ -726,7 +726,7 @@ pub(crate) fn parse_hubs(mc: &crate::plex::MediaContainer, sid: ServerId) -> Vec
             .filter(|m| !m.title.is_empty() && !m.thumb.is_empty())
             .take(MAX_SHELF_ITEMS)
             .collect();
-        if items.is_empty() {
+        if items.is_empty() || !crate::pms::keep_library_shelf(&hub.hub_identifier,items.len()) {
             continue;
         }
         if hub.title.is_empty() {

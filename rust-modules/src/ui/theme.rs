@@ -306,6 +306,8 @@ pub mod logo {
 /// control: the warm off-white is [`WASH_WARM`], a page ground; the cool plate is
 /// [`SURFACE_QR_PLATE`], a scan surface.
 pub const ACCENT: [f32; 4] = COOL_0;
+/// Selected search tab under the cursor: a slight dim from its resting white.
+pub const TAB_SELECTED_HOVER: [f32; 4] = COOL_150;
 /// Near-black ink/glyphs drawn over [`ACCENT`].
 pub const ACCENT_INK: [f32; 4] = NEUTRAL_950;
 /// Alias for [`ACCENT_INK`] read from the "ink over accent" intent. The one legitimate alias in this

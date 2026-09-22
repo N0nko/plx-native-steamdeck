@@ -1307,8 +1307,8 @@ fn controls<H:SearchLike>(screen:&SearchScreen,f:&mut DrawFrame<'_, '_, H>){
     let _clip=f.clip(p,clip);
     let mut draw=|elem:u32,label:&str,rect:Rect,selected:bool|{
         let label=cstring(label);let focused=f.cx.focus.current==Some(screen.key(elem));
-        let mut button=Button::new(label.as_ptr(),theme::size::LABEL,rect).style(crate::ui::widgets::ControlStyle::Glass).focused(focused);
-        if selected { button=button.trailing_icon(crate::ui::icons::Icon::Check); }
+        let style = if selected { crate::ui::widgets::ControlStyle::Custom { fill: if focused { theme::TAB_SELECTED_HOVER } else { theme::ACCENT }, ink: theme::ACCENT_INK } } else { crate::ui::widgets::ControlStyle::Glass };
+        let button=Button::new(label.as_ptr(),theme::size::LABEL,rect).style(style).focused(focused);
         button.draw(&Env::inert(),p);
         f.stop(p,Stop{key:screen.key(elem),rect,rest_rect:rect,clip,hover:Hover::Focus,activate:Activate::Immediate});
     };

@@ -987,10 +987,11 @@ fn discovery_feeds_keep_separate_identity_and_reject_retired_profile_landings(){
  assert_eq!(screen.shown.rows.len(),2);drop(session);
 }
 #[test]
-fn contextual_back_restores_the_previous_page_and_rejects_late_preview(){
+fn directory_back_restores_the_previous_page_and_rejects_late_preview(){
  let _serial=crate::testlock::serial();let session=remembering("custom-context",&[]);let mut fixture=Fixture::new();fixture.query("seed").shelves(vec![shelf(Kind::Movie,"local",2)]);let mut screen=fixture.screen(); screen.filter=1;
  let focus=screen.rows[0].elems[1];let page=crate::discovery::Page{label:"Related title".into(),rows:vec![shelf(Kind::Movie,"related",2)],headings:vec!["More like title".into()]};screen.discovery.preview=Some(page);
  let mut out=vec![];let mut present=Present::new();let mut fx=Effects::<HostFixture>::new(&mut out,MachineId::Instance(INSTANCE),&mut present);
+ screen.discovery.request=Some(crate::discovery::Request {profile:screen.draft.profile(),serial:1,seed:Some(crate::plex::catalog::DiscoverySeed::Hub{key:"/hubs".into()}),name:"Browse".into(),sid:crate::plex::ServerId::UNSET});
  assert!(screen.discover_enter(0,0,focus,&mut fx));screen.sync(&fixture.cx(None),false,&mut fx);assert_eq!(screen.shown.label,"Related title");
  assert!(screen.discover_back(&mut fx));screen.sync(&fixture.cx(None),false,&mut fx);assert_eq!(screen.shown.label,"Search results");assert!(screen.rows[0].elems.contains(&focus));
  let stale=crate::discovery::Reply{request:crate::discovery::Request{profile:screen.draft.profile(),serial:screen.discovery.serial.wrapping_sub(1),seed:Some(crate::plex::catalog::DiscoverySeed::Title{id:"0123456789abcdef01234567".into()}),name:"stale".into(),sid:crate::plex::ServerId::UNSET},page:Some(crate::discovery::Page{label:"late".into(),..Default::default()})};
@@ -1057,7 +1058,7 @@ fn leaving_keyboard_closes_it_and_filters_roundtrip_to_results() {
 }
 
 #[test]
-fn pointer_entered_context_promotes_and_filter_keeps_the_trail() {
+fn pointer_entered_context_preserves_the_search_row() {
     let _serial = crate::testlock::serial();
     let mut fixture = Fixture::new();
     fixture.query("seed").shelves(vec![shelf(Kind::Movie, "base", 2)]);
@@ -1073,12 +1074,14 @@ fn pointer_entered_context_promotes_and_filter_keeps_the_trail() {
     deliver(&mut screen, &fixture, Some(to), ScreenEvent::FocusMoved {
         from: Some(from), to, by: By::Pointer,
     });
-    assert_eq!(screen.shown.label, "Next tier");
-    assert_eq!(screen.base_rows, screen.rows.len());
-    assert_eq!(screen.discovery.trail.len(), 1);
+    assert_eq!(screen.shown.label, "Search results");
+    assert_eq!(screen.base_rows, 1);
+    assert_eq!(screen.rows.len(), 2);
+    assert!(screen.rows[0].elems.contains(&from.elem));
+    assert!(screen.discovery.trail.is_empty());
     deliver(&mut screen, &fixture, None, ScreenEvent::Activate(keypad::FILTER_BASE + 1));
-    assert_eq!(screen.discovery.trail.len(), 1);
-    assert!(screen.discovery.page.is_some());
+    assert!(screen.discovery.trail.is_empty());
+    assert!(screen.discovery.page.is_none());
 }
 
 #[test]
@@ -1107,4 +1110,27 @@ fn search_and_filters_connect_horizontally_without_trapping_filter_navigation() 
     assert_eq!(step_dir(&mut screen,&fixture,&mut engine,Dir::Right),Some(screen.key(keypad::FILTER_BASE+1)));
     assert_eq!(step_dir(&mut screen,&fixture,&mut engine,Dir::Left),Some(screen.key(keypad::FILTER_BASE)));
     assert_eq!(step_dir(&mut screen,&fixture,&mut engine,Dir::Left),Some(screen.key(FIELD)));
+}
+
+#[test]
+fn context_waits_two_seconds_even_when_cached_and_keeps_cast_before_similar() {
+    let _serial=crate::testlock::serial();
+    let mut fixture=Fixture::new();
+    let mut base=shelf(Kind::Movie,"base",2);
+    let guid="0123456789abcdef01234567";
+    if let Item::Media(m)=&mut base.items[0] { m.guid=format!("plex://movie/{guid}"); }
+    fixture.query("seed").shelves(vec![base]);
+    let mut screen=fixture.screen(); screen.filter=1; screen.editing=false;
+    let focus=screen.key(screen.rows[0].elems[0]);
+    screen.discovery.cache.push((crate::plex::catalog::DiscoverySeed::Title{id:guid.into()},crate::discovery::Page {
+        rows:vec![shelf(Kind::Person,"cast",2),shelf(Kind::Movie,"similar",2)],headings:vec!["Cast".into(),"More like".into()],..Default::default() }));
+    deliver(&mut screen,&fixture,Some(focus),ScreenEvent::Tick(Tick {ms:1999,dt_us:1_999_999}));
+    assert!(screen.discovery.levels.is_empty()); assert!(screen.discovery.request.is_none());
+    deliver(&mut screen,&fixture,Some(focus),ScreenEvent::Tick(Tick {ms:2000,dt_us:1}));
+    assert_eq!(screen.discovery.levels.len(),1); assert_eq!(screen.rows.len(),3);
+    assert_eq!(screen.shown.rows[1].kind,Kind::Person); assert_eq!(screen.shown.headings[2],"More like");
+    assert_eq!(screen.key(screen.rows[0].elems[0]),focus);
+    let child=screen.key(screen.rows[2].elems[0]);
+    deliver(&mut screen,&fixture,Some(child),ScreenEvent::FocusMoved {from:Some(focus),to:child,by:By::Dir});
+    assert_eq!(screen.rows.len(),3); assert_eq!(screen.base_rows,1);
 }

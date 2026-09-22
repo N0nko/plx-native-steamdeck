@@ -86,3 +86,5 @@ mod tests {
         }
     }
 }
+
+pub(crate) mod pairing;

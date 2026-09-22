@@ -4,44 +4,11 @@
 use crate::media_companion::{Action, Key, Request, Snapshot};
 use crate::ui::machine::InstanceId;
 use serde::Deserialize;
-use std::io::Read;
+use crate::media_companion::pairing::read_pairing;
+#[cfg(test)]
+use crate::media_companion::pairing::Pairing;
 use std::sync::mpsc::{self, Receiver, TryRecvError};
 use std::time::{Duration, Instant};
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Pairing {
-    host: String,
-    port: i32,
-    token: String,
-    machine_id: String,
-    #[serde(default)]
-    tls_pin: String,
-}
-impl Pairing {
-    fn valid(&self) -> bool {
-        let local = self
-            .host
-            .parse::<std::net::Ipv4Addr>()
-            .is_ok_and(|ip| ip.is_private() || ip.is_loopback());
-        local
-            && (1..=65535).contains(&self.port)
-            && self.token.len() >= 48
-            && self.token.bytes().all(|b| b.is_ascii_hexdigit())
-            && !self.machine_id.is_empty()
-            && self.machine_id.bytes().all(|b| b.is_ascii_alphanumeric())
-            && valid_pin(&self.tls_pin)
-    }
-}
-fn valid_pin(pin: &str) -> bool {
-    pin.strip_prefix("sha256//").is_some_and(|p| {
-        p.len() == 44
-            && p.ends_with('=')
-            && p[..43]
-                .bytes()
-                .all(|b| b.is_ascii_alphanumeric() || b == b'+' || b == b'/')
-    })
-}
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
 pub(crate) enum Health {
@@ -74,6 +41,7 @@ impl Health {
 #[derive(Deserialize, Default)]
 struct Reply {
     state: Health,
+    season_gaps: Option<String>,
     #[serde(default)]
     can_repair: bool,
     #[serde(default)]
@@ -122,6 +90,7 @@ impl Reply {
         }
     }
     fn label(&self) -> String {
+        if self.state == Health::Queued && self.season_gaps.as_deref()==Some("unconfirmed") { return "Queued · gaps unknown".into(); }
         if self.state == Health::Ready {
             return "Ready".into();
         }
@@ -175,51 +144,6 @@ fn fresh(at: Option<Instant>, now: Instant) -> bool {
 fn status_fresh(at: Option<Instant>, now: Instant) -> bool {
     // Accommodate the 30-second wait cadence plus the bounded 15-second HTTP request.
     at.is_some_and(|at| now.saturating_duration_since(at) < Duration::from_secs(60))
-}
-
-fn read_pairing() -> Option<Pairing> {
-    // Preserve the original fork's path; also accept the new persistent state root. Never copy
-    // credentials into the source tree or convert a bad pairing into an unpinned connection.
-    let paths = [
-        crate::paths::persistent_state_root().join("media-companion.json"),
-        crate::paths::in_app_dir("state").join("media-companion.json"),
-    ];
-    for path in paths {
-        let mut options = std::fs::OpenOptions::new();
-        options.read(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            options.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
-        }
-        let Ok(file) = options.open(path) else {
-            continue;
-        };
-        let Ok(meta) = file.metadata() else {
-            continue;
-        };
-        if !meta.is_file() || meta.len() > 16_384 {
-            continue;
-        }
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            if meta.permissions().mode() & 0o077 != 0 {
-                continue;
-            }
-        }
-        let mut bytes = Vec::new();
-        if file.take(16_385).read_to_end(&mut bytes).is_err() || bytes.len() > 16_384 {
-            continue;
-        }
-        let Ok(pairing) = serde_json::from_slice::<Pairing>(&bytes) else {
-            continue;
-        };
-        if pairing.valid() {
-            return Some(pairing);
-        }
-    }
-    None
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

@@ -17,7 +17,7 @@
         "filters",
         "filter-focus-policy"
       ],
-      "review": "Query da shows centered Top Results/Movies/TV Shows. Selected tab has a checkmark; cursor has the focus pill."
+      "review": "Query da shows centered Top Results/Movies/TV Shows. Selected tab remains white and dims slightly when focused. No checkmark. Other tabs retain glass focus."
     },
     {
       "name": "02-field-horizontal-roundtrip",

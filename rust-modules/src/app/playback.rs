@@ -373,7 +373,7 @@ pub(crate) fn request_loaded_hero(ps: &mut crate::route::PlaybackSession, meta: 
         let started = d.on_deck.as_ref().is_some_and(|e| e.resume_ms > 0)
             || d.seasons.iter().any(|s| s.viewed_leaf_count > 0);
         let ep = (if started { d.on_deck.as_ref() } else { None })
-            .or_else(|| d.episodes.first())?
+            .or_else(|| crate::metadata::series_catalog::first_local_episode(&d))?
             .clone();
         request_episode(ps, meta, &d, &ep).then(|| crate::metadata::resume_ns(ep.resume_ms, ep.dur_ms))
     } else {
@@ -390,6 +390,7 @@ pub(crate) fn request_loaded_episode(ps: &mut crate::route::PlaybackSession, met
 }
 
 fn request_episode(ps: &mut crate::route::PlaybackSession, meta: &mut crate::stores::metadata::MetadataStore, d: &crate::metadata::Detail, ep: &crate::metadata::Episode) -> bool {
+    if crate::metadata::series_catalog::missing(ep) { return false; }
     meta.run(crate::stores::metadata::MetadataCmd::SetNowPlaying(Some(crate::metadata::NowPlaying {
         is_episode: true, is_real_episode: true, title: d.title.clone(), ep_title: ep.title.clone(),
         season: ep.season, index: ep.index, summary: ep.summary.clone(),

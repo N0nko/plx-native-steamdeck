@@ -362,7 +362,7 @@
   {
     "group": "2-search-discover",
     "id": "filter-focus-policy",
-    "title": "Filters only while typing; selected checkmark differs from focus; horizontal field handoff"
+    "title": "Selected tab stays white, dims on focus, no checkmark; horizontal field handoff"
   },
   {
     "group": "3-playback-details-watchlist",
@@ -393,5 +393,25 @@
     "group": "3-playback-details-watchlist",
     "id": "repair-artwork",
     "title": "Repair uses the supplied two-arrow design with the app stroke weight"
+  },
+  {
+    "group": "2-search-discover",
+    "id": "context-dwell-branches",
+    "title": "Two-second dwell, cast then similar, ancestors retained, sibling branch replacement and Back"
+  },
+  {
+    "group": "3-playback-details-watchlist",
+    "id": "missing-season-episodes",
+    "title": "Background season catalog, muted missing cards, exact episode or season request, no writes on hover"
+  },
+  {
+    "group": "3-playback-details-watchlist",
+    "id": "repair-season-gaps",
+    "title": "Episode Repair preserves selected replacement and requests only aired gaps in that season"
+  },
+  {
+    "group": "1-home-movies-tv",
+    "id": "library-rail-hygiene",
+    "title": "No Recently Watched or single-title actor/director shelves; Continue Watching and collections preserved"
   }
 ]

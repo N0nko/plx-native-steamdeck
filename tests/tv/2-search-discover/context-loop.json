@@ -1,6 +1,6 @@
 {
   "group": "2-search-discover",
-  "description": "Setup: focus the last base result shelf in a typed search with Movies or TV Shows selected (never Top Results or empty Discover) with related titles/cast already loaded. Capture each tier; verify headings change and Back restores its parent. No acquisition actions.",
+  "description": "Setup: typed Movies/TV Shows search with a catalog-linked title selected. Hold each title for two seconds: cast appears first, similar titles below; all ancestor rows remain. No acquisition actions.",
   "steps": [
     {
       "name": "01-context-enter",
@@ -10,10 +10,11 @@
         "DOWN"
       ],
       "settle": 3,
-      "review": "Appended context becomes the active tier and the keyboard is closed.",
+      "review": "Parent result remains above cast and similar titles. No page promotion, jump to top, or keyboard overlay.",
       "covers": [
         "context-depth",
-        "keyboard-auto-close"
+        "keyboard-auto-close",
+        "context-dwell-branches"
       ]
     },
     {
@@ -22,20 +23,10 @@
       "after": "search",
       "keys": [
         "DOWN",
-        "DOWN",
-        "DOWN",
-        "DOWN",
-        "DOWN",
-        "DOWN",
-        "DOWN",
-        "DOWN",
-        "DOWN",
-        "DOWN",
-        "DOWN",
-        "DOWN"
+        "RIGHT"
       ],
       "settle": 3,
-      "review": "Reach the next available related/cast tier. Inspect headings; route success alone does not prove deeper results.",
+      "review": "Hold an actor or related title two seconds: append its child shelves, preserving the root and its cast/similar siblings.",
       "covers": [
         "context-depth"
       ]
@@ -48,10 +39,23 @@
         "BACK"
       ],
       "settle": 1,
-      "review": "Returns to the prior tier and selected card.",
+      "review": "Back focuses the parent card without collapsing the branch; Down can revisit it.",
       "covers": [
         "context-back"
       ]
+    },
+    {
+      "name": "04-context-sibling",
+      "before": "search",
+      "after": "search",
+      "keys": [
+        "RIGHT"
+      ],
+      "settle": 3,
+      "covers": [
+        "context-dwell-branches"
+      ],
+      "review": "Moving to a sibling preserves old descendants during the two-second dwell; afterward only that sibling branch is replaced. Root and current rows stay fixed."
     }
   ]
 }
