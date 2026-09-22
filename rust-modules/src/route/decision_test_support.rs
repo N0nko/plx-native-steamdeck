@@ -359,6 +359,7 @@ pub(super) fn fourk_item_with_subs(
     subs: Vec<crate::metadata::Stream>,
 ) -> crate::metadata::PlayingItem {
     crate::metadata::PlayingItem {
+            version: None,
         sid,
         rk: "rk-4k".into(),
         show_rk: String::new(),

@@ -2,6 +2,9 @@
 //! This is the production Search implementation: `AppArg::Search` mounts it unconditionally, and
 //! the legacy Search renderer it replaced is deleted entirely.
 mod draft;
+mod discovery;
+mod keypad;
+mod multitap;
 // `pub(crate)`: exposes `layout::{FIELD, CONTENT_TOP}` to `ui::consts`'s overscan-rects audit,
 // which otherwise has no path to this module's geometry. Replaces the deleted legacy Search
 // renderer's own `FIELD`/`CONTENT_TOP` module-level constants.
@@ -28,6 +31,8 @@ use crate::ui::screen::{At, AxisMask, Dir, DrawFrame, EdgeRule, ElemKind, Enter,
 use crate::ui::{Rect, Spring};
 use draft::Draft;
 
+const KEYPAD_GROUP:GroupId=GroupId(0x5345_4103);
+const FILTER_GROUP:GroupId=GroupId(0x5345_4104);
 const FIELD: u32 = 1;
 const CLEAR: u32 = 2;
 const FIELD_GROUP: GroupId = GroupId(0x5345_4100);
@@ -41,11 +46,12 @@ pub(super) const OWNER_FLOOR: f32 = 0.02;
 const BLINK_MS: u32 = 530;
 const BLINK_US: u32 = BLINK_MS * 1000;
 
-pub(crate) const SHAPE: &str = "SearchScreen{entry:u32,instance:u32,draft:{text:str,caret:u64,profile:u32,pending:bool},mounted:bool,editing:bool,blink_us:u32,hot:Spring,scroll:Spring,scroll_target:f32,next_elem:u32,query_gen:u32,recent_clear_pending:bool,content_dirty:bool,fade:Xfade,ground:PageGround,owner_row:Option<u64>,owner:str,owner_alpha:Spring,restored:Option<SearchMemory>,keys:[SearchKey],recents:[u32],rows:[{kind:u32,group:u32,elems:[u32],motion:CardRow}]}";
+pub(crate) const SHAPE: &str = "SearchScreen{custom_v1:{keypad_open:bool,numeric:bool,filter:u64,multitap:pending_echo,discovery:owned_pages_trail_v3_return_keys_home_failed,shown:rows,base_rows:u64},entry:u32,instance:u32,draft:{text:str,caret:u64,profile:u32,pending:bool},mounted:bool,editing:bool,blink_us:u32,hot:Spring,scroll:Spring,scroll_target:f32,next_elem:u32,query_gen:u32,recent_clear_pending:bool,content_dirty:bool,fade:Xfade,ground:PageGround,owner_row:Option<u64>,owner:str,owner_alpha:Spring,restored:Option<SearchMemory>,keys:[SearchKey],recents:[u32],rows:[{kind:u32,group:u32,elems:[u32],motion:CardRow}]}";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum Identity {
     Recent(String),
+    Catalog(Kind,crate::plex::ServerId,String),
     Media(Kind, crate::plex::ServerId, String),
     Tag(Kind, crate::plex::ServerId, String),
     Slot(Kind, u32, usize),
@@ -55,6 +61,8 @@ struct KeyEntry { identity: Identity, elem: u32, group: GroupId, slot: usize }
 struct Row { kind: Kind, group: GroupId, elems: Vec<u32>, motion: CardRow }
 
 pub(crate) struct SearchScreen {
+    discovery:discovery::Browse,shown:crate::discovery::Page,base_rows:usize,discovery_seat:Option<(usize,usize)>,discovery_return:Option<Vec<(GroupId,f32)>>,
+    keypad_open:bool, numeric:bool, filter:usize, multitap:multitap::MultiTap,
     entry: EntryId,
     instance: InstanceId,
     draft: Draft,
@@ -89,7 +97,7 @@ pub(crate) struct SearchScreen {
 
 impl SearchScreen {
     pub(crate) fn new(entry: EntryId, instance: InstanceId) -> Self {
-        Self { entry, instance, draft: Draft::new(0, ""), mounted: false, editing: false,
+        Self { discovery:Default::default(),shown:Default::default(),base_rows:0,discovery_seat:None,discovery_return:None,keypad_open:false,numeric:false,filter:0,multitap:multitap::MultiTap::new(),entry, instance, draft: Draft::new(0, ""), mounted: false, editing: false,
             blink_us: 0, hot: Spring::at(1.0), scroll: Spring::at(0.0), scroll_target: 0.0,
             keys: Vec::new(), next_elem: 10, rows: Vec::new(), recents: Vec::new(), query_gen: 0,
             recent_clear_pending: false, publication: None, content_dirty: true,
@@ -100,10 +108,10 @@ impl SearchScreen {
     fn key(&self, elem: u32) -> FocusKey<u32> { FocusKey { entry: self.entry, elem } }
     fn real_query(&self) -> bool { crate::search::terms(self.draft.query()).is_some() }
     fn field_hot<H: SearchLike>(&self, cx: &Cx<'_, H>) -> bool {
-        self.editing || cx.focus.current == Some(self.key(FIELD))
+        self.keypad_open || self.editing || cx.focus.current == Some(self.key(FIELD))
     }
     fn intern(&mut self, identity: Identity, group: GroupId, slot: usize) -> u32 {
-        if let Some(key) = self.keys.iter_mut().find(|key| key.identity == identity) {
+        if let Some(key) = self.keys.iter_mut().find(|key| key.identity == identity && key.group==group) {
             key.group = group; key.slot = slot;
             return key.elem;
         }
@@ -126,14 +134,39 @@ impl SearchScreen {
         }
     }
     fn keyboard<H: SearchLike>(&mut self, up: bool, commit: bool, fx: &mut Effects<'_, H>) {
-        if self.editing == up { return; }
-        if !up && commit { self.remember(fx); }
-        self.editing = up;
-        self.blink_us = 0;
-        if up { self.draft.to_end(); self.scroll_target = 0.0; }
-        fx.push(Fx::Deliver(MachineId::Instance(self.instance), Delivery::Keyboard { up }));
+        if !up && commit {self.remember(fx);}
+        self.keypad_open=up; self.multitap.cancel();self.blink_us=0;
+        if up {self.draft.to_end();self.scroll_target=0.0;
+            self.reseat(FocusTarget::Elem(self.key(keypad::BASE+6)),fx);
+        } else if self.editing {
+            self.editing=false;fx.push(Fx::Deliver(fx.from(),Delivery::Keyboard{up:false}));
+        }
         fx.invalidate(Provenance::Input);
     }
+    fn digit<H:SearchLike>(&mut self,digit:u8,now:u32,fx:&mut Effects<'_,H>){
+        self.keypad_open=true;self.numeric=true;self.draft.to_end();
+        if let Some((replace,ch))=self.multitap.press(digit,now){
+            if replace {self.draft.edit(&TextEdit::Backspace);}
+            self.edit(&TextEdit::Commit(ch.to_string().into()),fx);
+        }
+        self.reseat(FocusTarget::Elem(self.key(keypad::BASE+if digit==0 {16}else{digit as u32+5})),fx);
+    }
+    fn keypad_action<H:SearchLike>(&mut self,i:usize,now:u32,fx:&mut Effects<'_,H>){
+        match i {
+            0=>{self.numeric=false;self.multitap.cancel();},
+            1=>{self.numeric=true;self.multitap.cancel();},
+            2=>{self.multitap.cancel();self.edit(&TextEdit::Commit(" ".into()),fx);},
+            3=>{self.multitap.cancel();self.edit(&TextEdit::Backspace,fx);},
+            4=>{self.keypad_open=false;self.reseat(FocusTarget::Elem(self.key(FIELD)),fx);self.editing=true;fx.push(Fx::Deliver(fx.from(),Delivery::Keyboard{up:true}));},
+            5=>{self.keyboard(false,true,fx);self.reseat(FocusTarget::Elem(self.key(FIELD)),fx);},
+            15 if self.numeric=>self.edit(&TextEdit::Commit(" ".into()),fx),
+            17 if self.numeric=>self.edit(&TextEdit::Backspace,fx),
+            _ if self.numeric=>self.digit(if i==16{0}else{(i-5) as u8},now,fx),
+            _=>{self.multitap.cancel();self.edit(&TextEdit::Commit(keypad::label(i,false).into()),fx);},
+        }
+        fx.invalidate(Provenance::Input);
+    }
+
     fn edit<H: SearchLike>(&mut self, edit: &TextEdit, fx: &mut Effects<'_, H>) {
         if let Some(query) = self.draft.edit(edit) {
             self.store(SearchCmd::SetQueryScoped { profile_generation: self.draft.profile(), query }, fx);
@@ -159,6 +192,7 @@ impl SearchScreen {
             self.draft = Draft::new(profile, view.query());
             self.mounted = true;
         } else if self.draft.observe(profile, view.query(), notified) {
+            self.discovery=Default::default();self.filter=0;
             self.keyboard(false, false, fx);
             self.keys.clear();
             self.rows.clear(); self.recents.clear();
@@ -168,6 +202,7 @@ impl SearchScreen {
         }
         if let Some(memory) = &restored {
             self.keys = memory.keys.clone(); self.next_elem = memory.next_elem;
+            self.discovery=memory.discovery.clone();self.filter=memory.filter;self.numeric=memory.numeric;
             self.scroll.jump(memory.scroll); self.scroll_target = memory.scroll;
         }
         if notified && view.recents().terms().is_empty() && self.recent_clear_pending {
@@ -192,7 +227,7 @@ impl SearchScreen {
                 self.recents.push(elem);
             }
         }
-        if self.draft.pending() || !self.real_query() {
+        if self.draft.pending() {
             self.rows.clear();
             return;
         }
@@ -200,12 +235,23 @@ impl SearchScreen {
             self.rows.clear();
             self.fade.reload();
         }
+        if query_changed && restored.is_none() {
+            let home_failed=self.discovery.home_failed;let home=self.discovery.home.take();let requested=self.discovery.home_requested;let serial=self.discovery.serial.wrapping_add(1);
+            self.discovery=discovery::Browse{home,home_failed,home_requested:requested,serial,..Default::default()};
+        }
+        let root=if self.real_query(){crate::discovery::Page::search(view.shelves())}else{self.discovery.home.clone().unwrap_or_default()};
+        self.shown=self.discovery.page.as_ref().unwrap_or(&root).filter(self.filter);
+        self.base_rows=self.shown.rows.len();
+        if let Some(preview)=&self.discovery.preview {let p=preview.filter(self.filter);self.shown.rows.extend(p.rows);self.shown.headings.extend(p.headings);}
+        if !self.shown.rows.is_empty(){self.recents.clear();}
+        let shown=self.shown.clone();
         let mut previous = std::mem::take(&mut self.rows);
-        for shelf in view.shelves() {
-            let group = layout::group(shelf.kind);
+        for (row_index,shelf) in shown.rows.iter().enumerate() {
+            let group = if self.discovery.page.is_none() && self.real_query() && row_index<self.base_rows {layout::group(shelf.kind)} else {GroupId(0x5345_4300+row_index as u32)};
             let mut elems = Vec::with_capacity(shelf.items.len());
             for (slot, item) in shelf.items.iter().enumerate() {
                 let identity = match item {
+                    Item::Catalog(media) => Identity::Catalog(shelf.kind,media.sid,media.rk.clone()),
                     Item::Media(media) if !media.rk.is_empty() => Identity::Media(shelf.kind, media.sid, media.rk.clone()),
                     Item::Tag(tag) if !tag.tag_key.is_empty() || (!tag.id.is_empty() && tag.id != "0") =>
                         Identity::Tag(shelf.kind, tag.sid, if tag.tag_key.is_empty() { tag.id.clone() } else { tag.tag_key.clone() }),
@@ -213,7 +259,7 @@ impl SearchScreen {
                 };
                 elems.push(self.intern(identity, group, slot));
             }
-            let motion = previous.iter().position(|row| row.kind == shelf.kind)
+            let motion = previous.iter().position(|row| row.group == group)
                 .map(|i| previous.remove(i).motion).unwrap_or_else(CardRow::new);
             self.rows.push(Row { kind: shelf.kind, group, elems, motion });
         }
@@ -223,6 +269,12 @@ impl SearchScreen {
                     row.motion.restore_scroll(*x, row.elems.len(), &layout::style(row.kind));
                 }
             }
+        }
+        if let Some(scrolls)=self.discovery_return.take(){for row in &mut self.rows{if let Some((_,x))=scrolls.iter().find(|(g,_)|*g==row.group){row.motion.restore_scroll(*x,row.elems.len(),&layout::style(row.kind));}}}
+        if let Some((row,col))=self.discovery_seat.take(){if let Some(elem)=self.rows.get(row).and_then(|r|r.elems.get(col)).copied(){self.reseat(FocusTarget::Elem(self.key(elem)),fx);}}
+        if self.keys.len()>1024 {
+            let live:Vec<_>=self.rows.iter().flat_map(|r|r.elems.iter().copied()).chain(self.recents.iter().copied()).collect();
+            self.keys.retain(|key|live.contains(&key.elem));
         }
         if shelves_changed {
             if let Some(key) = cx.focus.current { self.reveal(key, cx); }
@@ -240,8 +292,18 @@ impl SearchScreen {
             fx.push(Fx::App(AppFx::Search(request)));
             return Handled::Yes;
         }
+        if self.keypad_open && elem>=keypad::BASE && elem<keypad::BASE+keypad::len(self.numeric) as u32 {
+            self.keypad_action((elem-keypad::BASE) as usize,cx.tick.ms,fx);return Handled::Yes;
+        }
+        if !self.editing && (keypad::FILTER_BASE..keypad::FILTER_BASE+3).contains(&elem) {
+            if self.discovery.home_failed{self.discovery.home_requested=false;}
+            self.filter=(elem-keypad::FILTER_BASE) as usize;self.scroll_target=0.0;
+            self.discovery.page=None;self.discovery.trail.clear();self.discovery.preview=None;self.discovery.pending=None;self.discovery.request=None;self.discovery.serial=self.discovery.serial.wrapping_add(1);self.content_dirty=true;
+            self.store(SearchCmd::SetFilter{profile_generation:self.draft.profile(),filter:self.filter},fx);
+            fx.invalidate(Provenance::Input);return Handled::Yes;
+        }
         if elem == FIELD {
-            self.keyboard(!self.editing, true, fx);
+            self.keyboard(!self.keypad_open, true, fx);
             return Handled::Yes;
         }
         if elem == CLEAR && !self.recents.is_empty() {
@@ -268,10 +330,16 @@ impl SearchScreen {
         }
         for (row_index, row) in self.rows.iter().enumerate() {
             let Some(col) = row.elems.iter().position(|key| *key == elem) else { continue };
-            let view = H::search(cx);
-            let Some(shelf) = view.shelves().get(row_index) else { return Handled::No };
+            if row_index>=self.base_rows {let row=row_index-self.base_rows;let from=cx.focus.current.map_or(elem,|k|k.elem);self.discover_enter(row,col,from,fx);self.sync(cx,false,fx);return Handled::Yes;}
+            let Some(shelf) = self.shown.rows.get(row_index) else { return Handled::No };
             let Some(item) = shelf.items.get(col) else { return Handled::No };
             match item {
+                Item::Catalog(media) => {
+                    fx.push(Fx::App(AppFx::Content(crate::screens::registry::ContentReq::Panel(crate::screens::registry::ContentPanel::CatalogDetails(
+                        crate::screens::registry::CatalogDetailsArg { catalog_id:media.rk.clone(),title:media.title.clone(),
+                            person:String::new(),department:String::new(),role:String::new(),year:media.year }
+                    )))));
+                }
                 Item::Media(media) if !media.rk.is_empty() => {
                     self.remember(fx);
                     fx.push(Fx::App(AppFx::Search(if held {
@@ -302,6 +370,7 @@ impl<H: SearchLike> Machine<H> for SearchScreen {
         let acknowledged = matches!(ev, ScreenEvent::Mount) || store_changed;
         self.sync(cx, acknowledged, fx);
         match ev {
+            ScreenEvent::App(crate::screens::registry::AppMsg::Discovery(reply))=>self.discover_land(reply,cx,fx),
             ScreenEvent::RestoreMemory(PageMemory::Search(memory)) => { self.restore(memory); self.sync(cx, true, fx); }
             ScreenEvent::Mount => {
                 self.fade.mount();
@@ -326,7 +395,8 @@ impl<H: SearchLike> Machine<H> for SearchScreen {
                     }
                     self.editing = *up; self.blink_us = 0;
                 }
-                InputKind::Text(edit) if self.editing || matches!(cx.owner, InputOwner::System(_)) => self.edit(edit, fx),
+                InputKind::Text(TextEdit::Commit(text)) if self.multitap.eat_echo(text,input.at.ms) => return Handled::Yes,
+                InputKind::Text(edit) if self.editing || self.keypad_open || matches!(cx.owner, InputOwner::System(_)) => self.edit(edit, fx),
                 InputKind::Wheel { dy } => {
                     if !self.editing && dy.is_finite() {
                         let (kinds, n) = self.kinds();
@@ -337,6 +407,9 @@ impl<H: SearchLike> Machine<H> for SearchScreen {
                     }
                 }
                 InputKind::Key { key, sym, edge, .. } if *edge != Edge::Up => {
+                    if (48..=57).contains(sym) {self.digit((*sym-48) as u8,input.at.ms,fx);return Handled::Yes;}
+                    if self.keypad_open && *key==Key::Back {self.keyboard(false,false,fx);self.reseat(FocusTarget::Elem(self.key(FIELD)),fx);return Handled::Yes;}
+
                     if self.editing {
                         let edit = match (*key, *sym) {
                             (Key::Left, _) => Some(TextEdit::Left), (Key::Right, _) => Some(TextEdit::Right),
@@ -359,7 +432,14 @@ impl<H: SearchLike> Machine<H> for SearchScreen {
                         self.reseat(FocusTarget::Elem(self.key(crate::ui::dispatch::STRIP_BASE + 3)), fx);
                         return Handled::Yes;
                     }
+                    if *key==Key::Down && !self.keypad_open {
+                        if let Some(focus)=cx.focus.current {if self.rows.get(self.base_rows.saturating_sub(1)).is_some_and(|r|r.elems.contains(&focus.elem)) && self.discovery.pending.is_some() {
+                            if !self.discover_enter(0,0,focus.elem,fx){self.discovery.pending_down=Some(focus.elem);if self.discovery.failed{self.discovery.failed=false;self.discovery.request=None;}}
+                            self.sync(cx,false,fx);return Handled::Yes;
+                        }}
+                    }
                     if *key == Key::Back {
+                        if self.discover_back(fx){self.sync(cx,false,fx);return Handled::Yes;}
                         fx.push(Fx::App(AppFx::Search(SearchReq::Back)));
                         return Handled::Yes;
                     }
@@ -369,7 +449,7 @@ impl<H: SearchLike> Machine<H> for SearchScreen {
             },
             ScreenEvent::Tick(tick) => self.tick(*tick, cx, fx),
             ScreenEvent::FocusMoved { to, .. } => {
-                if to.elem != FIELD { self.keyboard(false, true, fx); }
+                if self.editing && to.elem != FIELD { self.keyboard(false, true, fx); }
                 self.reveal(*to, cx);
                 fx.invalidate(Provenance::Input);
             }
@@ -380,19 +460,19 @@ impl<H: SearchLike> Machine<H> for SearchScreen {
 }
 
 impl SearchScreen {
-    fn kinds(&self) -> ([Kind; 5], usize) {
-        let mut kinds = [Kind::Movie; 5];
+    fn kinds(&self) -> ([Kind; 10], usize) {
+        let mut kinds = [Kind::Movie; 10];
         for (i, row) in self.rows.iter().enumerate() { kinds[i] = row.kind; }
         (kinds, self.rows.len())
     }
 
-    pub(crate) fn selected_item<'a, H: SearchLike>(&self, focus: Option<FocusKey<u32>>, cx: &Cx<'a, H>) -> Option<&'a Item> {
+    pub(crate) fn selected_item<'a, H: SearchLike>(&'a self, focus: Option<FocusKey<u32>>, cx: &Cx<'_, H>) -> Option<&'a Item> {
         let key = focus.filter(|key| key.entry == self.entry)?;
         let view = H::search(cx);
         if self.draft.pending() || self.query_gen != view.query_gen() || self.draft.profile() != view.recents().generation() { return None; }
         let (row, col) = self.rows.iter().enumerate().find_map(|(row, model)|
             model.elems.iter().position(|elem| *elem == key.elem).map(|col| (row, col)))?;
-        view.shelves().get(row)?.items.get(col)
+        self.shown.rows.get(row)?.items.get(col)
     }
 
     pub(crate) fn redraw_focused<H: SearchLike>(&self, f: &mut DrawFrame<'_, '_, H>, focus: Option<FocusKey<u32>>) {
@@ -466,6 +546,8 @@ impl SearchScreen {
         if !self.recents.is_empty() { Some(RECENTS_GROUP) } else { self.rows.first().map(|row| row.group) }
     }
     fn elem_at(&self, group: GroupId, index: usize) -> Option<u32> {
+        if group == KEYPAD_GROUP { return (self.keypad_open && index<keypad::len(self.numeric)).then_some(keypad::BASE+index as u32); }
+        if group == FILTER_GROUP {return (index<3).then_some(keypad::FILTER_BASE+index as u32);}
         if group == FIELD_GROUP { return (index == 0).then_some(FIELD); }
         if group == CLEAR_GROUP { return (!self.recents.is_empty() && index == 0).then_some(CLEAR); }
         if group == RECENTS_GROUP {
@@ -474,18 +556,24 @@ impl SearchScreen {
         self.rows.iter().find(|row| row.group == group)?.elems.get(index).copied()
     }
     fn index(&self, elem: u32) -> Option<(GroupId, usize)> {
+        if self.keypad_open && (keypad::BASE..keypad::BASE+keypad::len(self.numeric) as u32).contains(&elem){return Some((KEYPAD_GROUP,(elem-keypad::BASE) as usize));}
+        if !self.editing && (keypad::FILTER_BASE..keypad::FILTER_BASE+3).contains(&elem){return Some((FILTER_GROUP,(elem-keypad::FILTER_BASE) as usize));}
         if elem == FIELD { return Some((FIELD_GROUP, 0)); }
         if elem == CLEAR && !self.recents.is_empty() { return Some((CLEAR_GROUP, 0)); }
         if let Some(i) = self.recents.iter().position(|key| *key == elem) { return Some((RECENTS_GROUP, i)); }
         self.rows.iter().find_map(|row| row.elems.iter().position(|key| *key == elem).map(|i| (row.group, i)))
     }
+    fn recent_rect(&self,index:usize,scroll:f32)->Rect {let mut r=layout::recent(index,scroll);r.x+=self.inset();r.y-=self.system_shift();r}
+    fn clear_rect(&self,scroll:f32,measure:&dyn crate::ui::machine::Measure)->Rect {let mut r=layout::clear(self.recents.len(),scroll,measure);r.x+=self.inset();r.y-=self.system_shift();r}
+    fn system_shift(&self)->f32 {if self.editing {layout::SYSTEM_SHIFT}else{0.0}}
+    fn inset(&self)->f32 {if self.keypad_open {680.0}else{0.0}}
     fn row_rect(&self, row: usize, col: usize, at: At) -> Rect {
         let (kinds, n) = self.kinds();
         let shelf = &self.rows[row];
         let style = layout::style(shelf.kind);
         let scroll = if at == At::Drawn { self.scroll.pos } else { self.scroll_target };
-        let origin = layout::top(&kinds[..n], row, |i| self.rows[i].motion.band_expand());
-        crate::ui::card_row::tile_rect(col, style.margin_x, style.w + style.gap, shelf.motion.scroll_x(),
+        let origin = layout::top(&kinds[..n], row, |i| self.rows[i].motion.band_expand())-self.system_shift();
+        crate::ui::card_row::tile_rect(col, style.margin_x + self.inset(), style.w + style.gap, shelf.motion.scroll_x(),
             origin + layout::HEAD_TO_ROW - scroll, (style.w, style.h))
     }
     fn reveal<H: SearchLike>(&mut self, key: FocusKey<u32>, _cx: &Cx<'_, H>) {
@@ -496,6 +584,7 @@ impl SearchScreen {
         };
     }
     fn tick<H: SearchLike>(&mut self, tick: crate::ui::machine::Tick, cx: &Cx<'_, H>, fx: &mut Effects<'_, H>) {
+        self.discover_tick(tick,cx,fx);
         fx.push(Fx::App(AppFx::StoreWork(crate::stores::StoreWork::BrowseDiscovery)));
         fx.push(Fx::App(AppFx::StoreWork(crate::stores::StoreWork::Search { dt_us: tick.dt_us })));
         if self.step_blink(tick.dt_us) { fx.invalidate(Provenance::Input); }
@@ -508,14 +597,14 @@ impl SearchScreen {
         self.fade.tick(tick.dt(), !self.draft.pending() && H::search(cx).state() != crate::search::State::Searching);
         let colours = cx.focus.current.and_then(|key| self.rows.iter().enumerate().find_map(|(row, model)|
             model.elems.iter().position(|elem| *elem == key.elem).and_then(|col|
-                H::search(cx).shelves().get(row)?.items.get(col)).and_then(|item| match item {
-                    Item::Media(media) if media.has_blur => Some(media.blur), _ => None,
+                self.shown.rows.get(row)?.items.get(col)).and_then(|item| match item {
+                    Item::Media(media) | Item::Catalog(media) if media.has_blur => Some(media.blur), _ => None,
                 })));
         self.ground.key(colours, crate::ui::widgets::PageGround::CARD_W, tick.dt());
         let target = cx.focus.current.and_then(|key| self.rows.iter().enumerate().find_map(|(row, model)|
             model.elems.iter().position(|elem| *elem == key.elem).map(|col| (row, col))));
         let view = H::search(cx);
-        let handle = target.and_then(|(row, col)| view.shelves().get(row)?.items.get(col))
+        let handle = target.and_then(|(row, col)| self.shown.rows.get(row)?.items.get(col))
             .and_then(|item| view.scope().sources().iter().find(|source| source.sid == item.sid()))
             .map_or("", |source| source.handle.as_str());
         let target_row = target.map(|(row, _)| row);
@@ -548,7 +637,7 @@ impl SearchScreen {
     }
 
     fn step_blink(&mut self, dt_us: u32) -> bool {
-        if !self.editing { self.blink_us = 0; return false; }
+        if !self.editing && !self.keypad_open { self.blink_us = 0; return false; }
         let was = self.blink_us < BLINK_US;
         self.blink_us = ((self.blink_us as u64 + dt_us as u64) % (2 * BLINK_US) as u64) as u32;
         was != (self.blink_us < BLINK_US)
@@ -562,13 +651,15 @@ fn group(id: GroupId, kind: GroupKind, len: usize, extent: Rect, elem: ElemKind,
 
 impl<H: SearchLike> Focusable<H> for SearchScreen {
     fn groups(&self, cx: &Cx<'_, H>, out: &mut Vec<GroupSpec>) {
+        if self.keypad_open {out.push(group(KEYPAD_GROUP,GroupKind::Row{wrap:false},keypad::len(self.numeric),Rect::new(96.0,360.0,600.0,680.0),ElemKind::Bare,Seat::First));}
+        if !self.editing {out.push(group(FILTER_GROUP,GroupKind::Row{wrap:false},3,Rect::new(96.0,278.0,764.0,60.0),ElemKind::Bare,Seat::Remembered));}
         let field = Rect::new(layout::FIELD.x, layout::FIELD.y - self.scroll_target, layout::FIELD.w, layout::FIELD.h);
         out.push(group(FIELD_GROUP, GroupKind::Row { wrap: false }, 1, field, ElemKind::Bare, Seat::First));
         if !self.recents.is_empty() {
             out.push(group(RECENTS_GROUP, GroupKind::Column, self.recents.len(),
-                layout::recent(0, self.scroll_target), ElemKind::Bare, Seat::Remembered));
+                self.recent_rect(0, self.scroll_target), ElemKind::Bare, Seat::Remembered));
             let mut clear = group(CLEAR_GROUP, GroupKind::Row { wrap: false }, 1,
-                layout::clear(self.recents.len(), self.scroll_target, cx.measure), ElemKind::Control, Seat::First);
+                self.clear_rect(self.scroll_target, cx.measure), ElemKind::Control, Seat::First);
             clear.edge[1] = EdgeRule::Stop;
             out.push(clear);
         }
@@ -580,6 +671,10 @@ impl<H: SearchLike> Focusable<H> for SearchScreen {
     fn group_of(&self, elem: &u32, _: &Cx<'_, H>) -> Option<GroupId> { self.index(*elem).map(|p| p.0) }
     fn neighbour(&self, from: FocusKey<u32>, dir: Dir, _: &Cx<'_, H>) -> Step<u32> {
         let Some((group, index)) = self.index(from.elem) else { return Step::Edge };
+        if group==KEYPAD_GROUP {
+            let next=keypad::next(index,dir,self.numeric);
+            return next.and_then(|i|self.elem_at(group,i)).map_or(Step::Edge,|e|Step::Move(self.key(e)));
+        }
         let next = match (group == RECENTS_GROUP, dir) {
             (true, Dir::Up) | (false, Dir::Left) => index.checked_sub(1),
             (true, Dir::Down) | (false, Dir::Right) => index.checked_add(1),
@@ -590,9 +685,11 @@ impl<H: SearchLike> Focusable<H> for SearchScreen {
     fn place(&self, elem: &u32, cx: &Cx<'_, H>, at: At) -> Option<Placed> {
         let (group, index) = self.index(*elem)?;
         let scroll = if at == At::Drawn { self.scroll.pos } else { self.scroll_target };
-        let rect = if group == FIELD_GROUP { Rect::new(layout::FIELD.x, layout::FIELD.y - scroll, layout::FIELD.w, layout::FIELD.h) }
-        else if group == CLEAR_GROUP { layout::clear(self.recents.len(), scroll, cx.measure) }
-        else if group == RECENTS_GROUP { layout::recent(index, scroll) }
+        let rect = if group==KEYPAD_GROUP {keypad::rect(index,self.numeric)}
+        else if group==FILTER_GROUP {keypad::filter_rect(index)}
+        else if group == FIELD_GROUP { Rect::new(layout::FIELD.x, layout::FIELD.y - scroll, layout::FIELD.w, layout::FIELD.h) }
+        else if group == CLEAR_GROUP { self.clear_rect(scroll, cx.measure) }
+        else if group == RECENTS_GROUP { self.recent_rect(index, scroll) }
         else { self.row_rect(self.rows.iter().position(|row| row.group == group)?, index, at) };
         let painted = if at == At::Drawn {
             self.rows.iter().find(|row| row.group == group).map_or(rect, |row| rect.scaled(row.motion.scale(index)))
@@ -600,7 +697,7 @@ impl<H: SearchLike> Focusable<H> for SearchScreen {
         // The page still paints beneath the glass, but the standing strip owns those hits.
         let floor = crate::ui::widgets::TOP_BAR_BOTTOM;
         Some(Placed { rect: painted, rest_rect: rect,
-            clip: Rect::new(0.0, floor, SCR_W, SCR_H - floor), index: Some(index as u32) })
+            clip: Rect::new(if group==KEYPAD_GROUP || group==FILTER_GROUP || group==FIELD_GROUP {0.0}else{self.inset()}, floor, SCR_W - if group==KEYPAD_GROUP || group==FILTER_GROUP || group==FIELD_GROUP {0.0}else{self.inset()}, SCR_H - floor), index: Some(index as u32) })
     }
     fn reconcile(&self, want: FocusKey<u32>, _: &Cx<'_, H>) -> FocusKey<u32> {
         if want.entry == self.entry && self.index(want.elem).is_some() { return want; }
@@ -630,18 +727,26 @@ impl<H: SearchLike> Focusable<H> for SearchScreen {
 impl<H: SearchLike> Screen<H> for SearchScreen {
     fn name(&self) -> &'static str { "search" }
     fn state(&self) -> &dyn LogicalState { self }
-    fn crumb(&self, _: &Cx<'_, H>) -> Option<Cow<'_, str>> { None }
+    fn crumb(&self, _: &Cx<'_, H>) -> Option<Cow<'_, str>> { self.discovery.page.as_ref().map(|p|Cow::Borrowed(p.label.as_str())) }
     fn prepare(&mut self, _: &mut Budget, cx: &Cx<'_, H>) {
-        self.render.prepare(self.draft.query(), self.draft.caret(), &self.owner, cx);
+        self.render.prepare(self.draft.query(), self.draft.caret(), &self.owner, &self.shown, cx);
     }
     fn draw(&mut self, f: &mut DrawFrame<'_, '_, H>) { render::draw(self, f); }
     fn render(&self) -> RenderStrategy { RenderStrategy::Page }
     fn memory(&self) -> PageMemory { PageMemory::Search(self.page_memory()) }
     fn links(&self, out: &mut Vec<Link>) {
+        if self.keypad_open {
+            out.push(Link {from:KEYPAD_GROUP,dir:Dir::Up,to:FILTER_GROUP});
+            if let Some(first)=self.first_content(){out.push(Link{from:KEYPAD_GROUP,dir:Dir::Right,to:first});out.push(Link{from:first,dir:Dir::Left,to:KEYPAD_GROUP});}
+        }
+        out.push(Link{from:FIELD_GROUP,dir:Dir::Down,to:FILTER_GROUP});
+        out.push(Link{from:FILTER_GROUP,dir:Dir::Up,to:FIELD_GROUP});
+        if self.keypad_open {out.push(Link{from:FILTER_GROUP,dir:Dir::Down,to:KEYPAD_GROUP});}
+        else if let Some(first)=self.first_content(){out.push(Link{from:FILTER_GROUP,dir:Dir::Down,to:first});}
         out.push(Link { from: STRIP, dir: Dir::Down, to: FIELD_GROUP });
         out.push(Link { from: FIELD_GROUP, dir: Dir::Up, to: STRIP });
         if let Some(first) = self.first_content() {
-            out.push(Link { from: FIELD_GROUP, dir: Dir::Down, to: first });
+
             out.push(Link { from: first, dir: Dir::Up, to: FIELD_GROUP });
         }
         if !self.recents.is_empty() {
@@ -659,6 +764,7 @@ impl<H: SearchLike> Screen<H> for SearchScreen {
 
 impl LogicalState for SearchScreen {
     fn write(&self, c: &mut Canon) {
+        c.bool(self.keypad_open).bool(self.numeric).u64(self.filter as u64);self.multitap.write(c);self.discovery.write(c);self.shown.write(c);c.u64(self.base_rows as u64);
         c.u32(self.entry.0).u32(self.instance.0);
         self.draft.write(c);
         c.bool(self.mounted).bool(self.editing).u32(self.blink_us);
@@ -692,6 +798,7 @@ impl KeyEntry {
     fn write(&self, c: &mut Canon) {
         match &self.identity {
             Identity::Recent(term) => { c.u32(0).str(term); }
+            Identity::Catalog(kind,sid,rk)=>{c.u32(4).u32(layout::ordinal(*kind)).u32(sid.raw() as u32).str(rk);},
             Identity::Media(kind, sid, rk) => { c.u32(1).u32(layout::ordinal(*kind)).u32(sid.raw() as u32).str(rk); }
             Identity::Tag(kind, sid, id) => { c.u32(2).u32(layout::ordinal(*kind)).u32(sid.raw() as u32).str(id); }
             Identity::Slot(kind, generation, slot) => { c.u32(3).u32(layout::ordinal(*kind)).u32(*generation).u64(*slot as u64); }

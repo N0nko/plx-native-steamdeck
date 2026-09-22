@@ -8,6 +8,7 @@ pub(crate) use crate::search::view::SearchSnapshot;
 
 #[derive(Clone, Debug)]
 pub(crate) enum SearchCmd {
+    SetFilter { profile_generation:u32, filter:usize },
     /// The field's text; a change of the TRIMMED terms supersedes the answer and restarts the
     /// debounce, a change of whitespace only repaints.
     SetQuery(String),

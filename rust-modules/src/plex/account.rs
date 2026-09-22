@@ -77,7 +77,7 @@ impl AccountClient {
     /// and the reasons are in `Client::playback_identity`: `X-Plex-Device-Screen-Resolution` and
     /// `X-Plex-Features`. `X-Plex-Language` is present when `identity::language` can derive an
     /// honest tag from the process locale, and omitted when the launcher supplied no locale.
-    fn headers(&self) -> Vec<String> {
+    pub(super) fn headers(&self) -> Vec<String> {
         use super::identity as id;
         let mut h = vec![
             "Accept: application/json".to_string(),

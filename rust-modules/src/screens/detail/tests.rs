@@ -117,13 +117,13 @@ fn bare(_guard: &crate::testlock::Serial, sid: ServerId, rk: &str) -> DetailScre
         episode_scroll: Spring::at(0.0),
         tab_scroll: Spring::at(0.0),
         episode_scale: [Spring::at(1.0); EP_SCALE_MAX],
-        related: CardRow::new(),
+        related: related::Rows::new(),
         extras: CardRow::new(),
         cast: CardRow::new(),
         tabs: TabStrip::new(),
         season_pop: CtlPop::new(),
-        ctl_pop: CtlPop::new(),
-        disc_unfurl: [Spring::at(0.0); 3],
+        companion:None,companion_at:None,companion_confirm:None,companion_profile:0,ctl_pop: CtlPop::new(),
+        disc_unfurl: [Spring::at(0.0); 5],
         season_metrics: season::Metrics::new(),
         about_rows: about::Rows::new(),
         ground: AmbientWash::flat(theme::SURFACE_APP),
@@ -886,13 +886,14 @@ fn hero_focus_follows_its_control_when_the_set_grows_under_it() {
 
 #[test]
 fn hero_focus_survives_a_control_appearing_in_the_middle_of_the_row() {
-    let before = hero::HeroSet {
+    let before = hero::HeroSet {repair:false,prepare:false,
+        versions: false,
         restart: true,
         trailer: false,
         alt: false,
         mark: PosterMark::None,
     };
-    let after = hero::HeroSet {
+    let after = hero::HeroSet {repair:false,prepare:false,
         alt: true,
         ..before
     };
@@ -1048,7 +1049,8 @@ fn a_landed_view_state_refresh_puts_the_browsed_season_back_and_never_steers_ano
 #[test]
 fn a_pointer_lands_on_the_capsule_the_unfurl_drew() {
     let y = 812.0;
-    let set = hero::HeroSet {
+    let set = hero::HeroSet {repair:false,prepare:false,
+        versions: false,
         restart: true,
         trailer: false,
         alt: false,
@@ -1057,7 +1059,7 @@ fn a_pointer_lands_on_the_capsule_the_unfurl_drew() {
     let index = hero::watch_index(set).unwrap();
     assert_eq!(hero::ctl_at(set, index - 1), Some(hero::HeroCtl::Restart));
     for unfurl in [0.2, 0.6, 1.0] {
-        let disc = hero::disc_caps_at(set, 230.0, 0.0, [0.0, 0.0, unfurl], [201.0, 0.0, 267.0]);
+        let disc = hero::disc_caps_at(set, 230.0, 0.0, [0.0,0.0,unfurl,0.0,0.0],[201.0,0.0,267.0,0.0,0.0]);
         let widths = hero::HeroWidths {
             pill: 230.0,
             alt: 0.0,
@@ -1128,12 +1130,12 @@ fn hero_action_row_hit_matches_the_drawn_controls_at_every_set_size() {
                     assert_eq!(n, 2 + usize::from(restart) + usize::from(alt));
                     sizes.insert(n);
                     for unfurl in [
-                        [0.0, 0.0, 0.0],
-                        [0.0, 0.0, 1.0],
-                        [0.0, 1.0, 0.0],
-                        [0.3, 0.0, 0.7],
-                        [1.0, 0.0, 0.0],
-                        [0.0, 1.0, 1.0],
+                        [0.0,0.0,0.0,0.0,0.0],
+                        [0.0,0.0,1.0,0.0,0.0],
+                        [0.0,1.0,0.0,0.0,0.0],
+                        [0.3,0.0,0.7,0.0,0.0],
+                        [1.0,0.0,0.0,0.0,0.0],
+                        [0.0,1.0,1.0,0.0,0.0],
                     ] {
                         screen.disc_unfurl = unfurl.map(Spring::at);
                         for scroll in [0.0, 48.0] {

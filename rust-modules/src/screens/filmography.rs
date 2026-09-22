@@ -481,7 +481,7 @@ impl FilmographyScreen {
                             year => year.to_string(),
                         })
                         .value_dim(true)
-                        .chevron(c.local.is_some())
+                        .chevron(true)
                         .ticon_slot(true)
                 })
                 .collect();
@@ -610,6 +610,15 @@ impl FilmographyScreen {
                     rk: rk.to_string(),
                 }),
             )));
+        } else if let Some(credit) = self.current_row(focus).and_then(|i| self.rows().get(i)) {
+            let arg = crate::screens::registry::CatalogDetailsArg {
+                catalog_id: credit.catalog_id.clone(), title: credit.title.clone(),
+                person: self.name.clone(), department: self.department.clone(),
+                role: credit.role.clone(), year: credit.year,
+            };
+            fx.push(crate::ui::machine::Fx::App(AppFx::Content(ContentReq::Panel(
+                crate::screens::registry::ContentPanel::CatalogDetails(arg),
+            ))));
         }
     }
 
@@ -1465,7 +1474,7 @@ mod tests {
     }
 
     #[test]
-    fn joined_row_commit_pushes_detail_and_external_row_does_nothing() {
+    fn joined_row_opens_local_detail_and_external_row_opens_catalog() {
         let _serial = crate::testlock::serial();
         let mut s = screen(10, &_serial);
         select(&mut s, "Writer");
@@ -1484,7 +1493,7 @@ mod tests {
             &ScreenEvent::PressCommit(PressId(2)),
             Some(external),
         );
-        assert!(!has_content(&out, |_| true));
+        assert!(has_content(&out, |r| matches!(r,ContentReq::Panel(crate::screens::registry::ContentPanel::CatalogDetails(_)))));
     }
 
     #[test]

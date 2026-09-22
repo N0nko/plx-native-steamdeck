@@ -1625,6 +1625,7 @@ pub(crate) fn draw_playbar(p: Painter, bar: Playbar, measure: &dyn crate::ui::ma
 pub(crate) fn draw_hud(
     ps: &crate::route::PlaybackSession,
     row: &mut TransportRow,
+    extras:&mut Extras,
     up: &crate::ui::up_next::Countdown,
     slot: ControlSlot,
     busy: Busy,
@@ -1653,6 +1654,8 @@ pub(crate) fn draw_hud(
     // the surfaces are divided, and re-reading the state here is exactly the second derivation its
     // doc exists to forbid. Deliberately NOT gated on `transport` — the Info card / Chapters strip
     // pass false and would otherwise put the bottom scrim + tabs back under a failure.
+    extras.sample(meta,ps,busy,now);
+    let busy=extras.timeline.busy(busy);
     if readout_owns_frame(busy) {
         return;
     }
@@ -1722,7 +1725,9 @@ pub(crate) fn draw_hud(
         }
         stops.push((ELEM_SCRUB, scrub_hit_rect()));
 
-        draw_playbar(p, Playbar::live(ps, busy, focus, row.since_play_ms(now), now), measure);
+        let mut bar=Playbar::live(ps,busy,focus,row.since_play_ms(now),now);
+        extras.draw(p,meta,&mut bar,now);
+        draw_playbar(p,bar,measure);
     } // end `if transport`
 
     // bottom tabs as pills — Chapters only appears when the item actually has chapters
@@ -2537,4 +2542,62 @@ mod tests {
             TransportMark::FastForward
         );
     }
+}
+
+#[derive(Default)]
+pub(crate) struct WallClocks {
+    key: Option<(i64, Option<i64>)>,
+    current: Option<String>,
+    finish: Option<String>,
+}
+
+fn wall_clocks(c:&mut WallClocks,duration: i64, position: i64) -> (Option<String>, Option<String>) {
+    let Some(now) = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()
+        .and_then(|d| i64::try_from(d.as_secs()).ok())
+    else {
+        return (None, None);
+    };
+    let finish = super::fmt::finish_timestamp(now, duration, position);
+    {
+        // Minute precision; seeking changes the finish key immediately, without a new timer.
+        let key = (now / 60, finish.map(|at| at / 60));
+        if c.key != Some(key) {
+            c.current = super::fmt::local_clock(now);
+            c.finish = finish.and_then(super::fmt::local_clock);
+            c.key = Some(key);
+        }
+        (c.current.clone(), c.finish.clone())
+    }
+}
+
+
+/// Disposable, instance-owned HUD presentation; never changes the decoder timeline.
+#[derive(Default)]pub(crate) struct Extras {
+ item:Option<(crate::plex::ServerId,String,String,u32)>,
+ preview:crate::ui::seek_preview::Selection,
+ timeline:crate::ui::seek_presentation::State,
+ clocks:WallClocks,
+}
+impl Extras {
+ pub(crate) fn clock_fingerprint(&self,now:u32)->u64 {let minute=std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0,|d|d.as_secs()/60);minute.wrapping_mul(2)+u64::from(self.preview.lingering(now))}
+
+ fn sample(&mut self,meta:crate::metadata::MetadataView<'_>,ps:&crate::route::PlaybackSession,busy:Busy,now:u32){
+  let item=meta.playing().map(|m|(m.sid,m.rk.clone(),m.version.as_ref().map_or("",|v|v.source.part_key.as_str()).to_owned(),crate::plex::session::current_gen()));
+  if self.item!=item{*self=Self{item,..Default::default()};}
+  let scrub=crate::player::TX.scrub_ns.load(Relaxed);
+  self.timeline.step(now,crate::ui::seek_presentation::Sample{duration:crate::player::duration_ns(),position:crate::player::playpos_ns(),seek:crate::player::seek_display_ns(),scrub,loading:crate::player::loading(ps),busy:!matches!(busy,Busy::None),failed:crate::player::state(ps)==crate::player::PlaybackState::Error,seen_picture:crate::player::seen_frame()});
+ }
+ fn draw(&mut self,p:Painter,meta:crate::metadata::MetadataView<'_>,bar:&mut Playbar,now:u32){
+  let scrub=crate::player::TX.scrub_ns.load(Relaxed);
+  (bar.pos_ns,bar.dur_ns)=self.timeline.timeline();
+  let preview=meta.playing().and_then(|m|Some((m.sid,m.version.as_ref()?.preview_part_id?)));
+  crate::ui::seek_preview::draw(&mut self.preview,p,preview,scrub,bar.dur_ns,now,Rect::new(SB_X,SB_Y,sb_w(),SB_H));
+  let(current,finish)=wall_clocks(&mut self.clocks,bar.dur_ns,bar.pos_ns);
+  use super::label::{HAlign,Label};
+  for (text,rect) in [(current,Rect::new(SCR_W-216.0,40.0,120.0,48.0)),(finish.map(|s|format!("Ends at {s}")),Rect::new(SB_X+sb_w()-360.0,SB_Y+90.0,360.0,42.0))] {
+   if let Some(text)=text.and_then(|s|CString::new(s).ok()){Label::new(text.as_ptr(),theme::size::CAPTION,theme::OVERLAY_CLOCK).h(HAlign::Right).draw(p,rect);}
+  }
+ }
 }

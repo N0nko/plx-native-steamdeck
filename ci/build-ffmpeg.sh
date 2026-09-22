@@ -147,8 +147,8 @@ fi
 #              h264/hevc are the raw Annex-B paths (/tmp/sample.h264 and the dev triggers).
 #   parsers    needed by avformat_find_stream_info to fill AVCodecParameters.
 #   bsf        AVCC -> Annex-B for mp4-family video, which the Starfish pipeline requires.
-#   decoders   SUBTITLES ONLY. Video and audio are decoded by the TV's hardware via Starfish;
-#              FFmpeg here never touches a video frame.
+#   decoders   Default: SUBTITLES ONLY. LOCAL_AUDIO=1 additionally builds software audio;
+#              video remains on Starfish; FFmpeg here never touches a video frame.
 #   encoder/   mpeg1video + mpegts are the DEV capture stream only, dropped by RELEASE=1 along
 #   muxer      with swscale, which nothing else uses.
 #
@@ -188,6 +188,13 @@ if [ "${RELEASE:-}" = "1" ]; then
   set -- "$@" --disable-swscale
 else
   set -- "$@" --enable-encoder=mpeg1video --enable-muxer=mpegts
+fi
+
+# Optional local audio is keyed in FLAGS_ALL below, so stale subtitle-only builds cannot pass.
+if [ "${LOCAL_AUDIO:-0}" = "1" ]; then
+  set -- "$@" --enable-swresample \
+    --enable-decoder=dca,truehd,flac,opus,vorbis \
+    --enable-parser=dca,mlp,flac,opus,vorbis
 fi
 
 # ---- the shared, flag-keyed build tree ---------------------------------------------------------

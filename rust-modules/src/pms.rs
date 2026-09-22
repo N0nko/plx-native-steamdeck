@@ -65,6 +65,8 @@ const HUB_FETCH_COUNT: i64 = 12;
 #[derive(Default, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PmsMovie {
+    #[serde(default)]
+    pub(crate) guid: String,
     /// WHICH SERVER this row came from. Every other identity on it — `rk`, `show_rk`, `part` — is a
     /// server-local key that a second server reuses from 1 (docs/shared-servers.md §2 measured the
     /// collision), so the row is only addressable as the PAIR `(sid, rk)`; see
@@ -280,6 +282,7 @@ pub(crate) fn urlenc_str(src: &str) -> String {
 /// that was asked, not to whichever one is current when they finish parsing.
 pub(crate) fn parse_item(it: &crate::plex::Metadata, sid: ServerId) -> PmsMovie {
     let mut m = PmsMovie {
+        guid: it.guid.clone(),
         sid,
         sec: it.library_section_id,
         ..Default::default()
@@ -1972,6 +1975,7 @@ pub(crate) fn seed_two_library_home_for_test(
         "the two-library Home fixture requires two sections on its server"
     );
     let item = |section: &crate::stores::browse::SectionView, rk: &str| PmsMovie {
+        guid: String::new(),
         sid,
         sec: section.key,
         rk: rk.into(),

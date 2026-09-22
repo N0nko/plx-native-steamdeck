@@ -4,6 +4,10 @@
 //! browse catalog (pms.rs) — the fixed C buffers from the C port are gone.
 use std::os::raw::c_int;
 pub(crate) mod record;
+mod versions;
+pub(crate) mod preplay;
+pub(crate) use versions::{collect_versions, version_episode, version_target, MediaVersion};
+
 use std::panic::catch_unwind;
 
 /// **Stage B of the store-ownership migration** (`docs/stores-as-machines.md`, D4): a borrowed
@@ -22,6 +26,9 @@ pub(crate) struct MetadataView<'a> {
 impl<'a> MetadataView<'a> {
     pub(crate) fn new(owner: &'a crate::stores::metadata::MetadataStore) -> Self {
         Self { state: owner.state(), adapter: owner.adapter_ref() }
+    }
+    pub(crate) fn preplay(&self, sid: crate::plex::ServerId, rk: &str, part: &str) -> preplay::TrackChoice {
+        preplay::get(self.state, sid, rk, part)
     }
     pub(crate) fn current(&self) -> Option<&'a Detail> {
         self.state.current.as_ref()
@@ -53,6 +60,8 @@ impl<'a> MetadataView<'a> {
     pub(crate) fn detail_generation(&self) -> u32 {
         detail_generation(self.adapter)
     }
+    #[cfg(test)]
+    #[allow(dead_code)]
     pub(crate) fn cached_playing(&self, sid: crate::plex::ServerId, rk: &str) -> Option<PlayingItem> {
         cached_playing(self.state, sid, rk)
     }
@@ -87,6 +96,7 @@ impl<'a> MetadataView<'a> {
 /// [`MetadataAdapter`].
 #[derive(Default)]
 pub(crate) struct MetadataState {
+    preplay: Vec<preplay::Entry>,
     current: Option<Detail>,
     now: Option<NowPlaying>,
     playing: Option<PlayingItem>,
@@ -721,6 +731,8 @@ impl Stream {
 #[derive(Default, Clone)]
 #[derive(serde::Serialize, serde::Deserialize)]
 pub(crate) struct Episode {
+    #[serde(default)]
+    pub(crate) versions: Vec<MediaVersion>,
     pub(crate) rk: String,
     pub(crate) index: i64,  // episode number
     pub(crate) season: i64, // parentIndex
@@ -1198,6 +1210,9 @@ fn convert_ratings(it: &crate::plex::Metadata) -> Vec<Rating> {
 #[derive(Default, Clone)]
 #[derive(serde::Serialize, serde::Deserialize)]
 pub(crate) struct Detail {
+    pub(crate) preview_part_id: Option<i64>,
+    #[serde(default)]
+    pub(crate) versions: Vec<MediaVersion>,
     /// WHICH SERVER this item was fetched from — the other half of its identity. `rk` on its own
     /// names an item on no machine in particular the moment a shared server is registered (both
     /// number from 1; docs/shared-servers.md §2), and every equality test that reads this struct
@@ -1325,6 +1340,8 @@ pub(crate) struct Detail {
     pub(crate) on_deck: Option<Episode>,
     pub(crate) cur_season: usize,
     pub(crate) related: Vec<Related>,
+    #[serde(default)]
+    pub(crate) related_shelves: Vec<RelatedShelf>,
     pub(crate) chapters: Vec<Chapter>,
     pub(crate) markers: Vec<Marker>, // intro / credits segments (leaf items only)
     pub(crate) ratings: Vec<Rating>, // review scores, critic-first (see convert_ratings)
@@ -1528,6 +1545,7 @@ fn set_watched_local(state: &mut MetadataState, sid: crate::plex::ServerId, rk: 
 /// fetch — otherwise a load requested on the way in lands after the page closed and silently
 /// repopulates CURRENT (and NOW, via `sync_now_playing`) behind whatever screen is now mounted.
 fn clear(state: &mut MetadataState, adapter: &MetadataAdapter) {
+    state.preplay.clear();
     supersede_detail(adapter);
     state.current = None;
     // The *Also available* copies describe the item that is going, so they go with it. Nothing
@@ -1710,7 +1728,7 @@ fn fetch_detail(sid: crate::plex::ServerId, rk: &str) -> Option<(Detail, String)
     let media0 = it.primary_media();
     // one read, both fields (see `Detail::blur`)
     let blur = it.ultra_blur_colors.and_then(|u| u.corners());
-    let mut d = Detail {
+    let mut d = Detail { preview_part_id: media0.and_then(|m| m.part.first()).and_then(|p| p.preview_part_id()),
         sid,
         rk: rk.to_string(),
         // the portable identity — what "Also available" resolves across the other sources
@@ -1779,6 +1797,7 @@ fn fetch_detail(sid: crate::plex::ServerId, rk: &str) -> Option<(Detail, String)
         subs: Vec::new(),
         seasons: Vec::new(),
         episodes: Vec::new(),
+        versions: Vec::new(),
         on_deck: it
             .on_deck
             .as_ref()
@@ -1786,6 +1805,7 @@ fn fetch_detail(sid: crate::plex::ServerId, rk: &str) -> Option<(Detail, String)
             .map(convert_episode),
         cur_season: 0,
         related: Vec::new(),
+        related_shelves: Vec::new(),
         chapters: convert_chapters(&it.chapter),
         markers: convert_markers(&it.marker),
         ratings: convert_ratings(&it),
@@ -1965,6 +1985,10 @@ fn convert_streams(streams: &[crate::plex::Stream]) -> Streams {
 /// the ONE version (see `plex::Metadata::primary_media`), and both are borrowed from a show's
 /// first episode by the same call in `fetch_item_streams`, so they can't describe different files.
 fn parse_streams(it: &crate::plex::Metadata, d: &mut Detail) {
+    // A show borrows its technical read-out from a leaf, but owns no Media[] itself.
+    if d.rk == it.rating_key {
+        d.versions = collect_versions(it);
+    }
     if let Some(m) = it.primary_media() {
         d.video_resolution = m.video_resolution.clone();
         d.width = m.width;
@@ -2007,6 +2031,7 @@ fn parse_streams(it: &crate::plex::Metadata, d: &mut Detail) {
 
 #[derive(Clone)]
 pub(crate) struct PlayingItem {
+    pub(crate) version: Option<MediaVersion>,
     /// The server the played leaf lives on. This is the store that feeds PLAYBACK — the track
     /// menu's `Stream.id`s (which are PUT back to a server), the direct-play gate's frame size, the
     /// esInfo fps, the chapters and the markers — so a bare-rk cache hit against a colliding item on
@@ -2044,34 +2069,18 @@ pub(crate) struct PlayingItem {
     /// (`screen::Scrim::over_video`).
     pub(crate) blur: Option<[[f32; 3]; 4]>,
 }
-/// Load the playing-item track store for `rk` at play time (route::build_stream). Reuses the
-/// loaded detail's streams when it IS this item (no extra GET on the play path — the same
-/// optimization the old `audio_tracks` fetch had); otherwise one metadata fetch. An empty `rk`
-/// (local-sample / URL-override play) clears the store.
-/// PURE: fetch the playing item's track lists. Safe on a worker — reads and writes no statics.
-/// The cache-hit shortcut is `cached_playing` (main thread) and the install is `install_playing`,
-/// because `playing()` (via `MetadataView`) hands out a `&'a` borrow whose Vecs the track menu
-/// and info panel hold slices into during playback.
-/// MAIN THREAD: the cache-hit half of the old `load_playing` — reuse the loaded detail's streams
-/// when it IS this item, so playing from a detail page costs no extra GET. Snapshotted into
-/// `ResolveEnv` and handed to the worker; splitting the fetch out lost this and quietly added a
-/// PMS round trip to every play from a detail page.
-///
-/// The hit test is the PAIR `(sid, rk)`, and this is the site where a bare key is most dangerous:
-/// it SKIPS the PMS fetch, so a collision here silently substitutes the loaded page's item for the
-/// one about to play — its audio/subtitle `Stream.id`s (then PUT to the other server), its frame
-/// size (so the direct-play gate reasons about the wrong resolution), its fps, chapters and
-/// markers. A miss costs one round trip; a false hit costs the whole playback.
-///
-/// This closed a TODO that stood here through the foundation commits: `Detail` had no server, so
-/// the filter was the rk alone and the parameter was deliberately unused. `Detail.sid` is what
-/// made the pair test possible.
+/// Test-only legacy cache projection. Production resolution deliberately fetches fresh metadata
+/// through `fetch_playing_version`, because an old Media array index cannot identify a chosen
+/// file after a library refresh. Keeping this projection under tests preserves the existing
+/// server-identity regression fixtures without retaining a production cache shortcut.
+#[cfg(test)]
 fn cached_playing(state: &MetadataState, sid: crate::plex::ServerId, rk: &str) -> Option<PlayingItem> {
     current(state)
         .filter(|d| crate::plex::same_item((d.sid, &d.rk), (sid, rk)) && !d.audio.is_empty())
         .map(|d| PlayingItem {
             sid,
             rk: rk.to_string(),
+            version: d.versions.iter().find(|v| v.source.part_key == d.part).cloned(),
             show_rk: d.show_rk.clone(),
             audio: d.audio.clone(),
             subs: d.subs.clone(),
@@ -2089,56 +2098,47 @@ fn cached_playing(state: &MetadataState, sid: crate::plex::ServerId, rk: &str) -
 /// `sid` names the server `rk` is a key on. It runs on the resolve worker, so the server must
 /// arrive by value: `client_opt()` here would fetch whichever server is CURRENT, and a ratingKey
 /// that also exists there would come back with a different film's stream list.
-pub(crate) fn fetch_playing_item(sid: crate::plex::ServerId, rk: &str) -> Option<PlayingItem> {
+pub(crate) fn fetch_playing_version(
+    sid: crate::plex::ServerId,
+    rk: &str,
+    requested_part: &str,
+) -> Option<PlayingItem> {
     if rk.is_empty() {
         return None;
     }
-    let it = crate::plex::client_for(sid).and_then(|c| c.metadata(rk));
-    // Markers and chapters hang off the ITEM, streams off its first Part — so a part-less response
-    // still yields both of those instead of discarding all three. `Client::metadata` already sends
-    // `includeChapters=1` (plex/library.rs), so the Chapter[] is on the wire either way: taking it
-    // here costs no request, and dropping it is what hid the Chapters tab on the episode path.
-    let markers = it
-        .as_ref()
-        .map(|it| convert_markers(&it.marker))
-        .unwrap_or_default();
-    let chapters = it
-        .as_ref()
-        .map(|it| convert_chapters(&it.chapter))
-        .unwrap_or_default();
-    let st = it
-        .as_ref()
-        .and_then(|it| it.first_part().map(|p| convert_streams(&p.stream)))
-        .unwrap_or_default();
-    let (audio, subs, video_fps, dovi) = (st.audio, st.subs, st.fps, st.dovi);
-    let show_rk = it
-        .as_ref()
-        .map(|it| it.grandparent_rating_key.clone())
-        .unwrap_or_default();
-    // the frame size rides the same PRIMARY version the streams come from (route.rs's
-    // direct-play gate tests it against the device bound — see the field doc)
-    let (width, height, bitrate) = it
-        .as_ref()
-        .and_then(|it| it.primary_media().map(|m| (m.width, m.height, m.bitrate)))
-        .unwrap_or((0, 0, 0));
-    let blur = it
-        .as_ref()
-        .and_then(|it| it.ultra_blur_colors)
-        .and_then(|u| u.corners());
+    let it = crate::plex::client_for(sid)?.metadata(rk)?;
+    playing_from_metadata(sid, rk, requested_part, &it)
+}
+
+/// Bind the requested Part to its current Media[] position. All playback technicals
+/// come from that version, while chapters/markers remain properties of this leaf.
+fn playing_from_metadata(
+    sid: crate::plex::ServerId,
+    rk: &str,
+    requested_part: &str,
+    it: &crate::plex::Metadata,
+) -> Option<PlayingItem> {
+    if it.rating_key != rk { return None; }
+    let versions = collect_versions(it);
+    let candidates: Vec<_> = versions.iter().map(|v| v.source.clone()).collect();
+    let i = crate::media_version::choose(&candidates, requested_part).ok()?;
+    let v = versions.into_iter().nth(i)?;
+    if !v.playable() { return None; }
     Some(PlayingItem {
         sid,
         rk: rk.to_string(),
-        show_rk,
-        audio,
-        subs,
-        video_fps,
-        width,
-        height,
-        bitrate,
-        dovi,
-        markers,
-        chapters,
-        blur,
+        show_rk: it.grandparent_rating_key.clone(),
+        audio: v.audio.clone(),
+        subs: v.subs.clone(),
+        video_fps: v.video_fps,
+        width: v.width,
+        height: v.height,
+        bitrate: v.bitrate,
+        dovi: v.dovi,
+        markers: convert_markers(&it.marker),
+        chapters: convert_chapters(&it.chapter),
+        blur: it.ultra_blur_colors.and_then(|u| u.corners()),
+        version: Some(v),
     })
 }
 
@@ -2275,6 +2275,7 @@ fn fetch_episodes(sid: crate::plex::ServerId, season_rk: &str) -> Option<Vec<Epi
 fn convert_episode(x: &crate::plex::Metadata) -> Episode {
     let media0 = x.media.first();
     Episode {
+        versions: collect_versions(x),
         rk: x.rating_key.clone(),
         index: x.index,
         season: x.parent_index,
@@ -2443,53 +2444,54 @@ fn project_extras(
     d.trailer_rk = winner.rk;
 }
 
-fn fetch_related(sid: crate::plex::ServerId, rk: &str) -> Vec<Related> {
-    let mc = match crate::plex::client_for(sid).and_then(|c| c.related(rk)) {
-        Some(m) => m,
-        None => {
-            // Same shape as `fetch_seasons` above: the degrade is deliberate, the silence is not —
-            // an item with no related hub and a refused GET both reach `fetch_full`'s `related=0`.
-            crate::log(&format!(
-                "detail: rk={rk} /related did not answer — the related= below is that refusal"
-            ));
-            return Vec::new();
-        }
-    };
-    related_rows(&mc, sid)
+/// Offsets refer to the same owned, server-stamped item vector as the flat key registry.
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+pub(crate) struct RelatedShelf {
+    pub(crate) title: String,
+    pub(crate) identifier: String,
+    pub(crate) start: usize,
+    pub(crate) len: usize,
 }
 
-/// Related tiles this shelf holds at most. PMS answers `/related` with several titled hubs and we
-/// concatenate them, so without a cap a well-connected film can carry a hundred rows into a strip
-/// that shows six.
-const RELATED_MAX: usize = 20;
+fn fetch_related(sid: crate::plex::ServerId, rk: &str) -> (Vec<Related>, Vec<RelatedShelf>) {
+    match crate::plex::client_for(sid).and_then(|c| c.related(rk)) {
+        Some(mc) => related_projection(&mc, sid),
+        None => { crate::log("detail: related request did not answer"); (Vec::new(), Vec::new()) }
+    }
+}
 
-/// `/related`'s response → the shelf's rows. **PURE**, split out of [`fetch_related`] so the three
-/// things that can be wrong here are host-testable: which fields survive the copy, the de-duplication
-/// across hubs, and the cap.
-///
-/// De-duplication is across the WHOLE response and not per hub, which is the point of it: PMS's
-/// related hubs overlap heavily ("Similar Movies" and "More with <actor>" routinely name the same
-/// film), and a flattened strip that listed it twice would put two tiles of one title side by side.
-fn related_rows(mc: &crate::plex::MediaContainer, sid: crate::plex::ServerId) -> Vec<Related> {
+const RELATED_MAX: usize = 120;
+const RELATED_SHELF_MAX: usize = 6;
+const RELATED_ITEMS_PER_SHELF: usize = 20;
+
+fn related_projection(mc: &crate::plex::MediaContainer, sid: crate::plex::ServerId)
+    -> (Vec<Related>, Vec<RelatedShelf>) {
     let mut out = Vec::new();
+    let mut shelves = Vec::new();
     let mut seen = std::collections::HashSet::new();
     for h in &mc.hub {
+        if shelves.len() >= RELATED_SHELF_MAX || out.len() >= RELATED_MAX { break; }
+        let start = out.len();
         for x in &h.metadata {
-            if x.rating_key.is_empty() || !seen.insert(x.rating_key.clone()) {
-                continue;
-            }
-            // THE shared row mapping, not a three-field copy — see [`Related`]. `sid` is the
-            // server this response came from, passed in and never looked up: `fetch_related` runs
-            // on the detail worker, and the house rule (`pms::parse_item`'s own doc) is that a
-            // worker reads no statics, because "the current server" can change while a fetch is in
-            // flight and the rows in hand belong to the machine that was asked.
+            if out.len() - start >= RELATED_ITEMS_PER_SHELF || out.len() >= RELATED_MAX { break; }
+            if !matches!(x.kind.as_str(), "movie" | "show" | "episode" | "")
+                || x.rating_key.is_empty() || !seen.insert(x.rating_key.clone()) { continue; }
             out.push(crate::pms::parse_item(x, sid));
-            if out.len() >= RELATED_MAX {
-                return out;
-            }
+        }
+        if out.len() > start {
+            shelves.push(RelatedShelf {
+                title: if h.title.is_empty() { "Related".into() } else { h.title.clone() },
+                identifier: if h.hub_identifier.is_empty() { h.key.clone() } else { h.hub_identifier.clone() },
+                start, len: out.len() - start,
+            });
         }
     }
-    out
+    (out, shelves)
+}
+
+#[cfg(test)]
+fn related_rows(mc: &crate::plex::MediaContainer, sid: crate::plex::ServerId) -> Vec<Related> {
+    related_projection(mc, sid).0
 }
 
 /// The full detail fetch for `rk` (movie or show): item metadata + cast + streams, plus — for
@@ -2572,7 +2574,7 @@ fn fetch_full(sid: crate::plex::ServerId, rk: &str) -> Option<Detail> {
             };
             (related, extras)
         });
-        d.related = related;
+        (d.related, d.related_shelves) = related;
         match extras {
             Some(rows) => {
                 extras_src = "extras";
@@ -2594,7 +2596,7 @@ fn fetch_full(sid: crate::plex::ServerId, rk: &str) -> Option<Detail> {
         }
     } else {
         extras_src = "skip";
-        d.related = fetch_related(sid, rk);
+        (d.related, d.related_shelves) = fetch_related(sid, rk);
     }
     // The item's IDENTITY and the SHAPE of what came back — never its title. `scrub_local` runs
     // on every line in every build, but nothing in a line distinguishes a programme title from
@@ -2790,6 +2792,8 @@ pub(crate) fn run(state: &mut MetadataState, adapter: &std::sync::Arc<MetadataAd
             request_detail(adapter, sid, &rk);
             true
         }
+        MetadataCmd::SetPreplay { sid, rk, part, choice } => preplay::set(state, sid, &rk, &part, choice),
+        MetadataCmd::SelectVersion { sid, rk, part } => versions::select_version(state, sid, &rk, &part),
         MetadataCmd::Clear => {
             clear(state, adapter);
             true
@@ -4415,3 +4419,36 @@ mod watch_state_tests;
 #[cfg(test)]
 #[path = "metadata_credits_tests.rs"]
 mod credits_tests;
+
+#[cfg(test)]
+mod named_related_tests {
+    use super::*;
+    #[test] fn headings_and_identity_survive_while_duplicates_do_not() {
+        let mc: crate::plex::MediaContainer = serde_json::from_value(serde_json::json!({
+            "Hub": [
+                {"title":"More from this director", "hubIdentifier":"director", "Metadata":[
+                    {"type":"movie", "ratingKey":"1", "title":"One"}]},
+                {"title":"Similar Movies", "hubIdentifier":"similar", "Metadata":[
+                    {"type":"movie", "ratingKey":"1", "title":"One"},
+                    {"type":"movie", "ratingKey":"2", "title":"Two"}]}
+            ]
+        })).unwrap();
+        let sid = crate::plex::ServerId::from_raw(3);
+        let (items, groups) = related_projection(&mc, sid);
+        assert_eq!(items.len(), 2);
+        assert!(items.iter().all(|item| item.sid == sid));
+        assert_eq!(groups.iter().map(|g| (g.title.as_str(), g.start, g.len)).collect::<Vec<_>>(),
+            vec![("More from this director", 0, 1), ("Similar Movies", 1, 1)]);
+        assert_eq!(groups[0].identifier, "director");
+    }
+    #[test] fn large_recommendation_responses_are_bounded_per_shelf_and_total() {
+        let hubs: Vec<_> = (0..10).map(|g| serde_json::json!({
+            "title":format!("Group {g}"), "Metadata": (0..30).map(|i|
+                serde_json::json!({"type":"movie", "ratingKey":format!("{g}-{i}")})).collect::<Vec<_>>()
+        })).collect();
+        let mc: crate::plex::MediaContainer = serde_json::from_value(serde_json::json!({"Hub":hubs})).unwrap();
+        let (items, groups) = related_projection(&mc, crate::plex::ServerId::from_raw(1));
+        assert_eq!(items.len(), 120); assert_eq!(groups.len(), 6);
+        for (i, group) in groups.iter().enumerate() { assert_eq!((group.start, group.len), (i*20,20)); }
+    }
+}

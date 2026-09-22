@@ -183,6 +183,8 @@ pub enum Icon {
     /// It negates by DRAINING to [`theme::RATING_MUTED`] rather than going hollow: a single fruit
     /// can carry an outline, but outlining every shape in a crowd is a tangle of strokes at 30px.
     Crowd,
+    /// User-supplied white-outline audience-rating mark.
+    PopcornAudience,
 }
 
 /// **Where a mark's INK sits inside its 24-unit viewBox**, as `(left, right)` fractions — and
@@ -256,6 +258,7 @@ fn src(id: Icon) -> &'static str {
         Icon::TomatoCalyx => include_str!("../../../assets/icons/tomato-calyx.svg"),
         Icon::TomatoHollow => include_str!("../../../assets/icons/tomato-hollow.svg"),
         Icon::Crowd => include_str!("../../../assets/icons/crowd.svg"),
+        Icon::PopcornAudience => include_str!("../../../assets/icons/popcorn-audience.svg"),
     }
 }
 

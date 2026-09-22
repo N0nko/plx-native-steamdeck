@@ -779,6 +779,7 @@ pub(crate) unsafe fn construct(
     if !controlled {
         crate::player::acb_init(&mt);
         crate::ff::boot(); // Live playback resource boot; controlled Home cannot invoke ABI probes.
+        crate::audio_local::boot();
     }
                        // dev: /tmp/plxnative-logintest validates the plex.tv account path end-to-end on the device — a
                        // real typed create_pin() through the libcurl transport + DTO deserialize. Logs only the

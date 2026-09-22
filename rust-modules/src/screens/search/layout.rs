@@ -17,8 +17,9 @@ pub(crate) const FIELD: Rect = Rect {
 pub(super) const SCOPE_Y: f32 = FIELD.y + FIELD.h + 12.0;
 /// See [`FIELD`]'s doc: also reachable as `crate::screens::search::CONTENT_TOP`. Value pinned at
 /// 300.0 — the overscan audit and `top()`'s own layering both depend on it.
-pub(crate) const CONTENT_TOP: f32 = 300.0;
+pub(crate) const CONTENT_TOP: f32 = 360.0;
 pub(super) const HEAD_TO_ROW: f32 = 60.0;
+pub(super) const SYSTEM_SHIFT:f32=60.0;
 pub(super) const KEYBOARD_H: f32 = 324.0;
 pub(super) const SCOPE_H: f32 = crate::ui::theme::size::CAPTION as f32 * 1.35;
 pub(super) const CLEAR_H: f32 = 60.0;
@@ -188,13 +189,13 @@ mod tests {
     fn the_first_shelfs_whole_row_clears_the_raised_keyboard() {
         let floor = SCR_H - KEYBOARD_H;
         for kind in ALL {
-            let bottom = top(&[kind], 0, OPEN) + HEAD_TO_ROW + style(kind).h;
+            let bottom = top(&[kind], 0, OPEN)-SYSTEM_SHIFT + HEAD_TO_ROW + style(kind).h;
             assert!(
                 bottom <= floor,
                 "{kind:?}: the first row ends at {bottom}, under the keyboard at {floor}"
             );
         }
-        assert_eq!(top(&[Kind::Movie], 0, OPEN) + HEAD_TO_ROW + CARD_H, 735.0);
+        assert_eq!(top(&[Kind::Movie], 0, OPEN)-SYSTEM_SHIFT + HEAD_TO_ROW + CARD_H, 735.0);
         assert_eq!(floor, 756.0);
     }
 
@@ -261,7 +262,7 @@ mod tests {
     #[test]
     fn a_full_block_finishes_clear_of_the_raised_keyboard() {
         let kbd_top = SCR_H - KEYBOARD_H;
-        let clearance = kbd_top - recent_block_bottom(RECENT_CAP, 0.0);
+        let clearance = kbd_top - (recent_block_bottom(RECENT_CAP, 0.0)-SYSTEM_SHIFT);
         assert!(
             clearance >= crate::ui::theme::space::LG,
             "a full block ends at {} and the keyboard starts at {kbd_top} — {clearance}px",

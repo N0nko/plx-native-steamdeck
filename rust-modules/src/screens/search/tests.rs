@@ -212,8 +212,8 @@ fn down_from_the_field_reaches_only_a_region_that_is_drawn() {
     let mut screen = fixture.screen();
     let mut engine = seated(&screen, &fixture);
     assert!(screen.recents.is_empty());
-    assert_eq!(step_dir(&mut screen, &fixture, &mut engine, Dir::Down), Some(screen.key(FIELD)),
-        "nothing is drawn below the field, so focus must not leave it");
+    assert_eq!(step_dir(&mut screen, &fixture, &mut engine, Dir::Down), Some(screen.key(keypad::FILTER_BASE)),
+        "filters remain available before discovery has loaded");
 
     // (2) no query, terms remembered: the recents list.
     watching(&session, "owned-search-handoff-terms", &["gromit", "wallace"]);
@@ -221,6 +221,7 @@ fn down_from_the_field_reaches_only_a_region_that_is_drawn() {
     let mut screen = fixture.screen();
     let mut engine = seated(&screen, &fixture);
     assert_eq!(screen.recents.len(), 2);
+    step_dir(&mut screen,&fixture,&mut engine,Dir::Down); // filter row
     let recent = step_dir(&mut screen, &fixture, &mut engine, Dir::Down).unwrap();
     assert_eq!(Some(recent.elem), screen.recents.first().copied(), "▼ lands on the first term");
 
@@ -230,13 +231,14 @@ fn down_from_the_field_reaches_only_a_region_that_is_drawn() {
     let mut screen = fixture.screen();
     let mut engine = seated(&screen, &fixture);
     assert!(screen.recents.is_empty(), "a live query outranks the remembered terms");
-    assert_eq!(step_dir(&mut screen, &fixture, &mut engine, Dir::Down), Some(screen.key(FIELD)),
-        "an empty answer draws a statement, not a focusable region");
+    assert_eq!(step_dir(&mut screen, &fixture, &mut engine, Dir::Down), Some(screen.key(keypad::FILTER_BASE)),
+        "empty results retain the filter control");
 
     // (4) a query with shelves: the results.
     fixture.shelves(vec![shelf(Kind::Movie, "handoff", 3)]);
     let mut screen = fixture.screen();
     let mut engine = seated(&screen, &fixture);
+    step_dir(&mut screen,&fixture,&mut engine,Dir::Down); // filter row
     let tile = step_dir(&mut screen, &fixture, &mut engine, Dir::Down).unwrap();
     assert_eq!(Some(tile.elem), screen.rows[0].elems.first().copied());
     drop(session);
@@ -401,7 +403,7 @@ fn the_recents_cursor_stops_on_the_clear_control() {
     for _ in 0..10 {
         seen.push(step_dir(&mut screen, &fixture, &mut engine, Dir::Down).unwrap().elem);
     }
-    let expected: Vec<u32> = screen.recents.iter().copied().chain(std::iter::repeat(CLEAR)).take(10).collect();
+    let expected: Vec<u32> = std::iter::once(keypad::FILTER_BASE).chain(screen.recents.iter().copied()).chain(std::iter::repeat(CLEAR)).take(10).collect();
     assert_eq!(seen, expected, "▼ walks every drawn term and then caps on Clear");
 
     // Clear is one row past the last term shown, and its own block is where the renderer draws it.
@@ -501,6 +503,7 @@ fn revealing_the_second_shelf_carries_the_query_field_under_the_track() {
     let mut screen = fixture.screen();
     let mut engine = seated(&screen, &fixture);
 
+    step_dir(&mut screen,&fixture,&mut engine,Dir::Down); // filter row
     step_dir(&mut screen, &fixture, &mut engine, Dir::Down);
     assert_eq!(screen.scroll_target, 0.0, "the first shelf is already on screen");
     assert_eq!(hit(&screen, &fixture, &[FIELD], layout::FIELD.cx(), layout::FIELD.cy()), Some(FIELD));
@@ -675,6 +678,7 @@ fn the_panels_edit_keys_move_the_caret_clear_the_field_and_type_in_the_middle() 
     // OK on the field arrives as `Activate` — the field is a `Bare` element, so the dispatcher
     // delivers the activation rather than arming a press.
     let (handled, _, _) = deliver(&mut screen, &fixture, field, ScreenEvent::Activate(FIELD));
+    deliver(&mut screen,&fixture,Some(screen_key_for_system()),ScreenEvent::Activate(keypad::BASE+4));
     assert_eq!(handled, Handled::Yes);
     assert!(screen.editing, "OK on the field raises the panel");
 
@@ -750,6 +754,7 @@ fn the_shelf_flow_is_frozen_unless_the_shelves_hold_focus_with_the_keyboard_down
     // The keyboard goes up: the flow parks at zero under a user who is still typing, and stays
     // there for as long as the panel is up.
     deliver(&mut screen, &fixture, Some(field), ScreenEvent::Activate(FIELD));
+    deliver(&mut screen,&fixture,Some(screen_key_for_system()),ScreenEvent::Activate(keypad::BASE+4));
     assert!(screen.editing);
     assert_eq!(screen.scroll_target, 0.0, "the result set stays still while the panel is up");
     deliver(&mut screen, &fixture, Some(field), ScreenEvent::FocusMoved {
@@ -886,4 +891,37 @@ fn a_settled_annotation_goes_quiet_and_a_moving_one_does_not() {
             "frame {i}: a settled annotation asked for a repaint");
     }
     crate::plex::reset_servers_for_test();
+}
+
+fn screen_key_for_system()->FocusKey<u32>{FocusKey{entry:ENTRY,elem:keypad::BASE+4}}
+
+#[test]
+fn custom_keyboard_multitap_and_back_preserve_the_query(){
+ let _serial=crate::testlock::serial();let session=remembering("custom-keypad",&[]);let fixture=Fixture::new();let mut screen=fixture.screen();
+ let field=Some(screen.key(FIELD));deliver(&mut screen,&fixture,field,ScreenEvent::Activate(FIELD));assert!(screen.keypad_open);assert!(!screen.editing);
+ deliver(&mut screen,&fixture,field,key_event(Key::Other,50));assert_eq!(screen.draft.query(),"a");
+ deliver(&mut screen,&fixture,field,key_event(Key::Other,50));assert_eq!(screen.draft.query(),"b");
+ deliver(&mut screen,&fixture,field,text_event(TextEdit::Commit("2".into())));assert_eq!(screen.draft.query(),"b","SDL digit echo must not duplicate the key");
+ let(_,fx,_)=deliver(&mut screen,&fixture,field,key_event(Key::Back,0));assert!(!screen.keypad_open);assert_eq!(screen.draft.query(),"b");assert!(!fx.iter().any(|e|matches!(e.fx,Fx::App(AppFx::Search(SearchReq::Back)))));drop(session);
+}
+#[test]
+fn discovery_feeds_keep_separate_identity_and_reject_retired_profile_landings(){
+ let _serial=crate::testlock::serial();let session=remembering("custom-discovery",&[]);let fixture=Fixture::new();let mut screen=fixture.screen();
+ let page=crate::discovery::Page{label:"Discover".into(),rows:vec![shelf(Kind::Movie,"same",2),shelf(Kind::Movie,"same",2)],headings:vec!["Trending".into(),"Popular".into()]};
+ let request=crate::discovery::Request{profile:screen.draft.profile(),serial:1,seed:None,name:"Discover".into(),sid:crate::plex::ServerId::UNSET};
+ deliver(&mut screen,&fixture,None,ScreenEvent::App(AppMsg::Discovery(crate::discovery::Reply{request:request.clone(),page:Some(page.clone())})));
+ assert_eq!(screen.shown.headings,["Trending","Popular"]);assert_ne!(screen.rows[0].group,screen.rows[1].group);assert_ne!(screen.rows[0].elems[0],screen.rows[1].elems[0]);
+ let mut stale=request;stale.profile=stale.profile.wrapping_add(1);
+ deliver(&mut screen,&fixture,None,ScreenEvent::App(AppMsg::Discovery(crate::discovery::Reply{request:stale,page:Some(crate::discovery::Page::default())})));
+ assert_eq!(screen.shown.rows.len(),2);drop(session);
+}
+#[test]
+fn contextual_back_restores_the_previous_page_and_rejects_late_preview(){
+ let _serial=crate::testlock::serial();let session=remembering("custom-context",&[]);let mut fixture=Fixture::new();fixture.query("seed").shelves(vec![shelf(Kind::Movie,"local",2)]);let mut screen=fixture.screen();
+ let focus=screen.rows[0].elems[1];let page=crate::discovery::Page{label:"Related title".into(),rows:vec![shelf(Kind::Movie,"related",2)],headings:vec!["More like title".into()]};screen.discovery.preview=Some(page);
+ let mut out=vec![];let mut present=Present::new();let mut fx=Effects::<HostFixture>::new(&mut out,MachineId::Instance(INSTANCE),&mut present);
+ assert!(screen.discover_enter(0,0,focus,&mut fx));screen.sync(&fixture.cx(None),false,&mut fx);assert_eq!(screen.shown.label,"Related title");
+ assert!(screen.discover_back(&mut fx));screen.sync(&fixture.cx(None),false,&mut fx);assert_eq!(screen.shown.label,"Search results");assert!(screen.rows[0].elems.contains(&focus));
+ let stale=crate::discovery::Reply{request:crate::discovery::Request{profile:screen.draft.profile(),serial:screen.discovery.serial.wrapping_sub(1),seed:Some(crate::plex::catalog::DiscoverySeed::Title{id:"0123456789abcdef01234567".into()}),name:"stale".into(),sid:crate::plex::ServerId::UNSET},page:Some(crate::discovery::Page{label:"late".into(),..Default::default()})};
+ screen.discover_land(&stale,&fixture.cx(None),&mut fx);assert!(screen.discovery.preview.is_none());assert_eq!(screen.shown.label,"Search results");drop(session);
 }

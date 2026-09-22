@@ -83,6 +83,7 @@ pub(crate) struct Origin {
 /// The route's RENDER resources — recreated freely, never read as logical state (§6.1).
 #[derive(Default)]
 pub(crate) struct PlayerRender {
+    pub(crate) extras:crate::ui::player_hud::Extras,
     /// The decoded image-subtitle display set and its cache key (`player_hud`'s `SET`/`KEY`/`SEL`).
     pub(crate) subs: SubtitleBitmaps,
 }
@@ -215,6 +216,7 @@ impl PlayerScreen {
         crate::ui::player_hud::draw_hud(
             ps,
             &mut self.row,
+            &mut self.render.extras,
             &self.up_next,
             self.slot,
             self.busy,
@@ -275,6 +277,7 @@ impl PlayerScreen {
         // picture nobody is drawing — playback spends ~99% of its time with the HUD auto-hidden,
         // where the frame is already 0 draw calls, and a report there is the gate turned off.
         if hud_up {
+            mix(self.render.extras.clock_fingerprint(now));
             mix(pos as u64);
             mix(crate::player::seek_display_ns() as u64);
             mix(crate::player::TX.scrub_ns.load(Relaxed) as u64);

@@ -263,7 +263,9 @@ impl InfoPanelState {
             crate::route::is_transcoding(ps),
             crate::route::is_remux(ps),
             &crate::route::stream_vcodec(ps),
-        );
+        ).map(|fact| if crate::audio_local::output_active() {
+            format!("{fact} · local PCM 2.0")
+        } else { fact });
         // metadata line (genres · year · duration) + capability badges. Built and FIT here, before the
         // title/synopsis layout below, rather than inside its own draw block further down — see
         // `chips_that_fit`'s doc for issue #26 itself; the reason this part specifically has to happen

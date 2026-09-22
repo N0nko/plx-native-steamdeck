@@ -34,6 +34,13 @@ def lg_maintainer_address(value: str) -> bool:
     return re.fullmatch(r"[^<>]+ <[A-Za-z0-9._-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}>", value) is not None
 
 
+def build_feature_flags(stamp: str) -> "str | None":
+    fields = re.fullmatch(
+        r"features:(?P<flags>.*?)(?:\+symbols)?(?:\+nightly:[0-9]{8})?(?:\+tel:[0-9a-f]+)?",
+        stamp.strip())
+    return fields.group("flags").strip() if fields else None
+
+
 def build_configuration(stamp: str) -> "str | None":
     """Decode `pkg/.build-config` into "dev", "release", or None for anything else.
 
@@ -58,12 +65,25 @@ def build_configuration(stamp: str) -> "str | None":
     `nightly_stamp_date` reads the `+nightly:` field's VALUE separately — this function only has to
     not choke on its presence.
     """
-    fields = re.fullmatch(
-        r"features:(?P<flags>.*?)(?:\+symbols)?(?:\+nightly:[0-9]{8})?(?:\+tel:[0-9a-f]+)?",
-        stamp.strip())
-    if not fields:
-        return None
-    return {"": "dev", "--no-default-features": "release"}.get(fields.group("flags").strip())
+    flags = build_feature_flags(stamp)
+    # The opt-in decoder does not enable the dev trigger surface. Other experimental
+    # feature combinations still remain outside the two configurations graded here.
+    return {"": "dev", "--no-default-features": "release",
+            "--features local-audio": "dev",
+            "--no-default-features --features local-audio": "release"}.get(flags)
+
+
+def library_notice_errors(distributed: set[str], named: set[str], local_audio: bool) -> list[str]:
+    """The notices document the optional resampler; its presence must follow the build flag."""
+    optional = {"libswresample-plx.so.7"}
+    errors = []
+    if not optional <= named:
+        errors.append("optional local-audio library is not documented")
+    expected = named if local_audio else named - optional
+    if distributed != expected:
+        errors.append(f"shipped-not-named={sorted(distributed-expected)} "
+                      f"named-not-shipped={sorted(expected-distributed)}")
+    return errors
 
 
 def parse_release_line(content: str) -> "tuple[int, int] | None":
@@ -283,6 +303,8 @@ def _selftest() -> int:
         # older stamps, from before the telemetry and symbols fields existed
         "features:": "dev",
         "features:--no-default-features": "release",
+        "features:--no-default-features --features local-audio+tel:abc123": "release",
+        "features: --features local-audio+symbols+tel:abc123": "dev",
         # configurations that are neither shipped one, and must SAY so rather than be graded
         "features: --features lab-diagnostics+tel:abc123def456": None,          # LAB=1
         "features:--no-default-features --features lab-diagnostics+tel:abc123def456": None,
@@ -298,6 +320,23 @@ def _selftest() -> int:
             bad += 1
             print(f"  FAIL — {stamp!r} decoded {got!r}, want {want!r}")
     print(f"check-package: build_configuration {len(cases) - bad}/{len(cases)} stamps correct")
+
+    core = {"libavcodec-plx.so.63"}
+    audio = {"libswresample-plx.so.7"}
+    notice_cases = [
+        (core, core | audio, False, True),
+        (core | audio, core | audio, True, True),
+        (core | audio, core | audio, False, False),  # leaked into default package
+        (core, core | audio, True, False),          # enabled but missing
+        (core, core, False, False),                 # optional licence text lost
+        (set(), core | audio, False, False),        # ordinary library missing
+        (core | {"libunexpected-plx.so.1"}, core | audio, False, False),
+    ]
+    for distributed, named, enabled, want in notice_cases:
+        if (not library_notice_errors(distributed, named, enabled)) != want:
+            bad += 1
+            print(f"  FAIL — library notices: {distributed}, {named}, local-audio={enabled}")
+    print(f"check-package: library notices exercised {len(notice_cases)} cases")
 
     # `expected_dev_version` against every shape the two derivations (this file's and
     # `rust-modules/src/release_line.rs`'s) must agree on: trunk, a real maintenance line, a
@@ -1056,7 +1095,7 @@ BUILD = build_configuration(STAMP_TEXT)
 # payload is what turned every push to main red from 2026-08-10 to 2026-08-12 — the notices were
 # corrected and the gate added in the same commit, and only the release job ever built the
 # configuration the pair describes. Subtracting the dev-only set keeps ONE rule for both
-# configurations, with no build-flag sniffing: a new library still has to be documented, and a
+# configurations: a new library still has to be documented, and a
 # documented one that stopped shipping still fails. Whether a RELEASE build really dropped them is
 # the separate, narrower check below.
 DEV_ONLY_SONAMES = {"libswscale-plx.so.10"}   # the dev capture stream's scaler; RELEASE=1 drops it
@@ -1065,10 +1104,14 @@ shipped = {p.name for p in (ROOT / "pkg").glob("*.so.*")
 if shipped:
     named = set(re.findall(r"`(lib[a-z]+-plx\.so\.\d+)`", (ROOT / "THIRD-PARTY-NOTICES.md").read_text()))
     distributed = shipped - DEV_ONLY_SONAMES
-    check(distributed == named,
+    # The separately documented experimental resampler ships only with LOCAL_AUDIO=1.
+    # Still reject both an accidental default inclusion and a missing opt-in dependency.
+    flags = build_feature_flags(STAMP_TEXT) or ""
+    local_audio = bool(re.search(r"(?:^|\s)--features\s+local-audio(?:\s|$)", flags))
+    notice_errors = library_notice_errors(distributed, named, local_audio)
+    check(not notice_errors,
           "THIRD-PARTY-NOTICES names exactly the distributed libraries"
-          + (f" (shipped-not-named={sorted(distributed-named)} named-not-shipped={sorted(named-distributed)})"
-             if distributed != named else ""))
+          + (f" ({'; '.join(notice_errors)})" if notice_errors else ""))
     # ...and a RELEASE build must carry none of the dev-only ones at all, which is the half the
     # subtraction above cannot see.
     if BUILD == "release":

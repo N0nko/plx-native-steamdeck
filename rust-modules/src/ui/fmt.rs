@@ -271,3 +271,55 @@ pub(crate) fn rating_suffix(art: crate::metadata::RatingArt) -> &'static str {
         _ => "",
     }
 }
+
+/// Wall-clock time in the device's configured zone, including the offset at that instant.
+pub(crate) fn local_clock(unix_seconds: i64) -> Option<String> {
+    let timestamp = libc::time_t::try_from(unix_seconds).ok()?;
+    let mut parts = std::mem::MaybeUninit::<libc::tm>::uninit();
+    // libc owns timezone/DST rules; localtime_r writes into caller-owned storage.
+    if unsafe { libc::localtime_r(&timestamp, parts.as_mut_ptr()) }.is_null() {
+        return None;
+    }
+    let parts = unsafe { parts.assume_init() };
+    Some(format!("{:02}:{:02}", parts.tm_hour, parts.tm_min))
+}
+
+/// Estimated finish if playback continues from the displayed position at normal speed.
+pub(crate) fn finish_timestamp(now: i64, duration_ns: i64, position_ns: i64) -> Option<i64> {
+    if duration_ns <= 0 {
+        return None;
+    }
+    let remaining = duration_ns.saturating_sub(position_ns.clamp(0, duration_ns));
+    let seconds = remaining / 1_000_000_000 + i64::from(remaining % 1_000_000_000 != 0);
+    now.checked_add(seconds)
+}
+
+#[cfg(test)] mod custom_clock_tests {
+use super::*;
+    #[test]
+    fn finish_time_handles_seeking_midnight_and_unknown_duration() {
+        let minute = 60_000_000_000;
+        let now = 23 * 3600 + 50 * 60;
+        assert_eq!(finish_timestamp(now, 90 * minute, 70 * minute), Some(87000));
+        assert_eq!(finish_timestamp(now, 90 * minute, 80 * minute), Some(86400));
+        assert_eq!(finish_timestamp(now, 90 * minute, 100 * minute), Some(now));
+        assert_eq!(finish_timestamp(now, minute, -1), Some(now + 60));
+        assert_eq!(finish_timestamp(now, 1, 0), Some(now + 1));
+        assert_eq!(finish_timestamp(now, 0, 0), None);
+        assert_eq!(finish_timestamp(now, -1, 0), None);
+        assert_eq!(finish_timestamp(i64::MAX, minute, 0), None);
+    }
+
+    #[test]
+    fn device_clock_is_compact_and_uses_libc_timezone() {
+        let unix_seconds = 1_789_815_600;
+        let result = local_clock(unix_seconds).unwrap();
+        let timestamp = libc::time_t::try_from(unix_seconds).unwrap();
+        let mut parts = std::mem::MaybeUninit::<libc::tm>::uninit();
+        assert!(!unsafe { libc::localtime_r(&timestamp, parts.as_mut_ptr()) }.is_null());
+        let parts = unsafe { parts.assume_init() };
+        assert_eq!(result, format!("{:02}:{:02}", parts.tm_hour, parts.tm_min));
+        assert_eq!(result.len(), 5);
+    }
+
+}

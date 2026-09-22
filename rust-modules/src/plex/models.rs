@@ -399,13 +399,9 @@ impl Metadata {
         self.media.first().and_then(|m| m.part.first())
     }
 
-    /// `Media[0]` — the FIRST version listed, **not** a chosen-best one, and the honest name for
-    /// what every caller here actually reads. An item can carry SEVERAL `Media[]` versions
-    /// (docs/pms-api.md §4; the dev library really does — one episode ships a 4k and a 1080
-    /// version, another two 4k versions at different bitrates), and picking among them by
-    /// codec/resolution needs a version picker this client does not have yet. So anything derived
-    /// from this describes **version 0**, and a UI that shows it should be read that way.
-    /// [`first_part`](Self::first_part) carries the same caveat.
+    /// `Media[0]` for catalog summaries and initial detail rendering, not a best-version
+    /// selector. Playback resolves the chosen Part through `metadata::versions` and
+    /// carries its original Media[] index into every decision/start request.
     pub fn primary_media(&self) -> Option<&Media> {
         self.media.first()
     }
@@ -453,6 +449,8 @@ pub struct Media {
 
 #[derive(Deserialize, Default)]
 pub struct MediaPart {
+    #[serde(default)]
+    pub indexes: String,
     #[serde(default, deserialize_with = "de_i64")]
     pub id: i64,
     #[serde(default)]
@@ -480,6 +478,10 @@ pub struct MediaPart {
 }
 
 impl MediaPart {
+    pub(crate) fn preview_part_id(&self) -> Option<i64> {
+        (self.id > 0 && self.indexes.split(',').any(|index| index.trim() == "sd"))
+            .then_some(self.id)
+    }
     /// Veto: a remux that copies video is forbidden only when a video `Stream` on this part
     /// is `decision=transcode`. Silence is not a video re-encode — missing `Stream[]`, `copy`,
     /// unnamed, or any other spelling leave copy allowed. Library metadata omits

@@ -1812,8 +1812,8 @@ path. Never run only this one before a release. `tests/README.md` has the tier t
   still is, and `closeByAppId` is still how `make kill`, `tests/run.py` and `tools/tv-session.sh`
   close the app — so the `/tmp/plxnative-noexitconfirm` bypass went with the "Exit PlxNative?"
   alert it existed for (both retired 2026-09-03). Text
-  entry is the **television's own keyboard**, raised by plain `SDL_StartTextInput` — the backend is
-  in LG's Wayland driver, not the webOS extension API, which is why `SDL_webOS.h` looks like it has
-  no keyboard. The field, shelves, test seams and every trap in that path are documented in
-  **`docs/search.md`**. Search is **server-only** by decision — Plex
-  Discover / Watchlist catalog results are out of scope.
+  entry defaults to the custom keyboard and remote multitap layout. Its **System** action opens
+  the television's own keyboard through `SDL_StartTextInput`; LG's backend is in the Wayland
+  driver. **`docs/search.md`** documents the field, shelves, filters, contextual Back behavior and
+  platform input traps. This custom integration also includes Plex catalog/Watchlist and bounded
+  discovery alongside local server results.

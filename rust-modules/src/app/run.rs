@@ -201,6 +201,7 @@ pub(crate) unsafe fn run(app: &mut App) {
             tick.dt_us, app.pages.nav.tabs.stack.transition.commit_point(),
             app.pages.nav.tabs.stack.transition.page_alpha(), app.pages.nav.tabs.stack.transition.in_flight())); }
         app.rec.prepare_resources(&mut app.bridge);
+        app.bridge.set_companion_live(matches!(&app.rec, super::recorder::Recplay::Off));
         let (_word, tree_report) = if let Some(results) = supplied {
             let mut stores = std::collections::BTreeSet::new();
             for (address, _) in &results {
@@ -2429,6 +2430,8 @@ pub(crate) unsafe fn report(app: &mut App, fr: &mut Frame) {
                 | AppArg::ItemMenu(_)
                 | AppArg::PlayerOverlay(_)
                 | AppArg::AltSources(_)
+            | AppArg::CatalogDetails(_)
+            | AppArg::Versions(_)
                 | AppArg::TracksPanel(_)
                 | AppArg::AboutPanel
                 | AppArg::PersonBio => crate::focusprobe::Screen::Home,
@@ -3225,6 +3228,14 @@ mod lifecycle_regression_tests {
                          "Media":[{"videoCodec":"h264","audioCodec":"aac",
                          "Part":[{"id":2,"key":"/library/parts/2/file.mkv"}]}]}]}}"#
                     };
+                    // A metadata endpoint returns the requested item; playQueue replies retain both.
+                    let body = if request.contains("/library/metadata/2") {
+                        let mut value:serde_json::Value=serde_json::from_str(body).unwrap();
+                        value["MediaContainer"]["Metadata"].as_array_mut().unwrap()
+                            .retain(|item|item["ratingKey"]=="2");
+                        value["MediaContainer"]["size"]=1.into();
+                        value.to_string()
+                    } else {body.to_owned()};
                     let _ = write!(socket, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
                 }
             }) {
@@ -3600,7 +3611,7 @@ mod lifecycle_regression_tests {
             &mut rig.app.player.session,
             rig.app.bridge.metadata_mut(),
             rig.sid,
-            "replacement",
+            "2", // The fixture's actual ratingKey for Part 2; exact version binding rejects invented IDs.
             "/library/parts/2/file.mkv",
             "h264",
             "aac",

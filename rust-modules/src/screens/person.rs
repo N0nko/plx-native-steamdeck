@@ -549,6 +549,7 @@ pub(crate) struct PersonScreen {
     /// One-shot return hydration. While set, a known engine card key may remain unpublished until
     /// that card's own source answers; the engine remains the sole owner of the key itself.
     return_pending: bool,
+    initial_local_focus: bool,
     /// This page has already asked the Person store to close the slot it owned. §3.4's
     /// `pop_sequence` delivers `WillLeave(ForGood)` AND `Unmount` to the same body, and both land
     /// in the teardown arm below; an un-latched `self.person(cx).is_some()` guard there reads a
@@ -596,6 +597,7 @@ impl LogicalState for PersonScreen {
             .str(&self.thumb)
             .bool(self.header_marked)
             .bool(self.return_pending)
+            .bool(self.initial_local_focus)
             .u32(self.next_card_elem)
             .u32(self.card_keys.len() as u32);
         for card in &self.card_keys {
@@ -617,7 +619,7 @@ impl LogicalState for PersonScreen {
 }
 
 impl PersonScreen {
-    pub(crate) const SHAPE: &'static str = "PersonScreen{entry:EntryId,sid:ServerId,key:String,guid:String,name:String,thumb:String,header_marked:bool,return_pending:bool,next_card_elem:u32,card_keys:[{sid:ServerId,rk:String,elem:u32}]}";
+    pub(crate) const SHAPE: &'static str = "PersonScreen{entry:EntryId,sid:ServerId,key:String,guid:String,name:String,thumb:String,header_marked:bool,return_pending:bool,initial_local_focus:bool,next_card_elem:u32,card_keys:[{sid:ServerId,rk:String,elem:u32}]}";
 
     /// Mount a person from the header a cast row (or, later, the Filmography route) handed in —
     /// mirrors `PersonCmd::Open`'s fields exactly. Issues the store command directly; see the
@@ -642,6 +644,7 @@ impl PersonScreen {
             card_keys: Vec::new(),
             next_card_elem: FIRST_CARD_ELEM,
             return_pending: false,
+            initial_local_focus: true,
             teardown_closed: false,
             shelves: [CardRow::new(); NSHELF],
             scroll: ScrollColumn::new(HEADER_TOP, TOP_MARGIN),
@@ -992,10 +995,26 @@ impl PersonScreen {
         })
     }
 
+    fn focus_local_once<H: ContentLike + PersonLike>(&mut self, cx: &Cx<'_, H>, fx: &mut Effects<'_, H>) {
+        if !self.initial_local_focus || self.return_pending { return; }
+        let Some(p) = self.person(cx) else { return; };
+        let kind = initial_local_shelf(p.shelf(0).len(), p.shelf(1).len(), H::person(cx).loading());
+        if let Some(kind) = kind {
+            let key = self.shelf_key(p, kind, 0);
+            self.initial_local_focus = false;
+            fx.push(crate::ui::machine::Fx::Deliver(
+                fx.from(),
+                crate::ui::machine::Delivery::Screen(ScreenEvent::Enter(
+                    crate::ui::screen::Enter::Fresh { focus: crate::ui::screen::FocusTarget::Elem(key) })),
+            ));
+        }
+    }
+
     fn tick<H: ContentLike + PersonLike>(&mut self, t: Tick, cx: &Cx<'_, H>, fx: &mut Effects<'_, H>) {
         let dt = t.dt();
         let cur = cx.focus.current.map(|k| k.elem);
         self.refresh_store_cache(cx);
+        self.focus_local_once(cx, fx);
         let Some(p) = self.person(cx) else {
             // Nothing is drawn while `person()` is `None` (`Screen::draw` returns before touching
             // the skeleton), so there is nothing on screen for the clock to animate — freeze
@@ -1670,6 +1689,7 @@ impl<H: ContentLike + PersonLike> Machine<H> for PersonScreen {
     fn step(&mut self, ev: &Self::Ev, cx: &Cx<'_, H>, fx: &mut Effects<'_, H>) -> Handled {
         match ev {
             ScreenEvent::RestoreMemory(PageMemory::Person(memory)) => {
+                self.initial_local_focus = false;
                 self.restore(memory);
                 self.return_pending = true;
                 Handled::Yes
@@ -1697,6 +1717,7 @@ impl<H: ContentLike + PersonLike> Machine<H> for PersonScreen {
                 Handled::Yes
             }
             ScreenEvent::FocusMoved { to, by, .. } => {
+                if matches!(by, By::Dir | By::Pointer) { self.initial_local_focus = false; }
                 if matches!(by, By::Dir | By::Pointer)
                     || self
                         .person(cx)
@@ -1715,6 +1736,7 @@ impl<H: ContentLike + PersonLike> Machine<H> for PersonScreen {
                 Handled::Yes
             }
             ScreenEvent::Activate(e) => {
+                self.initial_local_focus = false;
                 match self.person(cx).and_then(|p| self.locate(p, *e)) {
                     Some(Located::Header) => self.activate_header(cx, fx),
                     Some(Located::Entry) => self.activate_entry(cx, fx),
@@ -1723,10 +1745,12 @@ impl<H: ContentLike + PersonLike> Machine<H> for PersonScreen {
                 Handled::Yes
             }
             ScreenEvent::PressCommit(_) => {
+                self.initial_local_focus = false;
                 self.commit_card(cx, fx);
                 Handled::Yes
             }
             ScreenEvent::PressHold(_) => {
+                self.initial_local_focus = false;
                 if self.focused_item(cx.focus.current, cx).is_some() {
                     fx.push(crate::ui::machine::Fx::App(AppFx::Content(
                         ContentReq::ItemMenu,
@@ -1744,6 +1768,7 @@ impl<H: ContentLike + PersonLike> Machine<H> for PersonScreen {
                     },
                 ..
             }) => {
+                self.initial_local_focus = false;
                 if matches!(key, Key::Up | Key::Down | Key::Left | Key::Right) {
                     self.return_pending = false;
                 }
@@ -1760,6 +1785,7 @@ impl<H: ContentLike + PersonLike> Machine<H> for PersonScreen {
                 ..
             }) => {
                 self.return_pending = false;
+                self.initial_local_focus = false;
                 Handled::No
             }
             ScreenEvent::Input(InputEvent {
@@ -3310,5 +3336,24 @@ mod tests {
             assert!((leading - trailing).abs() < 0.01);
             assert!(leading > ENTRY_OUTER_PAD);
         }
+    }
+}
+
+/// Movies win while any source is loading; Shows are the fallback after all results settle.
+fn initial_local_shelf(movies: usize, shows: usize, loading: bool) -> Option<usize> {
+    if movies > 0 { Some(0) } else if !loading && shows > 0 { Some(1) } else { None }
+}
+
+#[cfg(test)]
+mod local_first_tests {
+    use super::initial_local_shelf;
+    #[test] fn movies_have_priority_over_shows_and_filmography() {
+        assert_eq!(initial_local_shelf(1, 20, true), Some(0));
+        assert_eq!(initial_local_shelf(1, 20, false), Some(0));
+    }
+    #[test] fn wait_for_movie_results_before_falling_back_to_shows() {
+        assert_eq!(initial_local_shelf(0, 3, true), None);
+        assert_eq!(initial_local_shelf(0, 3, false), Some(1));
+        assert_eq!(initial_local_shelf(0, 0, false), None);
     }
 }

@@ -22,6 +22,7 @@ mod geometry_tests;
 #[cfg(test)]
 mod identity_tests;
 
+use crate::metadata::{version_episode, version_target};
 use crate::metadata::{Detail, Extra, Spot};
 use crate::screens::registry::PlayIntent;
 use crate::plex::ServerId;
@@ -78,7 +79,7 @@ const EP_SCALE_MAX: usize = 40;
 const K_SCROLL: f32 = crate::ui::consts::K_SCROLL;
 const K_STRIP_SCROLL: f32 = 240.0;
 
-pub(crate) const SHAPE: &str = "DetailScreen{return_pending:bool,next_elem:u32,keys:[DetailKey{identity:DetailIdentity,elem:u32}],sid:u32,rk:str,pending_season:opt<u32>,season_settle:f32,refresh:u32,restore:opt<RestoreIntent{spot:Spot{section:u32,col:u32,ep_text:bool,saved_col:[u32;7],season:opt<u64>},episode:opt<str>,season_requested:bool}>}";
+pub(crate) const SHAPE: &str = "DetailScreen{companion_v1:profile_poll_confirm_status,return_pending:bool,next_elem:u32,keys:[DetailKey{identity:DetailIdentity,elem:u32}],sid:u32,rk:str,pending_season:opt<u32>,season_settle:f32,refresh:u32,restore:opt<RestoreIntent{spot:Spot{section:u32,col:u32,ep_text:bool,saved_col:[u32;7],season:opt<u64>},episode:opt<str>,season_requested:bool}>}";
 
 const _: () = assert!(hero::HERO_ELEM_RANGE_END == season::SEASON_ELEM_RANGE_START);
 const _: () = assert!(season::SEASON_ELEM_RANGE_END == episodes::EPISODES_ELEM_RANGE_START);
@@ -189,13 +190,14 @@ pub(crate) struct DetailScreen {
     episode_scroll: Spring,
     tab_scroll: Spring,
     episode_scale: [Spring; EP_SCALE_MAX],
-    related: CardRow,
+    related: related::Rows,
     extras: CardRow,
     cast: CardRow,
     tabs: TabStrip,
     season_pop: CtlPop<1>,
-    ctl_pop: CtlPop<5>,
-    disc_unfurl: [Spring; 3],
+    companion:Option<crate::media_companion::Snapshot>,companion_at:Option<u32>,companion_confirm:Option<crate::media_companion::Action>,companion_profile:u32,
+    ctl_pop: CtlPop<8>,
+    disc_unfurl: [Spring; 5],
     season_metrics: season::Metrics,
     about_rows: about::Rows,
     /// The page's own keyed ground. Deliberately a bare [`AmbientWash`] and not the shared
@@ -301,6 +303,10 @@ impl LayoutStamp {
             e.aired.hash(&mut hasher);
         }
         d.summary.hash(&mut hasher);
+        for shelf in &d.related_shelves {
+            shelf.start.hash(&mut hasher); shelf.len.hash(&mut hasher);
+            shelf.title.hash(&mut hasher); shelf.identifier.hash(&mut hasher);
+        }
         if let Some(e) = hero {
             e.title.hash(&mut hasher);
             e.summary.hash(&mut hasher);
@@ -368,13 +374,14 @@ impl DetailScreen {
             episode_scroll: Spring::at(0.0),
             tab_scroll: Spring::at(0.0),
             episode_scale: [Spring::at(1.0); EP_SCALE_MAX],
-            related: CardRow::new(),
+            related: related::Rows::new(),
             extras: CardRow::new(),
             cast: CardRow::new(),
             tabs: TabStrip::new(),
             season_pop: CtlPop::new(),
+            companion:None,companion_at:None,companion_confirm:None,companion_profile:0,
             ctl_pop: CtlPop::new(),
-            disc_unfurl: [Spring::at(0.0); 3],
+            disc_unfurl: [Spring::at(0.0); 5],
             season_metrics: season::Metrics::new(),
             about_rows: about::Rows::new(),
             ground,
@@ -681,7 +688,7 @@ impl DetailScreen {
         match section {
             1 => season::ROW_H,
             2 => episodes::block_h(d, measure),
-            3 => related::block_h(0.0),
+            3 => related::base_height(d),
             4 => cast::block_h(),
             6 => extras::block_h(0.0),
             _ => 0.0,
@@ -697,7 +704,7 @@ impl DetailScreen {
         // Cast is deliberately absent: it prints a name under every headshot, so its band is
         // occupied whether or not it holds focus (`cast::block_h`).
         let row = match section {
-            3 => &self.related,
+            3 => return self.related.band_lift(),
             6 => &self.extras,
             _ => return 0.0,
         };
@@ -1064,7 +1071,7 @@ impl<H: ContentLike + crate::screens::registry::MetadataLike> Focusable<H> for D
                 }),
                 3 => out.push(GroupSpec {
                     id: related::RELATED_GROUP,
-                    kind: GroupKind::Row { wrap: false },
+                    kind: GroupKind::Free,
                     seat: Seat::Remembered,
                     reachable: AxisMask::BOTH,
                     edge: [EdgeRule::Geometric, EdgeRule::Geometric, EdgeRule::Stop, EdgeRule::Stop],
@@ -1158,8 +1165,7 @@ impl<H: ContentLike + crate::screens::registry::MetadataLike> Focusable<H> for D
                 _ => None,
             },
             Located::Related(i) => {
-                row_move(i, self.detail(meta).map(|d| d.related.len()).unwrap_or(0), dir)
-                    .and_then(related::elem)
+                self.detail(meta).and_then(|d| related::neighbour(d, i, dir)).and_then(related::elem)
             }
             Located::Extras(i) => {
                 row_move(i, self.detail(meta).map(extras::len).unwrap_or(0), dir)
@@ -1251,8 +1257,8 @@ impl<H: ContentLike + crate::screens::registry::MetadataLike> Focusable<H> for D
             Located::Related(i) => {
                 let top = self.section_top_at(3, d?, measure, at) - vertical;
                 (
-                    related::rect(&self.related, i, top, at == At::Drawn),
-                    related::rect(&self.related, i, top, false),
+                    self.related.rect(d?, i, top, at == At::Drawn),
+                    self.related.rect(d?, i, top, false),
                     Some(i as u32),
                 )
             }
@@ -1425,17 +1431,9 @@ impl<H: ContentLike + crate::screens::registry::MetadataLike> Focusable<H> for D
             ))
             .unwrap_or(extras::EXTRAS_ELEM_RANGE_START)
         } else if group == related::RELATED_GROUP {
-            let n = d.map(|d| d.related.len()).unwrap_or(0).min(512);
-            related::elem(card_row::column_near_x(
-                from.rect.cx(),
-                crate::ui::consts::MARGIN_X,
-                RowStyle::HOME.w + RowStyle::HOME.gap,
-                RowStyle::HOME.w,
-                self.related.scroll_x(),
-                n,
-                from_i,
-            ))
-            .unwrap_or(related::RELATED_ELEM_RANGE_START)
+            let index = d.map(|d| self.related.nearest(d, from.rect,
+                self.section_top_settled(3, d, cx.measure) - self.scroll_target)).unwrap_or(0);
+            related::elem(index).unwrap_or(related::RELATED_ELEM_RANGE_START)
         } else if group == cast::CAST_GROUP {
             let n = d.map(|d| d.credits_len()).unwrap_or(0).min(512);
             cast::elem(card_row::column_near_x(
@@ -1513,6 +1511,7 @@ impl<H: ContentLike + crate::screens::registry::MetadataLike> Machine<H> for Det
     type Ev = ScreenEvent<H>;
 
     fn step(&mut self, ev: &Self::Ev, cx: &Cx<'_, H>, fx: &mut Effects<'_, H>) -> Handled {
+        if matches!(ev, ScreenEvent::WillLeave(_) | ScreenEvent::Cover | ScreenEvent::Suspend | ScreenEvent::Unmount) {self.companion_confirm=None;}
         let meta = H::metadata(cx);
         match ev {
             ScreenEvent::Mount => {
@@ -1523,7 +1522,12 @@ impl<H: ContentLike + crate::screens::registry::MetadataLike> Machine<H> for Det
                 self.restore_memory(memory, meta);
                 Handled::Yes
             }
+            ScreenEvent::App(AppMsg::Companion(s))=>{
+                if self.companion_target(meta).as_ref()==Some(&s.key) && self.companion_profile==crate::plex::session::current_gen(){self.companion=Some(s.clone());fx.invalidate(Provenance::Landing(fx.from()));}
+                Handled::Yes
+            }
             ScreenEvent::Tick(t) => {
+                self.companion_tick(t.ms,meta,fx);
                 self.tick(*t, cx, fx);
                 Handled::Yes
             }
@@ -1581,6 +1585,7 @@ impl<H: ContentLike + crate::screens::registry::MetadataLike> Machine<H> for Det
                 Handled::Yes
             }
             ScreenEvent::FocusMoved { to, by, .. } => {
+                self.companion_confirm=None;
                 if matches!(by, By::Dir | By::Pointer) {
                     self.return_pending = false;
                     self.restore_intent = None;
@@ -1766,6 +1771,10 @@ impl<H: ContentLike + crate::screens::registry::MetadataLike> Machine<H> for Det
             }
             // The *Also available* surface committed a row. It names the destination; this page
             // performs the navigation, exactly as it did while the panel reported an `Action`.
+            ScreenEvent::App(AppMsg::VersionSelected { sid, rk, part }) => {
+                self.play_version(*sid, rk, part, fx, meta);
+                Handled::Yes
+            }
             ScreenEvent::App(AppMsg::AltSourceOpen(arg)) => {
                 self.content(fx, ContentReq::Present(arg.clone()));
                 Handled::Yes
@@ -2344,6 +2353,12 @@ impl DetailScreen {
         // fades every button through `chrome`'s `preview_chrome` alpha (`draw_hero`), and cutting
         // four of the five pills here a frame early defeats that fade before it can be seen.
         let (controls, n) = hero::hero_ctls(set);
+        if let Some(state)=&self.companion {
+            if state.configured && self.companion_target(meta).as_ref()==Some(&state.key) {
+                let status=match self.companion_confirm {Some(crate::media_companion::Action::Prepare)=>"Press Get Ready again to confirm",Some(crate::media_companion::Action::Repair)=>"Press Repair again to confirm",_=>state.label.as_str()};
+                crate::ui::text_view::TextView::new(status,theme::size::CAPTION,theme::TEXT_SECONDARY).with_measure(cx.measure).max_lines(1).draw(p,Rect::new(crate::ui::consts::MARGIN_X,y-self.scroll.pos+hero::CD+8.0,900.0,0.0));
+            }
+        }
         let last = hero::hero_btn_rect_at(set, n.saturating_sub(1), y, widths);
         let row = [
             crate::ui::consts::MARGIN_X,
@@ -2369,6 +2384,12 @@ impl DetailScreen {
             let rect = hero::hero_btn_rect_at(set, i, y, widths);
             let focused = current == Some(ctl.elem());
             let scale = self.ctl_pop.scale(i);
+            let available=match ctl {
+                hero::HeroCtl::Repair=>self.companion.as_ref().is_some_and(|s|s.can_repair && !s.busy),
+                hero::HeroCtl::Prepare=>self.companion.as_ref().is_some_and(|s|s.can_prepare && !s.busy),
+                _=>true,
+            };
+            let p=if available {p}else{p.alpha(theme::COMPANION_DISABLED_ALPHA)};
             match ctl {
                 hero::HeroCtl::Play => Button::new(
                     hero::hero_pill_label(set.restart).as_ptr(),
@@ -2381,8 +2402,9 @@ impl DetailScreen {
                 .ground(ground)
                 .scale(scale)
                 .draw(&Env::inert(), p),
-                hero::HeroCtl::Alt => {
-                    Button::new(hero::ALT_LABEL.as_ptr(), theme::size::BODY, rect)
+                hero::HeroCtl::Alt | hero::HeroCtl::Versions => {
+                    let label = if ctl == hero::HeroCtl::Versions { hero::VERSIONS_LABEL } else { hero::ALT_LABEL };
+                    Button::new(label.as_ptr(), theme::size::BODY, rect)
                         .trailing_icon(crate::ui::icons::Icon::ChevronDown)
                         .focused(focused)
                         .palette(palette)
@@ -2392,6 +2414,8 @@ impl DetailScreen {
                 }
                 ctl => {
                     let icon = match ctl {
+                        hero::HeroCtl::Repair=>crate::ui::icons::Icon::Restart,
+                        hero::HeroCtl::Prepare=>crate::ui::icons::Icon::PopcornAudience,
                         hero::HeroCtl::Restart => crate::ui::icons::Icon::Restart,
                         hero::HeroCtl::Trailer => crate::ui::icons::Icon::Trailer,
                         hero::HeroCtl::MarkWatched => crate::ui::icons::Icon::Check,
@@ -2706,6 +2730,8 @@ impl Located {
 impl LogicalState for DetailScreen {
     fn write(&self, w: &mut Canon) {
         debug_assert!(!SHAPE.is_empty());
+        w.u32(self.companion_profile).option(self.companion_at,|w,t|{w.u32(t);}).option(self.companion_confirm,|w,a|{w.u32(a as u32);});
+        w.option(self.companion.as_ref(),|w,s|{w.u32(s.key.sid.raw() as u32).str(&s.key.rk).str(&s.key.part).str(&s.label).bool(s.configured).bool(s.busy).bool(s.can_prepare).bool(s.can_repair);});
         w.bool(self.return_pending).u32(self.next_elem).seq(self.keys.len());
         for key in &self.keys { key.identity.write(w); w.u32(key.elem); }
         w.u32(u32::from(self.sid.raw())).str(&self.rk);
@@ -2916,7 +2942,7 @@ impl DetailScreen {
                 _ => None,
             };
             self.related
-                .update(d.related.len(), related_focus, &RowStyle::HOME, dt);
+                .update(d, related_focus, dt);
             let extras_focus = match focused {
                 Some(Located::Extras(i)) => Some(i),
                 _ => None,
@@ -3311,7 +3337,10 @@ impl DetailScreen {
         // `a_movie_trailer_disc_plays_the_extra_from_the_start` et al., which explicitly assert
         // `!hero_set().trailer` and then drive `ELEM_TRAILER` directly to prove `activate_hero`'s
         // handling stays correct even though the disc itself is never shown.)
+        let state=self.companion.as_ref().filter(|s|Some(&s.key)==self.companion_target(meta).as_ref() && self.companion_profile==crate::plex::session::current_gen());
         hero::HeroSet {
+            repair:state.is_some_and(|s|s.configured),prepare:state.is_some_and(|s|s.configured),
+            versions: self.detail(meta).and_then(version_target).is_some_and(|(_, _, list)| !list.is_empty()),
             restart,
             trailer: false,
             alt: self.alt_available(meta),
@@ -3438,6 +3467,7 @@ impl DetailScreen {
     ) {
         let measure = cx.measure;
         match ctl {
+            hero::HeroCtl::Repair|hero::HeroCtl::Prepare=>{self.companion_action(ctl,meta,fx);}
             hero::HeroCtl::Play => {
                 self.play_hero(false, fx, meta);
             }
@@ -3462,7 +3492,7 @@ impl DetailScreen {
                 };
                 self.content(fx, ContentReq::Play { play, resume_ns: 0 });
             }
-            hero::HeroCtl::Alt => {
+            hero::HeroCtl::Alt | hero::HeroCtl::Versions => {
                 let set = self.hero_set(meta);
                 if let Some(i) = hero::index_of(set, ctl) {
                     let widths = hero::hero_widths(
@@ -3478,8 +3508,10 @@ impl DetailScreen {
                     // itself off the pill without the page or a static holding a `Rect` for it.
                     self.content(
                         fx,
-                        ContentReq::Panel(ContentPanel::AltSources {
-                            anchor: [rect.x, rect.y, rect.w, rect.h].map(f32::to_bits),
+                        ContentReq::Panel(if ctl == hero::HeroCtl::Versions {
+                            ContentPanel::Versions { anchor: [rect.x, rect.y, rect.w, rect.h].map(f32::to_bits) }
+                        } else {
+                            ContentPanel::AltSources { anchor: [rect.x, rect.y, rect.w, rect.h].map(f32::to_bits) }
                         }),
                     );
                 }
@@ -3509,6 +3541,39 @@ impl DetailScreen {
         }
     }
 
+    fn play_version<H: ContentLike>(
+        &mut self, sid: crate::plex::ServerId, rk: &str, part: &str,
+        fx: &mut Effects<'_, H>, meta: crate::metadata::MetadataView<'_>,
+    ) -> bool {
+        let Some(d) = self.detail(meta).filter(|d| d.sid == sid) else { return false; };
+        let Some((leaf, _, versions)) = version_target(d) else { return false; };
+        if leaf != rk { return false; }
+        let candidates: Vec<_> = versions.iter().map(|v| v.source.clone()).collect();
+        let Ok(i) = crate::media_version::choose(&candidates, part) else { return false; };
+        let version = &versions[i];
+        if !version.playable() { return false; }
+        fx.push(Fx::App(AppFx::Store(StoreId::Metadata, StoreCmd::Metadata(
+            MetadataCmd::SelectVersion { sid, rk: rk.into(), part: version.source.part_key.clone() },
+        ))));
+        if d.is_show {
+            let Some(mut ep) = version_episode(d).cloned() else { return false; };
+            ep.part = version.source.part_key.clone();
+            ep.vcodec = version.vcodec.clone();
+            ep.acodec = version.acodec.clone();
+            self.play_episode_value(Some(&ep), d, false, fx)
+        } else {
+            let play = PlayIntent::Item {
+                sid, rk: rk.into(), part: version.source.part_key.clone(),
+                vcodec: version.vcodec.clone(), acodec: version.acodec.clone(),
+                title: d.title.clone(), context: String::new(),
+            };
+            self.content(fx, ContentReq::Play {
+                play, resume_ns: play_resume_ns(false, d.resume_ms, d.dur_ms),
+            });
+            true
+        }
+    }
+
     fn play_hero<H: ContentLike>(&mut self, from_start: bool, fx: &mut Effects<'_, H>, meta: crate::metadata::MetadataView<'_>) -> bool {
         let Some(d) = self.detail(meta) else { return false };
         if d.is_show {
@@ -3527,18 +3592,11 @@ impl DetailScreen {
                 ),
             }
         } else {
-            let play = self.selected().map_or_else(
-                || PlayIntent::Item {
-                    sid: crate::route::item_sid(d.sid),
-                    rk: d.rk.clone(),
-                    part: d.part.clone(),
-                    vcodec: d.vcodec.clone(),
-                    acodec: d.acodec.clone(),
-                    title: d.title.clone(),
-                    context: String::new(),
-                },
-                |m| PlayIntent::Movie(m.clone()),
-            );
+            let play = PlayIntent::Item {
+                sid: crate::route::item_sid(d.sid), rk: d.rk.clone(), part: d.part.clone(),
+                vcodec: d.vcodec.clone(), acodec: d.acodec.clone(),
+                title: d.title.clone(), context: String::new(),
+            };
             let resume_ns = play_resume_ns(from_start, d.resume_ms, d.dur_ms);
             self.content(fx, ContentReq::Play { play, resume_ns });
             true
@@ -3679,4 +3737,30 @@ mod preview_plane_tests {
             "opaque art covers the wash"
         );
     }
+}
+
+impl DetailScreen {
+ fn companion_target(&self,meta:crate::metadata::MetadataView<'_>)->Option<crate::media_companion::Key>{
+  let d=self.detail(meta)?;let(rk,part,versions)=crate::metadata::version_target(d)?;
+  let mut found=versions.iter().filter(|v|v.source.part_key==part && v.playable());found.next()?;if found.next().is_some(){return None;}
+  crate::media_companion::Key::new(d.sid,rk,part)
+ }
+ fn companion_tick<H:ContentLike>(&mut self,now:u32,meta:crate::metadata::MetadataView<'_>,fx:&mut Effects<'_,H>){
+  let profile=crate::plex::session::current_gen();
+  let target=self.companion_target(meta);
+  if self.companion_profile!=profile || self.companion.as_ref().map(|s|&s.key)!=target.as_ref(){self.companion=None;self.companion_at=None;self.companion_confirm=None;self.companion_profile=profile;}
+  if let Some(key)=target {if self.companion_at.is_none_or(|at|now.wrapping_sub(at)>=2000) && !self.companion.as_ref().is_some_and(|s|s.busy){
+   self.companion_at=Some(now);fx.push(Fx::App(AppFx::Companion(crate::media_companion::Request{key,action:crate::media_companion::Action::Observe})));
+  }}
+ }
+ fn companion_action<H:ContentLike>(&mut self,ctl:hero::HeroCtl,meta:crate::metadata::MetadataView<'_>,fx:&mut Effects<'_,H>){
+  use crate::media_companion::{Action,Request};
+  let action=if ctl==hero::HeroCtl::Repair{Action::Repair}else{Action::Prepare};
+  let Some(key)=self.companion_target(meta)else{return;};
+  let Some(state)=self.companion.as_mut().filter(|s|s.key==key && !s.busy)else{return;};
+  if !(if action==Action::Repair{state.can_repair}else{state.can_prepare}){return;}
+  if self.companion_confirm==Some(action){self.companion_confirm=None;state.busy=true;state.label="Requesting".into();fx.push(Fx::App(AppFx::Companion(Request{key,action})));}
+  else{self.companion_confirm=Some(action);}
+  fx.invalidate(Provenance::Input);
+ }
 }

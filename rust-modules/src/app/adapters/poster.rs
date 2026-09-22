@@ -908,6 +908,10 @@ struct PosterSource;
 static SOURCE: PosterSource = PosterSource;
 
 impl tex::Source for PosterSource {
+    fn peek(&self,srv:u16,path:&str,w:i32,h:i32,png:bool)->Option<PosterKey>{
+        let srv=ServerId::from_raw(srv);let key=built_key(srv,path,w,h,png)?;
+        store().slots.iter().position(|s|s.state==P_READY && s.srv==srv && key_bytes(s)==key.as_bytes()).map(|i|PosterKey(i as u32))
+    }
     fn probe(&self, srv: u16, path: &str, w: i32, h: i32, png: bool) -> Option<PosterKey> {
         let srv = ServerId::from_raw(srv);
         lookup(srv, built_key(srv, path, w, h, png)?, Touch::Draw).0

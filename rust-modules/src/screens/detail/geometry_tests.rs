@@ -105,13 +105,13 @@ fn bare(sid: ServerId, rk: &str) -> DetailScreen {
         episode_scroll: Spring::at(0.0),
         tab_scroll: Spring::at(0.0),
         episode_scale: [Spring::at(1.0); EP_SCALE_MAX],
-        related: CardRow::new(),
+        related: related::Rows::new(),
         extras: CardRow::new(),
         cast: CardRow::new(),
         tabs: TabStrip::new(),
         season_pop: CtlPop::new(),
-        ctl_pop: CtlPop::new(),
-        disc_unfurl: [Spring::at(0.0); 3],
+        companion:None,companion_at:None,companion_confirm:None,companion_profile:0,ctl_pop: CtlPop::new(),
+        disc_unfurl: [Spring::at(0.0); 5],
         season_metrics: season::Metrics::new(),
         about_rows: about::Rows::new(),
         ground: AmbientWash::flat(theme::SURFACE_APP),
@@ -426,11 +426,11 @@ fn detail_focus_places_and_hit_map_agree_for_all_three_scrolled_strips() {
 
     for focus in [0, 6, 11] {
         for _ in 0..180 {
-            screen.related.update(12, Some(focus), &crate::ui::card_row::RowStyle::HOME, 1.0 / 60.0);
+            screen.related.update(&fixture(sid), Some(focus), 1.0 / 60.0);
             screen.cast.update(12, Some(focus), &crate::ui::card_row::RowStyle::CAST, 1.0 / 60.0);
         }
         for _ in 0..180 {
-            screen.related.update(12, None, &crate::ui::card_row::RowStyle::HOME, 1.0 / 60.0);
+            screen.related.update(&fixture(sid), None, 1.0 / 60.0);
             screen.cast.update(12, None, &crate::ui::card_row::RowStyle::CAST, 1.0 / 60.0);
         }
         scroll_to(&mut screen, 3);

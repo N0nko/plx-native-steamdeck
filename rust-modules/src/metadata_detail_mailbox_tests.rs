@@ -163,11 +163,11 @@ fn related_rows_dedupe_across_hubs_and_cap_the_shelf() {
         .expect("parses")
         .media_container;
     let rows = related_rows(&mc, SRV_A);
-    assert_eq!(rows.len(), RELATED_MAX, "the shelf is capped");
+    assert_eq!(rows.len(), 30, "each hub is capped at 20 retained rows; later hubs keep new titles");
     assert_eq!(
         rows.last().map(|m| m.rk.as_str()),
-        Some("19"),
-        "…at the 20th DISTINCT title"
+        Some("29"),
+        "later named hubs retain distinct titles instead of being flattened away"
     );
 }
 

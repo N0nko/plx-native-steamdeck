@@ -15,12 +15,14 @@
 pub(crate) mod about_panel;
 pub(crate) mod account_menu;
 pub(crate) mod alt_sources;
+pub(crate) mod versions;
 pub(crate) mod tracks_panel;
 pub(crate) mod consent;
 pub(crate) mod detail;
 pub(crate) mod person;
 pub(crate) mod person_bio;
 pub(crate) mod filmography;
+pub(crate) mod catalog_details;
 pub(crate) mod home;
 pub(crate) mod item_menu;
 pub(crate) mod library;

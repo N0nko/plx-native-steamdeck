@@ -6,6 +6,32 @@ use super::*;
 use super::test_support::*;
 use super::test_support::apply_plan;
 
+/// Policy fixture only: production build_stream always fetches fresh metadata. This supplies a
+/// known selected-version snapshot so pre-existing MDE/audio policy tests keep their scope.
+#[cfg(feature = "devtriggers")]
+fn build_stream_with_snapshot(
+    rk: &str, part: &str, vcodec: &str, acodec: &str, env: &ResolveEnv,
+    resolved: Option<crate::metadata::PlayingItem>,
+) -> Plan {
+    let resolved = resolved.map(|mut item| {
+        if item.version.is_none() {
+            item.version = Some(crate::metadata::MediaVersion {
+                source: crate::media_version::Candidate { position: Position::FIRST,
+                    part_id: part_id_of(part), part_key: part.into() },
+                part_count: 1, vcodec: vcodec.into(), acodec: acodec.into(),
+                width: item.width, height: item.height, bitrate: item.bitrate,
+                video_fps: item.video_fps, audio: item.audio.clone(), subs: item.subs.clone(),
+                dovi: item.dovi, ..Default::default()
+            });
+        }
+        item
+    });
+    super::super::plan::build_stream_with(rk, part, vcodec, acodec, env, |_, _, _| resolved)
+}
+
+
+
+
 /// The identity round trip: `request_play`'s captured id reaches `cur_sid` unchanged, through
 /// `ResolveEnv` (the main-thread snapshot) and `Plan` (the worker's output).
 ///
@@ -97,8 +123,8 @@ fn remux_review_probe_installs_effective_selection_before_decision_and_start() {
             crate::metadata::Stream { id: 2, index: 1, lang_code: "eng".into(), codec: "ac3".into(), channels: 6, ..Default::default() },
         ], vec![selected_sub(9, "srt")]);
         item.bitrate = 320;
-        env.cached_item = Some(item);
-        let plan = build_stream("rk-4k", "/library/parts/36013/1/file.mkv", "hevc", "truehd", &env);
+        let resolved = Some(item);
+        let plan = build_stream_with_snapshot("rk-4k", "/library/parts/36013/1/file.mkv", "hevc", "truehd", &env, resolved);
         done.send(()).unwrap();
         let requests = server.join().unwrap();
         let decision = requests.iter().position(|(r, _)| r.contains("/decision?") && !r.contains("hasMDE=1")).expect("probe decision");
@@ -128,7 +154,7 @@ fn remux_review_http_200_refusal_never_gets_media() {
     assert!(crate::net::global_init() && crate::curlio::available());
     let (port, done, server) = selection_probe_pms(true, 0);
     let sid = crate::plex::register_for_test("refused-probe", "127.0.0.1", port, "token", "refused-probe-client");
-    let sample = measure_remote_remux(crate::plex::client_for(sid).unwrap(), "rk", "refused-session", 2, 0, 320);
+    let sample = measure_remote_remux(crate::plex::client_for(sid).unwrap(), "rk", "refused-session", 2, 0, 320, Position::FIRST);
     done.send(()).unwrap();
     let requests = server.join().unwrap();
     assert!(sample.is_none());
@@ -155,15 +181,14 @@ fn original_hevc_eac3_registers_mde_before_returning_the_part() {
         "token",
         "mde-dp-client",
     );
-    let mut env = ResolveEnv::snapshot(&ps, crate::stores::metadata::MetadataStore::default().view(), sid, "rk-4k");
-    env.cached_item = Some(fourk_item(sid, vec![eac3_track()]));
-    let plan = build_stream(
+    let env = ResolveEnv::snapshot(&ps, crate::stores::metadata::MetadataStore::default().view(), sid, "rk-4k");
+    let resolved = Some(fourk_item(sid, vec![eac3_track()]));
+    let plan = build_stream_with_snapshot(
         "rk-4k",
         "/library/parts/36013/1/file.mkv",
         "hevc",
         "eac3",
-        &env,
-    );
+        &env, resolved);
     let requests = rx
         .recv_timeout(Duration::from_secs(15))
         .expect("PMS never saw the resolve");
@@ -216,8 +241,8 @@ fn smart_dp_names_the_ac3_sibling_on_mde() {
         "token",
         "mde-smart-client",
     );
-    let mut env = ResolveEnv::snapshot(&ps, crate::stores::metadata::MetadataStore::default().view(), sid, "rk-4k");
-    env.cached_item = Some(fourk_item(
+    let env = ResolveEnv::snapshot(&ps, crate::stores::metadata::MetadataStore::default().view(), sid, "rk-4k");
+    let resolved = Some(fourk_item(
         sid,
         vec![
             crate::metadata::Stream {
@@ -240,13 +265,12 @@ fn smart_dp_names_the_ac3_sibling_on_mde() {
             },
         ],
     ));
-    let plan = build_stream(
+    let plan = build_stream_with_snapshot(
         "rk-4k",
         "/library/parts/36013/1/file.mkv",
         "hevc",
         "truehd",
-        &env,
-    );
+        &env, resolved);
     let requests = rx
         .recv_timeout(Duration::from_secs(15))
         .expect("PMS never saw the resolve");
@@ -286,15 +310,14 @@ fn mde_transcode_does_not_return_the_part_url() {
         "token",
         "mde-tc-client",
     );
-    let mut env = ResolveEnv::snapshot(&ps, crate::stores::metadata::MetadataStore::default().view(), sid, "rk-4k");
-    env.cached_item = Some(fourk_item(sid, vec![eac3_track()]));
-    let plan = build_stream(
+    let env = ResolveEnv::snapshot(&ps, crate::stores::metadata::MetadataStore::default().view(), sid, "rk-4k");
+    let resolved = Some(fourk_item(sid, vec![eac3_track()]));
+    let plan = build_stream_with_snapshot(
         "rk-4k",
         "/library/parts/36013/1/file.mkv",
         "hevc",
         "eac3",
-        &env,
-    );
+        &env, resolved);
     let requests = rx
         .recv_timeout(Duration::from_secs(15))
         .expect("PMS never saw the resolve");
@@ -341,8 +364,8 @@ fn mde_transcode_for_truehd_only_still_remuxes() {
         "token",
         "mde-truehd-client",
     );
-    let mut env = ResolveEnv::snapshot(&ps, crate::stores::metadata::MetadataStore::default().view(), sid, "rk-4k");
-    env.cached_item = Some(fourk_item(
+    let env = ResolveEnv::snapshot(&ps, crate::stores::metadata::MetadataStore::default().view(), sid, "rk-4k");
+    let resolved = Some(fourk_item(
         sid,
         vec![crate::metadata::Stream {
             id: 36014,
@@ -355,13 +378,12 @@ fn mde_transcode_for_truehd_only_still_remuxes() {
             ..Default::default()
         }],
     ));
-    let plan = build_stream(
+    let plan = build_stream_with_snapshot(
         "rk-4k",
         "/library/parts/36013/1/file.mkv",
         "hevc",
         "truehd",
-        &env,
-    );
+        &env, resolved);
     let requests = rx
         .recv_timeout(Duration::from_secs(15))
         .expect("PMS never saw the resolve");
@@ -402,15 +424,14 @@ fn mde_video_stream_transcode_forbids_remux() {
         "token",
         "mde-vid-tc-client",
     );
-    let mut env = ResolveEnv::snapshot(&ps, crate::stores::metadata::MetadataStore::default().view(), sid, "rk-4k");
-    env.cached_item = Some(fourk_item(sid, vec![eac3_track()]));
-    let plan = build_stream(
+    let env = ResolveEnv::snapshot(&ps, crate::stores::metadata::MetadataStore::default().view(), sid, "rk-4k");
+    let resolved = Some(fourk_item(sid, vec![eac3_track()]));
+    let plan = build_stream_with_snapshot(
         "rk-4k",
         "/library/parts/36013/1/file.mkv",
         "hevc",
         "eac3",
-        &env,
-    );
+        &env, resolved);
     let requests = rx
         .recv_timeout(Duration::from_secs(15))
         .expect("PMS never saw the resolve");
@@ -450,17 +471,16 @@ fn mde_transcode_copy_still_refuses_a_profile_5_remux() {
         "token",
         "mde-p5-copy-client",
     );
-    let mut env = ResolveEnv::snapshot(&ps, crate::stores::metadata::MetadataStore::default().view(), sid, "rk-4k");
+    let env = ResolveEnv::snapshot(&ps, crate::stores::metadata::MetadataStore::default().view(), sid, "rk-4k");
     let mut item = fourk_item(sid, vec![eac3_track()]);
     item.dovi = p5();
-    env.cached_item = Some(item);
-    let plan = build_stream(
+    let resolved = Some(item);
+    let plan = build_stream_with_snapshot(
         "rk-4k",
         "/library/parts/36013/1/file.mkv",
         "hevc",
         "eac3",
-        &env,
-    );
+        &env, resolved);
     let requests = rx
         .recv_timeout(Duration::from_secs(15))
         .expect("PMS never saw the resolve");
@@ -511,7 +531,7 @@ fn remote_auto_truehd_remux_probes_start_mkv_not_the_part() {
     crate::plex::client_for(sid)
         .expect("registered")
         .set_link(crate::plex::probe::Location::Remote);
-    let mut env = ResolveEnv::snapshot(&ps, crate::stores::metadata::MetadataStore::default().view(), sid, "rk-4k");
+    let env = ResolveEnv::snapshot(&ps, crate::stores::metadata::MetadataStore::default().view(), sid, "rk-4k");
     let mut item = fourk_item(
         sid,
         vec![crate::metadata::Stream {
@@ -526,14 +546,13 @@ fn remote_auto_truehd_remux_probes_start_mkv_not_the_part() {
         }],
     );
     item.bitrate = 320;
-    env.cached_item = Some(item);
-    let plan = build_stream(
+    let resolved = Some(item);
+    let plan = build_stream_with_snapshot(
         "rk-4k",
         "/library/parts/36013/1/file.mkv",
         "hevc",
         "truehd",
-        &env,
-    );
+        &env, resolved);
     let requests = rx
         .recv_timeout(Duration::from_secs(15))
         .expect("PMS never saw the resolve");
@@ -626,14 +645,13 @@ fn remote_auto_truehd_remux_probe_names_the_ac3_sibling_not_env_audio_sid() {
         ],
     );
     item.bitrate = 320;
-    env.cached_item = Some(item);
-    let plan = build_stream(
+    let resolved = Some(item);
+    let plan = build_stream_with_snapshot(
         "rk-4k",
         "/library/parts/36013/1/file.mkv",
         "hevc",
         "truehd",
-        &env,
-    );
+        &env, resolved);
     let requests = rx
         .recv_timeout(Duration::from_secs(15))
         .expect("PMS never saw the resolve");
@@ -707,7 +725,7 @@ fn a_720p_reencode_puts_the_selected_dts_not_the_ac3_sibling() {
     env.quality = Quality::P720;
     env.src_kbps = 48_000;
     env.audio_sid = 0;
-    env.cached_item = Some(fourk_item(
+    let resolved = Some(fourk_item(
         sid,
         vec![
             crate::metadata::Stream {
@@ -730,13 +748,12 @@ fn a_720p_reencode_puts_the_selected_dts_not_the_ac3_sibling() {
             },
         ],
     ));
-    let plan = build_stream(
+    let plan = build_stream_with_snapshot(
         "rk-4k",
         "/library/parts/36013/1/file.mkv",
         "hevc",
         "dca",
-        &env,
-    );
+        &env, resolved);
     let requests = rx
         .recv_timeout(Duration::from_secs(15))
         .expect("PMS never saw the resolve");
@@ -794,7 +811,7 @@ fn a_720p_reencode_does_not_put_a_default_echo_over_english() {
     env.quality = Quality::P720;
     env.src_kbps = 48_000;
     env.audio_sid = 0;
-    env.cached_item = Some(fourk_item(
+    let resolved = Some(fourk_item(
         sid,
         vec![
             crate::metadata::Stream {
@@ -817,13 +834,12 @@ fn a_720p_reencode_does_not_put_a_default_echo_over_english() {
             },
         ],
     ));
-    let plan = build_stream(
+    let plan = build_stream_with_snapshot(
         "rk-4k",
         "/library/parts/36013/1/file.mkv",
         "hevc",
         "eac3",
-        &env,
-    );
+        &env, resolved);
     let requests = rx
         .recv_timeout(Duration::from_secs(15))
         .expect("PMS never saw the resolve");
@@ -880,7 +896,7 @@ fn a_720p_reencode_puts_pref_lang_dts_not_the_foreign_ac3_sibling() {
     env.quality = Quality::P720;
     env.src_kbps = 48_000;
     env.audio_sid = 0;
-    env.cached_item = Some(fourk_item(
+    let resolved = Some(fourk_item(
         sid,
         vec![
             crate::metadata::Stream {
@@ -903,13 +919,12 @@ fn a_720p_reencode_puts_pref_lang_dts_not_the_foreign_ac3_sibling() {
             },
         ],
     ));
-    let plan = build_stream(
+    let plan = build_stream_with_snapshot(
         "rk-4k",
         "/library/parts/36013/1/file.mkv",
         "hevc",
         "dca",
-        &env,
-    );
+        &env, resolved);
     let requests = rx
         .recv_timeout(Duration::from_secs(15))
         .expect("PMS never saw the resolve");
@@ -969,7 +984,7 @@ fn a_auto_hls_reencode_puts_the_selected_dts_not_the_ac3_sibling() {
     env.quality = Quality::Auto;
     env.src_kbps = 48_000;
     env.audio_sid = 0;
-    env.cached_item = Some(fourk_item(
+    let resolved = Some(fourk_item(
         sid,
         vec![
             crate::metadata::Stream {
@@ -992,13 +1007,12 @@ fn a_auto_hls_reencode_puts_the_selected_dts_not_the_ac3_sibling() {
             },
         ],
     ));
-    let plan = build_stream(
+    let plan = build_stream_with_snapshot(
         "rk-4k",
         "/library/parts/36013/1/file.mkv",
         "hevc",
         "dca",
-        &env,
-    );
+        &env, resolved);
     let requests = rx
         .recv_timeout(Duration::from_secs(15))
         .expect("PMS never saw the resolve");
@@ -1058,7 +1072,7 @@ fn remote_auto_failed_remux_sample_physical_stops_before_hls() {
     crate::plex::client_for(sid)
         .expect("registered")
         .set_link(crate::plex::probe::Location::Remote);
-    let mut env = ResolveEnv::snapshot(&ps, crate::stores::metadata::MetadataStore::default().view(), sid, "rk-4k");
+    let env = ResolveEnv::snapshot(&ps, crate::stores::metadata::MetadataStore::default().view(), sid, "rk-4k");
     let mut item = fourk_item(
         sid,
         vec![crate::metadata::Stream {
@@ -1073,14 +1087,13 @@ fn remote_auto_failed_remux_sample_physical_stops_before_hls() {
         }],
     );
     item.bitrate = 320;
-    env.cached_item = Some(item);
-    let plan = build_stream(
+    let resolved = Some(item);
+    let plan = build_stream_with_snapshot(
         "rk-4k",
         "/library/parts/36013/1/file.mkv",
         "hevc",
         "truehd",
-        &env,
-    );
+        &env, resolved);
     let requests = rx
         .recv_timeout(Duration::from_secs(15))
         .expect("PMS never saw the resolve");
@@ -1131,15 +1144,14 @@ fn unreachable_mde_does_not_return_the_part_url() {
         "token",
         "mde-empty-client",
     );
-    let mut env = ResolveEnv::snapshot(&ps, crate::stores::metadata::MetadataStore::default().view(), sid, "rk-4k");
-    env.cached_item = Some(fourk_item(sid, vec![eac3_track()]));
-    let plan = build_stream(
+    let env = ResolveEnv::snapshot(&ps, crate::stores::metadata::MetadataStore::default().view(), sid, "rk-4k");
+    let resolved = Some(fourk_item(sid, vec![eac3_track()]));
+    let plan = build_stream_with_snapshot(
         "rk-4k",
         "/library/parts/36013/1/file.mkv",
         "hevc",
         "eac3",
-        &env,
-    );
+        &env, resolved);
     let requests = rx
         .recv_timeout(Duration::from_secs(15))
         .expect("PMS never saw the resolve");
@@ -1187,19 +1199,18 @@ fn selected_embedded_srt_names_id_and_client_rendered_mode_on_mde() {
         "token",
         "mde-srt-client",
     );
-    let mut env = ResolveEnv::snapshot(&ps, crate::stores::metadata::MetadataStore::default().view(), sid, "rk-4k");
-    env.cached_item = Some(fourk_item_with_subs(
+    let env = ResolveEnv::snapshot(&ps, crate::stores::metadata::MetadataStore::default().view(), sid, "rk-4k");
+    let resolved = Some(fourk_item_with_subs(
         sid,
         vec![eac3_track()],
         vec![selected_sub(55001, "srt")],
     ));
-    let plan = build_stream(
+    let plan = build_stream_with_snapshot(
         "rk-4k",
         "/library/parts/36013/1/file.mkv",
         "hevc",
         "eac3",
-        &env,
-    );
+        &env, resolved);
     let requests = rx
         .recv_timeout(Duration::from_secs(15))
         .expect("PMS never saw the resolve");
@@ -1238,19 +1249,18 @@ fn selected_pgs_names_subtitle_stream_id_on_mde() {
     let (port, rx, server) = plan_pms(2, MDE_DIRECTPLAY);
     let sid =
         crate::plex::register_for_test("mde-pgs", "127.0.0.1", port, "token", "mde-pgs-client");
-    let mut env = ResolveEnv::snapshot(&ps, crate::stores::metadata::MetadataStore::default().view(), sid, "rk-4k");
-    env.cached_item = Some(fourk_item_with_subs(
+    let env = ResolveEnv::snapshot(&ps, crate::stores::metadata::MetadataStore::default().view(), sid, "rk-4k");
+    let resolved = Some(fourk_item_with_subs(
         sid,
         vec![eac3_track()],
         vec![selected_sub(99001, "pgs")],
     ));
-    let plan = build_stream(
+    let plan = build_stream_with_snapshot(
         "rk-4k",
         "/library/parts/36013/1/file.mkv",
         "hevc",
         "eac3",
-        &env,
-    );
+        &env, resolved);
     let requests = rx
         .recv_timeout(Duration::from_secs(15))
         .expect("PMS never saw the resolve");
@@ -1294,8 +1304,8 @@ fn external_selected_sub_sends_subtitle_stream_id_zero_on_mde() {
         "token",
         "mde-ext-client",
     );
-    let mut env = ResolveEnv::snapshot(&ps, crate::stores::metadata::MetadataStore::default().view(), sid, "rk-4k");
-    env.cached_item = Some(fourk_item_with_subs(
+    let env = ResolveEnv::snapshot(&ps, crate::stores::metadata::MetadataStore::default().view(), sid, "rk-4k");
+    let resolved = Some(fourk_item_with_subs(
         sid,
         vec![eac3_track()],
         vec![{
@@ -1304,13 +1314,12 @@ fn external_selected_sub_sends_subtitle_stream_id_zero_on_mde() {
             s
         }],
     ));
-    let plan = build_stream(
+    let plan = build_stream_with_snapshot(
         "rk-4k",
         "/library/parts/36013/1/file.mkv",
         "hevc",
         "eac3",
-        &env,
-    );
+        &env, resolved);
     let requests = rx
         .recv_timeout(Duration::from_secs(15))
         .expect("PMS never saw the resolve");
@@ -1354,19 +1363,18 @@ fn selected_mov_text_names_subtitle_stream_id_on_mde() {
         "token",
         "mde-mov-client",
     );
-    let mut env = ResolveEnv::snapshot(&ps, crate::stores::metadata::MetadataStore::default().view(), sid, "rk-4k");
-    env.cached_item = Some(fourk_item_with_subs(
+    let env = ResolveEnv::snapshot(&ps, crate::stores::metadata::MetadataStore::default().view(), sid, "rk-4k");
+    let resolved = Some(fourk_item_with_subs(
         sid,
         vec![eac3_track()],
         vec![selected_sub(77001, "mov_text")],
     ));
-    let plan = build_stream(
+    let plan = build_stream_with_snapshot(
         "rk-4k",
         "/library/parts/36013/1/file.mkv",
         "hevc",
         "eac3",
-        &env,
-    );
+        &env, resolved);
     let requests = rx
         .recv_timeout(Duration::from_secs(15))
         .expect("PMS never saw the resolve");
@@ -1405,19 +1413,18 @@ fn selected_dvd_subtitle_names_subtitle_stream_id_on_mde() {
         "token",
         "mde-dvd-client",
     );
-    let mut env = ResolveEnv::snapshot(&ps, crate::stores::metadata::MetadataStore::default().view(), sid, "rk-4k");
-    env.cached_item = Some(fourk_item_with_subs(
+    let env = ResolveEnv::snapshot(&ps, crate::stores::metadata::MetadataStore::default().view(), sid, "rk-4k");
+    let resolved = Some(fourk_item_with_subs(
         sid,
         vec![eac3_track()],
         vec![selected_sub(66001, "dvd_subtitle")],
     ));
-    let plan = build_stream(
+    let plan = build_stream_with_snapshot(
         "rk-4k",
         "/library/parts/36013/1/file.mkv",
         "hevc",
         "eac3",
-        &env,
-    );
+        &env, resolved);
     let requests = rx
         .recv_timeout(Duration::from_secs(15))
         .expect("PMS never saw the resolve");

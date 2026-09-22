@@ -79,6 +79,7 @@ fn main() {
     }
 
     compile_svg();
+    compile_local_audio(&target_os);
 }
 
 /// Publish `PLX_VERSION` — the version this build REPORTS, which is not always the version it was
@@ -458,4 +459,32 @@ fn emit_install_identities() {
         generated,
     )
     .unwrap();
+}
+
+/// Host linkage for the same C boundary the ARM Makefile compiles. Off by default.
+fn compile_local_audio(target_os: &str) {
+    let repo = Path::new(env!("CARGO_MANIFEST_DIR")).parent().expect("repo");
+    let enabled = std::env::var_os("CARGO_FEATURE_LOCAL_AUDIO").is_some();
+    println!("cargo:rerun-if-env-changed=PLX_FFMPEG_INCLUDE");
+    println!("cargo:rerun-if-changed={}", repo.join("src/local_audio.h").display());
+    let include = std::env::var_os("PLX_FFMPEG_INCLUDE").map(PathBuf::from)
+        .unwrap_or_else(|| repo.join("vendor/ffmpeg-prefix-host/include"));
+    let cc = std::env::var("CC").unwrap_or_else(|_| "cc".into());
+    for name in ["local_audio", "local_pcm"] {
+        let src = repo.join(format!("src/{name}.c"));
+        let out = PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR")).join(format!("{name}.o"));
+        println!("cargo:rerun-if-changed={}", src.display());
+        let mut command = Command::new(&cc);
+        command.args(["-std=gnu11", "-O2", "-fPIC", "-c"]).arg(&src).arg("-o").arg(&out)
+            .arg(format!("-I{}", repo.join("include").display()));
+        if enabled {
+            assert!(include.join("libavcodec/avcodec.h").is_file(),
+                "build FFmpeg with HOST=1 LOCAL_AUDIO=1 or set PLX_FFMPEG_INCLUDE to its headers");
+            command.arg("-DPLX_LOCAL_AUDIO=1").arg(format!("-I{}", include.display()));
+        }
+        let status=command.status().expect("compile audio boundary");
+        assert!(status.success(), "{} did not compile", src.display());
+        println!("cargo:rustc-link-arg={}", out.display());
+    }
+    if target_os == "linux" { println!("cargo:rustc-link-lib=dylib=dl"); }
 }

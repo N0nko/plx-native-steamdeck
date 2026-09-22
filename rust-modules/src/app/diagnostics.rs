@@ -639,15 +639,18 @@ fn pipeline_rows(ps: &crate::route::PlaybackSession, d: &crate::player::Diag, pr
     }
     v.push(Field::new("Video", video));
 
-    let mut audio = chain(
+    let local_pcm = crate::audio_local::output_active();
+    let mut audio = if local_pcm {
+        format!("{} → local PCM 2.0 · 48 kHz · 16-bit", crate::route::source_acodec(ps))
+    } else { chain(
         crate::route::source_acodec(ps),
         crate::route::stream_acodec(ps),
         d.load_a_str(),
-    );
-    if crate::route::stream_immersive(ps) {
+    ) };
+    if !local_pcm && crate::route::stream_immersive(ps) {
         audio.push_str(" · Dolby Atmos");
     }
-    v.push(Field::new("Audio", audio).fault(d.load_a == 0 && d.load_v != 0));
+    v.push(Field::new("Audio", audio).fault(!local_pcm && d.load_a == 0 && d.load_v != 0));
 
     // **The frame rate here is a CLAIM, and the row says whose.** `video_fps_milli` is what LG's
     // pipeline announced in its own `sourceInfo` callback, and on this set that is not a

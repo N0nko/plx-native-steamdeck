@@ -28,7 +28,7 @@ use super::probe::Location;
 /// claim sent to PMS and the gate applied locally cannot drift apart.
 pub const DP_AUDIO_CODECS: &str = "aac,ac3,eac3";
 pub fn is_dp_audio(codec: &str) -> bool {
-    crate::devcaps::caps().audio_has(codec)
+    crate::devcaps::caps().audio_has(codec) || crate::audio_local::supported(codec)
 }
 
 /// Subtitle codecs Original client-renders (`ff.rs` / the track menu). This is the
@@ -179,6 +179,10 @@ pub fn link_policy(link: Option<Location>) -> LinkPolicy {
 /// The Load payload cannot drift whatever PMS chooses: `route.rs` reads the OUTPUT codecs off
 /// the /decision response (`decision_codecs`) and describes those, not the profile's wish.
 fn profile_for_delivery(caps: &crate::devcaps::Caps, delivery: TranscodeDelivery) -> String {
+    profile_with_audio(caps, delivery, "")
+}
+
+fn profile_with_audio(caps: &crate::devcaps::Caps, delivery: TranscodeDelivery, software: &str) -> String {
     let dp_video = if caps.hevc { "h264,hevc" } else { "h264" };
     // The chain's head is the ONE encode-target definition, `Caps::encode_vcodec` — the same
     // accessor route.rs's /decision-unreachable Load-payload guess and retranscode read, so the
@@ -190,13 +194,14 @@ fn profile_for_delivery(caps: &crate::devcaps::Caps, delivery: TranscodeDelivery
         head => format!("{head},h264"),
     };
     let (w, h) = caps.hevc_max;
-    let dp_audio = &caps.audio;
+    let dp_audio = [caps.audio.as_str(), software].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join(",");
     // ac3 first — the preferred ENCODE target — then the rest of the caps subset as copy lanes.
-    let target_audio = ["ac3", "eac3", "aac"]
+    let native_targets = ["ac3", "eac3", "aac"]
         .into_iter()
         .filter(|c| caps.audio_has(c))
         .collect::<Vec<_>>()
         .join(",");
+    let target_audio = [native_targets.as_str(), software].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join(",");
     let target = match delivery {
         TranscodeDelivery::ProgressiveMkv => format!(
             "add-transcode-target(type=videoProfile&context=streaming&protocol=http\
@@ -231,7 +236,7 @@ fn profile_for(caps: &crate::devcaps::Caps) -> String {
 
 /// The profile for THIS device — [`profile_for`] over the boot-probed caps snapshot.
 fn profile_extra(delivery: TranscodeDelivery) -> String {
-    profile_for_delivery(crate::devcaps::caps(), delivery)
+    profile_with_audio(crate::devcaps::caps(), delivery, &crate::audio_local::advertised())
 }
 
 impl Client {
@@ -275,8 +280,8 @@ impl Client {
         let protocol = if hls { "hls" } else { "http" };
         let mut q = QueryBuilder::new("")
             .str("path", &format!("/library/metadata/{}", s.rating_key))
-            .int("mediaIndex", 0)
-            .int("partIndex", 0)
+            .int("mediaIndex", s.media_index)
+            .int("partIndex", s.part_index)
             .str("protocol", protocol)
             .int("directPlay", 0)
             .int("directStream", copy_ok as i64);
@@ -369,11 +374,19 @@ impl Client {
         session: &str,
         audio_stream_id: i64,
         subtitle_stream_id: i64,
+        version: crate::media_version::Position,
     ) -> Option<MediaContainer> {
+        self.get_json(&self.mde_query(rating_key, session, audio_stream_id, subtitle_stream_id, version))
+    }
+
+    fn mde_query(
+        &self, rating_key: &str, session: &str, audio_stream_id: i64,
+        subtitle_stream_id: i64, version: crate::media_version::Position,
+    ) -> String {
         let q = QueryBuilder::new("/video/:/transcode/universal/decision")
             .str("path", &format!("/library/metadata/{rating_key}"))
-            .int("mediaIndex", 0)
-            .int("partIndex", 0)
+            .int("mediaIndex", version.media_index)
+            .int("partIndex", version.part_index)
             .str("protocol", "http")
             .int("hasMDE", 1)
             .int("directPlay", 1)
@@ -392,7 +405,7 @@ impl Client {
                 "X-Plex-Client-Profile-Extra",
                 &profile_extra(TranscodeDelivery::ProgressiveMkv),
             );
-        self.get_json(&q.build())
+        q.build()
     }
 
     /// Register `spec` with the universal transcoder (the /decision GET — required before
@@ -544,6 +557,8 @@ mod tests {
 
     fn spec<'a>(remux: bool, no_video_copy: bool) -> TranscodeSpec<'a> {
         TranscodeSpec {
+            media_index: 0,
+            part_index: 0,
             rating_key: "5",
             session: "s1",
             encoder_session: "s1",
@@ -555,6 +570,45 @@ mod tests {
             offset: crate::plex::TranscodeOffset::Fresh,
             ceiling: None,
         }
+    }
+
+    #[test]
+    fn version_indices_reach_mde_and_every_transcode_flavor() {
+        let c = a_client();
+        let mde = c.mde_query("5", "s1", 22, 0, crate::media_version::Position { media_index: 2, part_index: 1 });
+        assert!(mde.contains("mediaIndex=2&partIndex=1"), "{mde}");
+        assert!(!mde.contains("mediaIndex=0"), "{mde}");
+        for (remux, delivery) in [
+            (true, super::TranscodeDelivery::ProgressiveMkv),
+            (false, super::TranscodeDelivery::ProgressiveMkv),
+            (false, super::TranscodeDelivery::FixedHls { seconds_per_segment: 2 }),
+        ] {
+            let mut s = spec(remux, false);
+            s.media_index = 2;
+            s.part_index = 1;
+            s.delivery = delivery;
+            s.audio_stream_id = 22;
+            let q = c.transcode_query(&s);
+            let url = c.transcode_start_url(&s).to_url();
+            for value in [&q, &url] {
+                assert!(value.contains("mediaIndex=2&partIndex=1"), "{value}");
+                assert!(value.contains("audioStreamID=22"), "{value}");
+                assert_eq!(value.matches("mediaIndex=").count(), 1);
+            }
+        }
+    }
+
+    #[test]
+    fn audio_only_remux_keeps_video_copy_and_the_chosen_audio_id() {
+        let mut s = spec(true, false);
+        s.media_index = 1;
+        s.audio_stream_id = 22;
+        let q = a_client().transcode_query(&s);
+        assert!(q.contains("mediaIndex=1"), "{q}");
+        assert!(q.contains("audioStreamID=22"), "{q}");
+        assert!(q.contains("directStream=1"), "{q}");
+        assert!(!q.contains("maxVideoBitrate="), "{q}");
+        assert!(!q.contains("videoResolution="), "{q}");
     }
 
     /// PMS acknowledges `/stop` before its cleanup worker erases the physical session. The
@@ -1177,5 +1231,22 @@ mod tests {
              +add-transcode-target(type=videoProfile&context=streaming&protocol=http\
              &container=matroska&videoCodec=hevc,h264&audioCodec=ac3,eac3,aac)"
         );
+    }
+}
+
+#[cfg(test)]
+mod local_audio_profile_tests {
+    use super::*;
+    #[test] fn disabling_software_audio_keeps_the_native_profile_byte_identical() {
+        let caps = crate::devcaps::Caps::assumed();
+        assert_eq!(profile_for(&caps), profile_with_audio(&caps, TranscodeDelivery::ProgressiveMkv, ""));
+    }
+    #[test] fn software_codecs_expand_source_support_without_changing_hls_output() {
+        let caps = crate::devcaps::Caps::assumed();
+        let profile = profile_with_audio(&caps, TranscodeDelivery::FixedHls { seconds_per_segment:2 }, "dts,truehd,flac,opus,vorbis");
+        assert!(profile.contains("dts,truehd,flac,opus,vorbis"));
+        let target = profile.split("add-transcode-target").nth(1).unwrap();
+        assert!(target.contains("audioCodec=aac)"));
+        assert!(!target.contains("truehd") && !target.contains("dts"));
     }
 }

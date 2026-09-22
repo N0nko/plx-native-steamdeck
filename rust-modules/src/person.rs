@@ -1725,7 +1725,7 @@ pub(crate) struct Credit {
     /// **The library match**: which server holds this credit and under which `ratingKey`, or `None`
     /// for a credit nothing in the registry answered for. `None` is UNKNOWN rather than ABSENT — a
     /// source may still be fetching, and one that sent no guids cannot be joined at all — which is
-    /// why the route annotates a match and does nothing whatever to a row without one.
+    /// why the route opens a read-only catalog-credit card rather than offering false playback.
     pub(crate) local: Option<(ServerId, String)>,
 }
 

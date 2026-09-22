@@ -5,3 +5,8 @@
 pub(crate) mod consent;
 pub(crate) mod poster;
 pub(crate) mod session;
+
+pub(crate) mod media_companion;
+
+pub(crate) mod catalog;
+pub(crate) mod discovery;

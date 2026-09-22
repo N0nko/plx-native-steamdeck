@@ -7319,6 +7319,17 @@ pub(crate) fn demux(
                 let streams = (*fmt).streams;
                 let vst = *streams.add(vi as usize);
                 let vcp = stream_codecpar(vst);
+                let mut local_decoder = if crate::audio_local::software_codec(&acodec)
+                    && FEED_AUDIO.load(Ordering::Relaxed) {
+                    let decoder = if ai >= 0 {
+                        crate::audio_local::Decoder::open(stream_codecpar(*streams.add(ai as usize)).cast())
+                    } else { None };
+                    if decoder.is_none() {
+                        crate::audio_local::failed_for_queue(aqa_p);
+                        avformat_close_input(&mut fmt); free_avio(avio); break;
+                    }
+                    decoder
+                } else { None };
                 // AAC needs ADTS framing for LG's decoder (mp4/mkv carry raw AAC). Precompute the
                 // per-frame ADTS fields (freq index + channel config) for the selected audio stream;
                 // None => not AAC (or a non-standard rate) => fed verbatim.
@@ -7483,6 +7494,7 @@ pub(crate) fn demux(
                     // reload. Seeking here needs no interrupt at all, so nothing can race it.
                     let seek_ns = SHARED.seek_to_ns.swap(-1, Ordering::Acquire);
                     if seek_ns >= 0 {
+                        if let Some(decoder) = local_decoder.as_mut() { decoder.flush(); }
                         // These are content from the old seek epoch until the first new packets land.
                         // Reset both the buffer facts and the transfer-window hysteresis together so
                         // a seek cannot splice old reserve into a new low-rate observation.
@@ -7518,6 +7530,12 @@ pub(crate) fn demux(
                     }
                     let r = av_read_frame(fmt, pkt);
                     if frame_read_failed(&mut state, r) {
+                        if r == AVERROR_EOF && !crate::aq::aq_is_aborted(aqa_p) {
+                            if let Some(decoder) = local_decoder.as_mut() {
+                                if decoder.finish(aqa_p, || state.drain_wire()).is_err()
+                                    && !crate::aq::aq_is_aborted(aqa_p) { crate::audio_local::failed_for_queue(aqa_p); }
+                            }
+                        }
                         // Genuine end of stream, teardown, or an unrecovered I/O error published by
                         // `frame_read_failed`. NOT an app seek — that is serviced at the top of this
                         // loop and never surfaces as a read error.
@@ -7566,7 +7584,14 @@ pub(crate) fn demux(
                     } else if si == ai && FEED_AUDIO.load(Ordering::Relaxed) {
                         let ast = *streams.add(ai as usize);
                         let pts = pts_ns(pkt, ast);
-                        let pushed = if let Some((freq_idx, chan_cfg)) = aac_adts {
+                        let pushed = if let Some(decoder) = local_decoder.as_mut() {
+                            let duration = av_rescale_q((*pkt).duration.max(0), stream_time_base(ast), NS_TB);
+                            if decoder.packet(pkt.cast(), pts, duration, aqa_p, || state.drain_wire()).is_ok() { 0 }
+                            else {
+                                if !crate::aq::aq_is_aborted(aqa_p) { crate::audio_local::failed_for_queue(aqa_p); }
+                                -1
+                            }
+                        } else if let Some((freq_idx, chan_cfg)) = aac_adts {
                             // prepend a 7-byte ADTS header so LG's decoder can frame the raw AAC
                             let plen = (*pkt).size as usize;
                             let mut framed = Vec::with_capacity(7 + plen);
@@ -7597,7 +7622,7 @@ pub(crate) fn demux(
                         if pushed != 0 {
                             break;
                         }
-                        SHARED.hls_audio_tail_ns.store(pts, Ordering::Release);
+                        if local_decoder.is_none() { SHARED.hls_audio_tail_ns.store(pts, Ordering::Release); }
                     } else if let Some(sub_pos) =
                         sub_streams.iter().position(|(sidx, _, _)| *sidx == si)
                     {

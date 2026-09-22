@@ -776,6 +776,7 @@ mod tests {
         let mut store = crate::stores::metadata::MetadataStore::default();
         assert!(store.run(crate::stores::metadata::MetadataCmd::InstallPlaying(Some(
             crate::metadata::PlayingItem {
+            version: None,
                 sid: crate::plex::ServerId::from_raw(0),
                 rk: "rk".into(),
                 show_rk: String::new(),

@@ -9,6 +9,7 @@
 //! (`PlaybackSession::auto_last_switch`) is now a frame-tick millisecond stamp, not an `Instant`.
 
 use crate::plex::ServerId;
+use crate::media_version::Position;
 use crate::pms::PmsMovie;
 use std::os::raw::c_char;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU8, Ordering};
@@ -70,6 +71,7 @@ struct RetryContext {
 /// asserted: a frame's draw cannot hold one across [`apply_plan`] or [`request_play`], because
 /// those take `&mut`.
 pub(crate) struct PlaybackSession {
+    cur_version: Position,
     /// This playback was refused by the cached device sandbox preflight. No Engine exists.
     /// Cleared with the playback verdict on exit/reset, never a process-global error latch.
     pub(crate) jail_load_blocked: bool,
@@ -330,6 +332,7 @@ impl PlaybackSession {
     /// Nothing playing: what the module holds before the first play, and the value the static is
     /// born as. Every String empty, every id 0 or `UNSET`, both HUD buffers NUL.
     pub(crate) const IDLE: PlaybackSession = PlaybackSession {
+        cur_version: Position::FIRST,
         jail_load_blocked: false,
         repair_status: crate::webos::jail_repair::State::Idle,
         request: None,
@@ -396,6 +399,7 @@ impl PlaybackSession {
     /// it or silently dropping it.
     pub(crate) fn publication(&self) -> PlaybackSession {
         let PlaybackSession {
+            cur_version,
             jail_load_blocked,
             repair_status,
             request,
@@ -443,6 +447,7 @@ impl PlaybackSession {
             preview: _,
         } = self;
         PlaybackSession {
+            cur_version: *cur_version,
             jail_load_blocked: *jail_load_blocked,
             repair_status: *repair_status,
             request: request.clone(),
@@ -2321,6 +2326,7 @@ fn is_worker_ticket_current(expected: &WorkerTicket) -> bool {
 /// the demux worker starts; it never reads the mutable route session afterwards.
 #[derive(Clone)]
 pub(crate) struct HlsAbrControl {
+    version: Position,
     trace_generation: u32,
     sid: ServerId,
     rating_key: String,
@@ -2646,6 +2652,7 @@ impl HlsAbrControl {
             crate::plex::TranscodeDelivery::FixedHls {
                 seconds_per_segment: self.seconds_per_segment,
             },
+            self.version,
         );
         // The deadline-bearing path preserves the cause where it is issued. A completed HTTP
         // response (including malformed 2xx) and a transport failure are Control; only the timer
@@ -2862,6 +2869,7 @@ pub(crate) fn hls_abr_control(ps: &PlaybackSession) -> Option<(HlsAbrControl, Wo
         .flatten();
     Some((
         HlsAbrControl {
+            version: ps.cur_version,
             trace_generation: playback_trace_generation(),
             sid: cur_sid(ps),
             rating_key: cur_rk(ps),
@@ -3796,6 +3804,10 @@ pub(crate) fn play_resolution_failed(ps: &PlaybackSession) -> bool {
 /// caption, the read-out itself, and the diagnostics panel when it is open), and every one of them
 /// only reads it. The borrow lives until the next main-thread write, which is `apply_plan` or
 /// `request_play` — neither of which can run inside a frame's draw.
+pub(crate) fn note_local_audio_failure(ps: &mut PlaybackSession) {
+    ps.play_verdict = Some("Local audio output failed. Retry or choose quality to use server conversion.".into());
+}
+
 pub(crate) fn play_verdict(ps: &PlaybackSession) -> Option<&str> {
     ps.play_verdict.as_deref()
 }
@@ -3919,7 +3931,10 @@ pub(crate) fn stream_immersive(ps: &PlaybackSession) -> bool {
 /// Override the audio codec used to build the Load payload — set by a native audio-track
 /// switch to the chosen track's codec before the direct-play reload.
 pub(crate) fn set_stream_acodec(ps: &mut PlaybackSession, codec: &str) {
-    { let s = &mut *ps; s.stream_acodec = codec.to_owned() }
+    { let s = &mut *ps;
+        s.stream_acodec = codec.to_owned();
+        if crate::audio_local::software_codec(codec) { s.stream_immersive = false; }
+    }
 }
 /// Record the streamed item's video+audio codec pair in one write (the Load-payload source of
 /// truth) for route-policy tests that install a synthetic live HLS response.
@@ -4455,6 +4470,7 @@ pub(crate) fn transcode_seek(ps: &mut PlaybackSession, offset_secs: i64) -> Opti
         cur_sub_sid(ps),
         cur_ceiling(ps),
         cur_delivery(ps),
+        ps.cur_version,
     );
     let Some(decision) = c.transcode_decision(&sp) else {
         // A lost response may still have registered the key. The old route remains published;
@@ -4919,6 +4935,7 @@ pub(super) fn measure_remote_remux(
     audio_stream_id: i64,
     subtitle_stream_id: i64,
     source_kbps: i64,
+    version: Position,
 ) -> Option<crate::abr::CapacityObservation> {
     let spec = transcode_spec(
         rk,
@@ -4931,6 +4948,7 @@ pub(super) fn measure_remote_remux(
         subtitle_stream_id,
         None,
         crate::plex::TranscodeDelivery::ProgressiveMkv,
+        version,
     );
     let Some(decision) = client.transcode_decision(&spec) else {
         crate::player::log("auto: remote remux preflight had no /decision; using HLS");
@@ -4970,8 +4988,9 @@ pub(super) fn server_decision(
     session: &str,
     audio_stream_id: i64,
     subtitle_stream_id: i64,
+    version: Position,
 ) -> Option<MdeVerdict> {
-    let mc = match c.mde_decision(rk, session, audio_stream_id, subtitle_stream_id) {
+    let mc = match c.mde_decision(rk, session, audio_stream_id, subtitle_stream_id, version) {
         Some(mc) => mc,
         None => {
             // failed fetch OR unparseable (XML/truncated) body — no Original Part
@@ -5188,8 +5207,9 @@ impl ResolveEnv {
                 String::new()
             },
             audio_sid: cur_audio_sid(ps),
+            preserve_audio: false,
+            preserve_subtitle: false,
             sub_sid: cur_sub_sid(ps),
-            cached_item: meta.cached_playing(sid, rk),
             quality: quality(),
             src_kbps: resolve_src_kbps(meta.current(), sid, rk),
             omit_queue_continuous: false,
@@ -5483,12 +5503,19 @@ fn request_play_inner(
     let mut env = ResolveEnv::snapshot(ps, meta.view(), sid, rk);
     env.omit_queue_continuous = crate::metadata::context_omits_queue_continuous(ctx);
     env.preview = request.preview;
+    if !request.preview && retry.is_none() {
+        let choice = meta.view().preplay(sid, rk, part);
+        if let Some(id) = choice.audio { env.audio_sid = id; env.preserve_audio = true; }
+        if let Some(id) = choice.subtitle { env.sub_sid = id; env.preserve_subtitle = true; }
+    }
     if let Some(retry) = retry {
         // `request_play` resets the live selection because that is correct for a new item.  A
         // retry is the SAME item: override the fresh defaults with the selection captured before
         // that reset so a rescue does not silently turn subtitles/audio back to server default.
         env.audio_sid = retry.audio_sid;
+        env.preserve_audio = true;
         env.sub_sid = retry.sub_sid;
+        env.preserve_subtitle = true;
     }
     let gen = PLAY_GEN.fetch_add(1, Ordering::SeqCst) + 1;
     if let Some(resume_ns) = retry.map(|r| r.resume_ns).filter(|ns| *ns > 0) {
@@ -5837,6 +5864,7 @@ fn apply_plan(ps: &mut PlaybackSession, meta: &mut crate::stores::metadata::Meta
         let now_ms = s.now_ms;
         let preview = request.as_ref().is_some_and(|r| r.preview);
         *s = PlaybackSession {
+            cur_version: plan.version,
             jail_load_blocked: false,
             repair_status: crate::webos::jail_repair::State::Idle,
             request,
@@ -5977,6 +6005,7 @@ fn prepare_original_remux(
         subtitle,
         None,
         crate::plex::TranscodeDelivery::ProgressiveMkv,
+        ps.cur_version,
     );
     let decision = c.transcode_decision(&spec);
     if let Some(reason) = decision.as_ref().and_then(refusal) {
@@ -6098,6 +6127,7 @@ fn retranscode_as(ps: &mut PlaybackSession, expected: &WorkerTicket, offset_secs
         subtitle_sid,
         ceiling,
         delivery,
+        ps.cur_version,
     );
     let Some(decision) = c.transcode_decision(&sp) else {
         let _ = c.transcode_stop(&qsess);

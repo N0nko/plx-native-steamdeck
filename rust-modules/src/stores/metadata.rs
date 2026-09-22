@@ -152,6 +152,10 @@ use super::StoreEv;
 pub(crate) enum MetadataCmd {
     /// Supersede any in-flight load and fetch `(sid, rk)` off-thread; lands through `pump_detail`.
     RequestDetail { sid: ServerId, rk: String },
+    /// Select a stored file on the mounted item, its on-deck leaf or an episode row.
+    SelectVersion { sid: ServerId, rk: String, part: String },
+    /// Local pre-play preference only; validated against the mounted file's own streams.
+    SetPreplay { sid: ServerId, rk: String, part: String, choice: crate::metadata::preplay::TrackChoice },
     /// Close the page: drop the item and supersede everything in flight.
     Clear,
     /// The server/profile switch: drop the COMPLETE owned state — including the `now`/`playing`

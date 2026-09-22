@@ -205,6 +205,7 @@ pub(crate) struct Engine {
     #[allow(dead_code)]
     pub hs: Box<HttpStream>, // demux socket (M owns; D uses via raw ptr)
     pub pending_video: Option<AuBox>, // bf_pending, VIDEO lane (held across BufferFull)
+    pub local_audio: Option<crate::audio_local::Pcm>,
     pub pending_audio: Option<AuBox>, // bf_pending, AUDIO lane
     #[allow(dead_code)]
     pub payload: std::ffi::CString, // bf_payload (kept alive for the session)
@@ -1108,6 +1109,15 @@ fn start_bufferfeed_inner(
     // dev A/B: /tmp/plxnative-noaudio feeds video only (needAudio:false + skip es=2) to isolate
     // whether the audio ES (E-AC3/Atmos) is what stalls the sink on 4K HEVC.
     let no_audio = crate::dev::flag("noaudio");
+    let local_codec = crate::route::stream_acodec(ps);
+    let software_audio = stream && !no_audio && crate::audio_local::software_codec(&local_codec);
+    let local_audio = if software_audio {
+        match crate::audio_local::Pcm::open(&local_codec) {
+            Some(sink) => Some(sink),
+            None => { crate::audio_local::failed(); crate::route::note_local_audio_failure(ps);
+                return Err(crate::route::RouteStartResult::StartFailed); }
+        }
+    } else { None };
     crate::ff::set_feed_audio(!no_audio);
     let stream_payload;
     // Every arm below assigns this — the static payloads through `static_envelope`, the streamed
@@ -1136,6 +1146,13 @@ fn start_bufferfeed_inner(
             } else {
                 PAYLOAD_V
             }
+        } else if software_audio {
+            // Keep the source video/Dolby declaration, but make Starfish video-clocked.
+            audio_declared = "LOCAL PCM 2.0";
+            SHARED.dg_load_a.store(0, Ordering::Relaxed);
+            sink_env = sink_envelope_now(ps, hevc);
+            stream_payload = video_clocked_payload(&build_av_payload(ps, video_declared, "AC3", sink_env));
+            &stream_payload
         } else {
             let vc = video_declared;
             // LG's pipeline names E-AC3 "AC3 PLUS" (Dolby Digital Plus), NOT "EAC3" — the
@@ -1370,6 +1387,7 @@ fn start_bufferfeed_inner(
         aq_audio: aqa_box,
         hs,
         pending_video: None,
+        local_audio,
         pending_audio: None,
         payload: payload_c,
         source,
@@ -1666,6 +1684,7 @@ fn teardown(ps: &mut crate::route::PlaybackSession, pa: &mut super::adapter::Pla
     crate::route::begin_engine_teardown(for_reload);
     SHARED.stop_hls_clock();
     let mut eng = pa.take().expect("main-thread live check and take are one transaction");
+    drop(eng.local_audio.take()); // stop PCM before any worker join or native teardown can wait
     let stream = matches!(eng.source, Source::Stream { .. });
 
     // capture the final-position report BEFORE teardown zeroes playpos/duration (a reload is
@@ -2107,7 +2126,9 @@ pub(crate) fn try_prime(mt: &MainThread, eng: &mut Engine) {
     // demuxer proved audioless may use the video-only escape; `abuf <= 0` alone is starvation, not
     // evidence that no audio exists.
     let audio_expected = SHARED.hls_audio_expected.load(Ordering::Acquire) || playable_abuf > 0;
-    let decoder_ready = if audio_expected {
+    let decoder_ready = if let Some(sink) = eng.local_audio.as_ref() {
+        accepted_vbuf >= PRIME_NS && (sink.queued() >= 7680 || accepted_vbuf >= PRIME_VIDEO_MAX_NS)
+    } else if audio_expected {
         accepted_vbuf >= PRIME_NS && accepted_abuf >= PRIME_AUDIO_NS
     } else {
         accepted_vbuf >= PRIME_VIDEO_MAX_NS
@@ -2131,7 +2152,7 @@ pub(crate) fn try_prime(mt: &MainThread, eng: &mut Engine) {
     } else {
         playable_vbuf >= observed_runway_ns
     };
-    let boundary_ready = match prime_kind {
+    let boundary_ready = if eng.local_audio.is_some() { true } else { match prime_kind {
         HlsPrimeKind::Rebuffer => {
             let playable = if audio_expected {
                 playable_vbuf.min(playable_abuf)
@@ -2141,7 +2162,7 @@ pub(crate) fn try_prime(mt: &MainThread, eng: &mut Engine) {
             recovery.ready(playable)
         }
         HlsPrimeKind::Fresh | HlsPrimeKind::Resume => balanced_runway_ready,
-    };
+    } };
     if decoder_ready && boundary_ready && TX.feed_allowed() {
         let Some((play_token, recovery)) =
             SHARED.reserve_hls_prime_play(prime_kind, candidate_generation, recovery)
@@ -2204,10 +2225,21 @@ pub(crate) fn try_prime(mt: &MainThread, eng: &mut Engine) {
 /// with them `pub(crate)`, reverting `pump` to two separate lane calls restored the livelock while
 /// the regression test — which calls this wrapper — stayed green. Private, that revert does not
 /// compile.
+pub(crate) fn sync_local_audio(eng: &mut Engine) {
+    if let Some(sink) = eng.local_audio.as_mut() {
+        sink.pause(eng.stage < Stage::Playing || eng.prime_play || eng.rebase_pending
+            || TX.pause_state_sample().paused || TX.seek_to_ns.load(Ordering::Relaxed) >= 0
+            || SHARED.seeking.load(Ordering::Relaxed)
+            || SHARED.hls_rebuffering.load(Ordering::Acquire)
+            || SHARED.local_audio_failed.load(Ordering::Acquire));
+    }
+}
+
 pub(crate) fn feed_both_lanes(mt: &MainThread, eng: &mut Engine) {
     feed_stream(mt, eng);
     feed_audio_lane(mt, eng);
     try_prime(mt, eng);
+    sync_local_audio(eng);
 }
 
 fn feed_stream(mt: &MainThread, eng: &mut Engine) {
@@ -2470,7 +2502,17 @@ fn feed_audio_lane(mt: &MainThread, eng: &mut Engine) {
         if !eng.prime_play && pres != PRES_NONE && fp - pres > MAX_FEED_AHEAD_NS + AUDIO_SLACK_NS {
             break;
         }
-        let r = unsafe { ffi::sf_feed(mt, data, len as u32, fp, es) };
+        let r = if let Some(sink) = eng.local_audio.as_mut() {
+            let video = if pres == PRES_NONE || eng.prime_play {
+                let target = SHARED.seek_target_ns.load(Ordering::Relaxed);
+                if target >= 0 { target.saturating_add(shift) } else { eng.seek_base_pts }
+            } else { pres };
+            match unsafe { sink.feed(data, len, fp, video, eng.prime_play) } {
+                1 => b'O' as std::ffi::c_char,
+                0 => b'B' as std::ffi::c_char,
+                _ => { sink.pause(true); crate::audio_local::failed(); break; }
+            }
+        } else { unsafe { ffi::sf_feed(mt, data, len as u32, fp, es) } };
         // Accepted only — see the video lane's note.
         if (r as u8) == b'O' && fp > eng.max_fed_audio_pts {
             eng.max_fed_audio_pts = fp;
@@ -2892,6 +2934,7 @@ mod prime_livelock_tests {
             aq_audio: Some(crate::aq::aq_new(AQ_AUDIO_BYTES)),
             hs: crate::stream::http_stream_boxed(),
             pending_video: None,
+            local_audio: None,
             pending_audio: None,
             payload: std::ffi::CString::new("").unwrap(),
             source: Source::Stream,
@@ -4421,5 +4464,24 @@ mod load_refusal_tests {
             super::super::FailureKind::TvPipeline,
             "and the verdict must name the television's pipeline, not a generic stop"
         );
+    }
+}
+
+/// The common payload builder still owns video/Dolby declarations. The local-audio
+/// route removes its native audio track and uses video's clock for PCM scheduling.
+fn video_clocked_payload(payload: &str) -> String {
+    payload.replace("\"needAudio\":true", "\"needAudio\":false")
+        .replace("\"audioSync\":true", "\"audioSync\":false")
+        .replace(",\"audio\":\"AC3\"", "")
+}
+#[cfg(test)]
+mod local_audio_payload_tests {
+    use super::video_clocked_payload;
+    #[test] fn local_audio_does_not_leave_an_ac3_track_or_audio_clock_enabled() {
+        let raw = r#"{"needAudio":true,"audioSync":true,"codec":{"video":"HEVC","audio":"AC3"},"DolbyHdrInfo":{"profile":5}}"#;
+        let parsed: serde_json::Value = serde_json::from_str(&video_clocked_payload(raw)).unwrap();
+        assert_eq!(parsed["needAudio"],false); assert_eq!(parsed["audioSync"],false);
+        assert_eq!(parsed["codec"]["video"],"HEVC"); assert!(parsed["codec"].get("audio").is_none());
+        assert_eq!(parsed["DolbyHdrInfo"]["profile"],5);
     }
 }

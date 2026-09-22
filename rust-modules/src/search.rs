@@ -245,19 +245,20 @@ pub(crate) enum Item {
     /// A movie, show or episode: the ordinary card DTO, so every existing tile path draws it
     /// unchanged — resume bar, watched mark, ambient blur and all.
     Media(PmsMovie),
+    Catalog(PmsMovie),
     Tag(TagHit),
 }
 
 impl Item {
     pub(crate) fn title(&self) -> &str {
         match self {
-            Item::Media(m) => &m.title,
+            Item::Media(m) | Item::Catalog(m) => &m.title,
             Item::Tag(t) => &t.name,
         }
     }
     pub(crate) fn sid(&self) -> ServerId {
         match self {
-            Item::Media(m) => m.sid,
+            Item::Media(m) | Item::Catalog(m) => m.sid,
             Item::Tag(t) => t.sid,
         }
     }
@@ -277,6 +278,7 @@ impl Item {
     pub(crate) fn is_fav(&self, favs: &[(ServerId, i64, bool)]) -> bool {
         match self {
             Item::Tag(t) => t.fav,
+            Item::Catalog(_) => false,
             Item::Media(m) => section_is_fav(favs, m.sid, m.sec),
         }
     }
@@ -405,7 +407,8 @@ const SHELF_MAX: usize = crate::ui::card_row::MAX_ROW_ITEMS;
 
 /// Fetch-slot ceiling — the registry's own `MAX_SERVERS`, named rather than copied, so raising the
 /// ceiling cannot leave this module quietly never asking the extra servers.
-const NSRC: usize = crate::plex::MAX_SERVERS;
+const CATALOG_SLOT: usize = crate::plex::MAX_SERVERS;
+const NSRC: usize = CATALOG_SLOT + 1;
 
 /// What one source's finished fetch delivers. `None` means the fetch FAILED (transport, parse, or
 /// a panicking worker) and must be retried — kept distinguishable from a successful answer that
@@ -497,9 +500,10 @@ impl Source {
 /// A profile switch can additionally deactivate only the middle slot, so even that post-sign-out
 /// window is not necessarily contiguous. Collecting at most 16 indices is the honest shape.
 fn slots() -> Vec<usize> {
-    crate::plex::server_ids()
-        .filter_map(|id| ((id.raw() as usize) < NSRC).then_some(id.raw() as usize))
-        .collect()
+    let mut slots: Vec<_> = crate::plex::server_ids().filter_map(|id|
+        ((id.raw() as usize) < CATALOG_SLOT).then_some(id.raw() as usize)).collect();
+    if !cfg!(test) && crate::plex::catalog::active_client().is_some() { slots.push(CATALOG_SLOT); }
+    slots
 }
 
 /// How many sources this store fans out over — the width of [`slots`].
@@ -510,6 +514,7 @@ fn nsrc() -> usize {
 /// One Search owner's main-thread-only logical state (`docs/stores-as-machines.md`). Production
 /// gains one through `stores::search::SearchStore`; the worker-touched half is [`SearchAdapter`].
 pub(crate) struct SearchState {
+    filter:usize,
     // Published buffers are shared with retained frame views. Only the main-thread store writes
     // them; replacing a query or landing cannot invalidate a frame that still owns the old Arc.
     query: Option<Arc<str>>,
@@ -566,7 +571,7 @@ pub(crate) struct SearchState {
 
 impl Default for SearchState {
     fn default() -> Self {
-        Self {
+        Self { filter:0,
             query: None,
             shelves: None,
             state: State::Idle,
@@ -1058,7 +1063,8 @@ fn live_sources<'a>(state: &'a SearchState, live: &[usize]) -> Vec<&'a Source> {
 fn rebuild(state: &mut SearchState) {
     let live = slots();
     let sources = live_sources(state, &live);
-    let shelves = merge_refs(&sources, &favs(state));
+    let mut shelves = merge_refs(&sources, &favs(state));
+    shelves.retain(|s| filter_allows(state.filter,s.kind));
     let items: usize = shelves.iter().map(|s| s.items.len()).sum();
     crate::log(&format!(
         "search: q[{}ch] shelves={} items={}",
@@ -1124,6 +1130,15 @@ fn merge_refs(sources: &[&Source], favs: &[(ServerId, i64, bool)]) -> Vec<Shelf>
                             prev.thumb = t.thumb.clone();
                         }
                         continue;
+                    }
+                }
+                if let Item::Media(m) | Item::Catalog(m) = it {
+                    if !m.guid.is_empty() {
+                        if let Some(prev) = items.iter_mut().find(|other| matches!(other,
+                            Item::Media(p) | Item::Catalog(p) if p.guid == m.guid)) {
+                            if matches!(it, Item::Media(_)) && matches!(prev, Item::Catalog(_)) { *prev = it.clone(); }
+                            continue;
+                        }
                     }
                 }
                 items.push(it.clone());
@@ -1206,7 +1221,9 @@ fn maybe_spawn(state: &mut SearchState, adapter: &Arc<SearchAdapter>, i: usize) 
     // `sid` is captured HERE, on the main thread, and resolved through `client_for` on the worker.
     // A worker that read `client()` would search whichever server the user had wandered off to by
     // the time it was scheduled, and file the answers under this slot's id.
-    let sid = ServerId::from_raw(i as u16);
+    let sid = if i == CATALOG_SLOT { crate::plex::server_ids().next().unwrap_or(ServerId::UNSET) } else { ServerId::from_raw(i as u16) };
+    let account = (i == CATALOG_SLOT).then(crate::plex::catalog::active_client).flatten();
+    let profile = crate::plex::session::current_gen();
     let gen = state.gen;
     // …and so is the favourite table, for the same reason and by the same rule: a worker that asked
     // `browse` what was current would answer with a table from a different moment than the query it
@@ -1222,6 +1239,14 @@ fn maybe_spawn(state: &mut SearchState, adapter: &Arc<SearchAdapter>, i: usize) 
             // sectionId 0 = every section, which `opt_int` sends by omitting it. The Search screen
             // is deliberately account-wide: `sectionId` only RANKS (measured — every other
             // section's rows still come back), so it could not scope this even if we wanted it to.
+            if i == CATALOG_SLOT {
+                let rows = account?.catalog_search(&q)?;
+                if profile != crate::plex::session::current_gen() { return None; }
+                let mut out: Projection = Default::default();
+                for row in rows { let k = if row.kind == "movie" { 0 } else { 1 };
+                    out[k].push(Item::Catalog(parse_item(&row, sid))); }
+                return Some(out);
+            }
             let mc = crate::plex::client_for(sid)?.search(&q, LIMIT, 0)?;
             Some(project(&mc, sid, &favs))
         })
@@ -1343,6 +1368,7 @@ fn tag_hit(t: &crate::plex::Tag, sid: ServerId, favs: &[(ServerId, i64, bool)]) 
 /// Drop everything — the account changed, so both the query and the results belong to someone
 /// else. Called beside the Browse `BrowseCmd::Reset` command.
 fn reset(state: &mut SearchState, adapter: &Arc<SearchAdapter>) {
+    state.filter=0;
     supersede(state, adapter);
     state.visible = crate::plex::server_roster_gen();
     state.query = None;
@@ -1360,6 +1386,10 @@ fn run_with_optional_directory(
 ) -> bool {
     use crate::stores::search::SearchCmd;
     match cmd {
+        SearchCmd::SetFilter {profile_generation,filter} => {
+            if profile_generation!=crate::plex::session::current_gen() || filter>2 || state.filter==filter{return false;}
+            state.filter=filter;rebuild(state);true
+        }
         SearchCmd::SetQuery(q) => {
             match directory {
                 Some(directory) => set_query_from_directory(state, adapter, &q, directory),
@@ -1452,3 +1482,19 @@ mod merge_ranking_tests;
 #[cfg(test)]
 #[path = "search_publication_tests.rs"]
 mod publication_tests;
+
+fn filter_allows(filter:usize,kind:Kind)->bool {match filter {1=>kind==Kind::Movie,2=>kind==Kind::Show,_=>true}}
+#[cfg(test)] mod custom_catalog_tests {
+    use super::*;
+    #[test] fn filters_keep_top_results_and_select_exact_types(){
+        for kind in KINDS {assert!(filter_allows(0,kind));assert_eq!(filter_allows(1,kind),kind==Kind::Movie);assert_eq!(filter_allows(2,kind),kind==Kind::Show);}
+    }
+    #[test] fn exact_guid_deduplication_always_prefers_local_playback(){
+        let local=Item::Media(PmsMovie{guid:"plex://movie/a".into(),rk:"42".into(),..Default::default()});
+        let cloud=Item::Catalog(PmsMovie{guid:"plex://movie/a".into(),rk:"global".into(),..Default::default()});
+        for pair in [[local.clone(),cloud.clone()],[cloud,local]] {
+            let sources=pair.map(|it|{let mut s=Source::EMPTY;s.status=Status::Answered;s.items[0].push(it);s});
+            let rows=merge(&sources,&[]);assert_eq!(rows[0].items.len(),1);assert!(matches!(rows[0].items[0],Item::Media(_)));
+        }
+    }
+}

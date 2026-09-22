@@ -27,9 +27,9 @@ pub(super) struct Resources {
     scope_line: Option<CString>,
     recents: Option<crate::search::recents::RecentsSnapshot>,
     recent_runs: Vec<CString>,
-    titles: [CString; 5],
-    count_keys: [Option<(Kind, usize)>; 5],
-    counts: [CString; 5],
+    titles: [CString; 10],
+    count_keys: [Option<(Kind, usize)>; 10],
+    counts: [CString; 10],
     owner: CString,
 }
 
@@ -39,6 +39,7 @@ impl Resources {
         query: &str,
         caret: usize,
         owner: &str,
+        shown:&crate::discovery::Page,
         cx: &Cx<'_, H>,
     ) {
         let q = query.split('\0').next().unwrap_or("");
@@ -50,7 +51,7 @@ impl Resources {
             self.query = q.into();
             self.caret = caret;
             self.run = if q.trim().is_empty() {
-                c"Search your library".into()
+                c"Search your library and Plex catalog".into()
             } else {
                 cstring(q)
             };
@@ -101,14 +102,10 @@ impl Resources {
                 .collect();
             self.recents = Some(recents.clone());
         }
-        for (i, kind) in crate::search::KINDS.iter().enumerate() {
-            if self.titles[i].is_empty() {
-                self.titles[i] = cstring(kind.title());
-            }
-            let key = H::search(cx)
-                .shelves()
-                .get(i)
-                .map(|shelf| (shelf.kind, shelf.items.len()));
+        for i in 0..10 {
+            let title=shown.headings.get(i).map_or("",String::as_str);
+            if self.titles[i].to_bytes()!=title.as_bytes(){self.titles[i]=cstring(title);}
+            let key=shown.rows.get(i).map(|s|(s.kind,s.items.len()));
             if self.count_keys[i] != key {
                 self.count_keys[i] = key;
                 self.counts[i] = key.map_or_else(CString::default, |(kind, n)| {
@@ -136,7 +133,7 @@ pub(super) fn draw<H: SearchLike>(screen: &SearchScreen, f: &mut DrawFrame<'_, '
     for (i, row) in screen.rows.iter().enumerate() {
         let (kinds, n) = screen.kinds();
         let top = layout::top(&kinds[..n], i, |j| screen.rows[j].motion.band_expand())
-            - screen.scroll.pos;
+            - screen.scroll.pos-screen.system_shift();
         if !crate::ui::on_axis(
             top,
             layout::block_h(row.kind, row.motion.band_expand()),
@@ -145,7 +142,7 @@ pub(super) fn draw<H: SearchLike>(screen: &SearchScreen, f: &mut DrawFrame<'_, '
         ) {
             continue;
         }
-        let slot = layout::ordinal(row.kind) as usize;
+        let slot = i;
         let title = &screen.render.titles[slot];
         let cap = f.cx.measure.cap_h(theme::size::HEADLINE);
         let source = if screen.owner_row == Some(i) && screen.owner_alpha.pos > OWNER_FLOOR {
@@ -168,7 +165,7 @@ pub(super) fn draw<H: SearchLike>(screen: &SearchScreen, f: &mut DrawFrame<'_, '
                     } else {
                         p
                     },
-                    Rect::new(MARGIN_X + dx, top - row.motion.lift(), 0.0, cap),
+                    Rect::new(MARGIN_X + screen.inset() + dx, top - row.motion.lift(), 0.0, cap),
                 );
                 f.cx.measure.width(run, size, bold != 0)
             },
@@ -186,6 +183,7 @@ pub(super) fn draw<H: SearchLike>(screen: &SearchScreen, f: &mut DrawFrame<'_, '
             tile(screen, i, col, true, f, p);
         }
     }
+    controls(screen,f);
 }
 
 fn field<H: SearchLike>(screen: &SearchScreen, f: &mut DrawFrame<'_, '_, H>, p: Painter) {
@@ -201,13 +199,13 @@ fn field<H: SearchLike>(screen: &SearchScreen, f: &mut DrawFrame<'_, '_, H>, p: 
     let ink = if blank {
         theme::cross(theme::TEXT_TERTIARY, theme::TEXT_SECONDARY, hot)
     } else {
-        theme::cross(theme::TEXT_SECONDARY, ink_target(screen.editing), hot)
+        theme::cross(theme::TEXT_SECONDARY, ink_target(screen.editing||screen.keypad_open), hot)
     };
     let (run_dx, caret_dx) = run_layout(
         data.run_w,
         run_caret_w(blank, data.head_w),
         rect.w,
-        screen.editing,
+        screen.editing||screen.keypad_open,
     );
     let (cap_top, cap_base) = crate::text::text_cap_band(theme::size::HERO, 1);
     let pad = descent_pad(
@@ -222,7 +220,7 @@ fn field<H: SearchLike>(screen: &SearchScreen, f: &mut DrawFrame<'_, '_, H>, p: 
             .bold()
             .draw(p, Rect::new(rect.x + run_dx, rect.y, rect.w, rect.h));
         let text_y = crate::text::text_vcenter_y(theme::size::HERO, 1, rect.cy());
-        if caret_shown(screen.editing, screen.blink_us < super::BLINK_US) {
+        if caret_shown(screen.editing||screen.keypad_open, screen.blink_us < super::BLINK_US) {
             p.rect(
                 Rect::new(
                     rect.x + caret_dx,
@@ -273,8 +271,8 @@ fn recents<H: SearchLike>(screen: &SearchScreen, f: &mut DrawFrame<'_, '_, H>, p
     .draw(
         p,
         Rect::new(
-            MARGIN_X + crate::ui::table::CONTENT_X,
-            layout::CONTENT_TOP - screen.scroll.pos,
+            MARGIN_X + screen.inset()+crate::ui::table::CONTENT_X,
+            layout::CONTENT_TOP - screen.scroll.pos-screen.system_shift(),
             0.0,
             crate::ui::table::HDR_H,
         ),
@@ -287,7 +285,7 @@ fn recents<H: SearchLike>(screen: &SearchScreen, f: &mut DrawFrame<'_, '_, H>, p
         let Identity::Recent(_) = &key.identity else {
             continue;
         };
-        let rect = layout::recent(index, screen.scroll.pos);
+        let rect = screen.recent_rect(index, screen.scroll.pos);
         let focused = f.cx.focus.current == Some(screen.key(*elem));
         if focused {
             p.rrect(
@@ -321,7 +319,7 @@ fn recents<H: SearchLike>(screen: &SearchScreen, f: &mut DrawFrame<'_, '_, H>, p
         );
         stop(screen, *elem, ElemKind::Bare, f, p);
     }
-    let rect = layout::clear(shown, screen.scroll.pos, f.cx.measure);
+    let rect = screen.clear_rect(screen.scroll.pos, f.cx.measure);
     Button::new(c"Clear recent searches".as_ptr(), theme::size::BODY, rect)
         .focused(f.cx.focus.current == Some(screen.key(CLEAR)))
         .draw(&env, p);
@@ -331,6 +329,12 @@ fn recents<H: SearchLike>(screen: &SearchScreen, f: &mut DrawFrame<'_, '_, H>, p
 fn empty<H: SearchLike>(screen: &SearchScreen, f: &DrawFrame<'_, '_, H>, p: Painter) {
     let state = H::search(f.cx).state();
     if screen.draft.pending() {
+        return;
+    }
+    if !screen.real_query() && screen.discovery.home_requested {
+        let msg=if screen.discovery.home_failed {c"Discover unavailable. Select Top Results to retry."} else {c"Loading Discover…"};
+        Label::new(msg.as_ptr(),theme::size::HEADLINE,theme::TEXT_SECONDARY).h(HAlign::Center)
+          .draw(p,Rect::new(96.0+screen.inset(),490.0,1728.0-screen.inset(),96.0));
         return;
     }
     let Some(empty) = empty_state(state, false) else {
@@ -386,7 +390,7 @@ pub(super) fn tile<H: SearchLike>(
     p: Painter,
 ) {
     let view = H::search(f.cx);
-    let Some(shelf) = view.shelves().get(row) else {
+    let Some(shelf) = screen.shown.rows.get(row) else {
         return;
     };
     let Some(item) = shelf.items.get(col) else {
@@ -408,7 +412,7 @@ pub(super) fn tile<H: SearchLike>(
     }
     let art = match (model.kind, item) {
         (Kind::Episode, Item::Media(media)) => Art::Still(Some(media)),
-        (_, Item::Media(media)) => Art::Poster(Some(media)),
+        (_, Item::Media(media) | Item::Catalog(media)) => Art::Poster(Some(media)),
         (Kind::Person, Item::Tag(tag)) => Art::Person {
             sid: tag.sid,
             key: &tag.thumb,
@@ -427,7 +431,7 @@ pub(super) fn tile<H: SearchLike>(
     };
     if focused {
         let sid = match item {
-            Item::Media(media) => media.sid,
+            Item::Media(media) | Item::Catalog(media) => media.sid,
             Item::Tag(tag) => tag.sid,
         };
         let handle = view
@@ -1276,4 +1280,18 @@ mod tests {
             "1 item"
         );
     }
+}
+
+
+fn controls<H:SearchLike>(screen:&SearchScreen,f:&mut DrawFrame<'_, '_, H>){
+    use crate::ui::screen::{Stop,Hover,Activate};
+    let p=f.painter.alpha(f.page_alpha);
+    if screen.keypad_open {p.rrect(Rect::new(80.0,350.0,636.0,720.0),24.0,24.0,[theme::CLEAR_RGB.0,theme::CLEAR_RGB.1,theme::CLEAR_RGB.2,1.0]);}
+    let mut draw=|elem:u32,label:&str,rect:Rect,selected:bool|{
+        let label=cstring(label);let focused=f.cx.focus.current==Some(screen.key(elem));
+        Button::new(label.as_ptr(),theme::size::BODY,rect).focused(focused||selected).draw(&Env::inert(),p);
+        f.stop(p,Stop{key:screen.key(elem),rect,rest_rect:rect,clip:Rect::FULL,hover:Hover::Focus,activate:Activate::Immediate});
+    };
+    if !screen.editing {for (i,label) in ["Top Results","Movies","TV Shows"].iter().enumerate(){draw(super::keypad::FILTER_BASE+i as u32,label,super::keypad::filter_rect(i),screen.filter==i);}}
+    if screen.keypad_open {for i in 0..super::keypad::len(screen.numeric){draw(super::keypad::BASE+i as u32,&super::keypad::label(i,screen.numeric),super::keypad::rect(i,screen.numeric),false);}}
 }

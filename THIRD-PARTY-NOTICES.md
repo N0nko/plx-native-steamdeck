@@ -387,3 +387,13 @@ Source bundles also contain SDL2 Zlib headers, embedded Mesa/Khronos MIT and SGI
 header blocks, Khronos GLES2 MIT/Apache-2.0 headers, and the MIT-licensed jsmpeg tool
 (Copyright (c) 2017 Dominic Szablewski). Preserve their original embedded notices. Exact per-file
 license assignments are in the inventory; the SGI text is in `licenses/SGI-B-2.0.txt`; none of `include/` is claimed as original LG ABI work.
+
+
+### Optional local software audio experiment
+
+When built with `LOCAL_AUDIO=1`, the same bundled FFmpeg 9 sources also supply
+`libswresample-plx.so.7` and the native DTS, TrueHD, FLAC, Opus and Vorbis decoders.
+This optional library is absent from ordinary builds. These use the existing FFmpeg
+license and corresponding-source distribution obligations described above. No external
+GPL audio decoder or proprietary codec package is introduced. PCM output uses the existing
+SDL2 runtime; it does not provide Atmos/DTS:X rendering or passthrough.

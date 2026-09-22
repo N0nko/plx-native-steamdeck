@@ -149,3 +149,6 @@ pub use timeline::{queue_index_of, QueueRow};
 pub use transcoder::{
     DP_AUDIO_CODECS, DP_SUBTITLE_CODECS, LinkPolicy, is_dp_audio, is_dp_subtitle, link_policy,
 };
+
+pub(crate) mod catalog;
+pub(crate) mod discovery_home;

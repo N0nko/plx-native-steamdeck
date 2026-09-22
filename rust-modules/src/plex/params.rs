@@ -89,6 +89,9 @@ impl TranscodeOffset {
 /// claims — `transcoder`'s tests pin that a ceiling is INERT on a remux, and `route`'s gates 2
 /// and 4 pin that a remux is only ever reached for a source under it.
 pub struct TranscodeSpec<'a> {
+    /// Positions of the selected file in the latest Media[] response.
+    pub media_index: i64,
+    pub part_index: i64,
     pub rating_key: &'a str,
     /// The active encoder's PMS playback/timeline wire id.
     pub session: &'a str,

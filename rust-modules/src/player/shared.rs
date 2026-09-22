@@ -555,6 +555,8 @@ pub(crate) struct Shared {
     // (which needs `duration_ns > 0`) can never fire and the player would sit on a black screen
     // forever. The pump turns this into `PlaybackState::Error` so the HUD can say so.
     pub demux_failed: AtomicBool,
+    /// The opt-in software audio route failed; never turn this into silent successful playback.
+    pub local_audio_failed: AtomicBool,
     /// The media transport failed after open, possibly after frames were already presented.
     /// Unlike `demux_failed`, this is not gated on a zero-frame start: a truncated live transfer
     /// is an error rather than a successful early EOF.
@@ -913,6 +915,7 @@ impl Shared {
             desired_audio_idx: AtomicI32::new(-1),
             pb_state: AtomicU8::new(PlaybackState::Idle as u8),
             demux_failed: AtomicBool::new(false),
+            local_audio_failed: AtomicBool::new(false),
             demux_io_failed: AtomicBool::new(false),
             demux_no_video: AtomicBool::new(false),
             load_failed: AtomicBool::new(false),
@@ -1503,6 +1506,7 @@ impl Shared {
         self.pb_state
             .store(PlaybackState::Idle as u8, Ordering::Relaxed);
         self.demux_failed.store(false, Ordering::Relaxed);
+        self.local_audio_failed.store(false, Ordering::Relaxed);
         self.demux_io_failed.store(false, Ordering::Relaxed);
         self.demux_no_video.store(false, Ordering::Relaxed);
         self.load_failed.store(false, Ordering::Relaxed);

@@ -266,7 +266,11 @@ impl ConsentMachine {
 
 /// What the bridge lends the dispatcher, and what it collects for the loop.
 pub(crate) struct Bridge {
+    catalog: super::adapters::catalog::Controller,
+    discovery: super::adapters::discovery::Controller,
     session_cache_generation: u64,
+    companion: super::adapters::media_companion::Controller,
+    companion_live: bool,
     home_io: Option<super::bootstrap::HomeIo>,
     recorded_clients: std::collections::BTreeMap<u32, &'static crate::plex::Client>,
     initial_subhash: u64,
@@ -333,6 +337,12 @@ pub(crate) struct Bridge {
 }
 
 impl Bridge {
+    /// Explicit live-loop capability: tests, recordings and both replay modes have no companion IO.
+    pub(crate) fn set_companion_live(&mut self, live: bool) {
+        self.companion_live = live && self.home_io.is_none();
+        if !self.companion_live { self.companion.reset(); }
+    }
+
     #[cfg(test)]
     pub(crate) fn measurement_queries(&self)->Vec<crate::ui::rec::MetricKey> { self.measure.queries() }
     pub(crate) fn prepare_measurements(&mut self, replay: Option<&std::collections::HashMap<crate::ui::rec::MetricKey,u32>>) {
@@ -495,7 +505,11 @@ impl Bridge {
         consent_adapter: super::adapters::consent::ConsentAdapter,
         reads: StorePublications, stores: crate::stores::Stores) -> Self {
         Self {
+            catalog: Default::default(),
+            discovery: Default::default(),
             session_cache_generation: crate::plex::session::visible_generation(),
+            companion: super::adapters::media_companion::Controller::default(),
+            companion_live: false,
             home_io: None,
             recorded_clients: std::collections::BTreeMap::new(),
             initial_subhash: 0,
@@ -1467,6 +1481,19 @@ impl Rig<AppHost> for Bridge {
 
 impl Bridge {
     fn app_effect(&mut self, from: MachineId, fx: AppFx, out: &mut Effects<'_, AppHost>) {
+        // No companion network operation may be admitted by a recording/replay. Resolve its
+        // observational request locally before the controlled-resource whitelist is consulted.
+        if (!self.companion_live || self.home_io.is_some()) && matches!(&fx, AppFx::Companion(_)) {
+            if let AppFx::Companion(request) = fx {
+                if matches!(from, MachineId::Instance(_)) {
+                    out.push(Fx::Deliver(from, Delivery::Screen(ScreenEvent::App(AppMsg::Companion(
+                        crate::media_companion::Snapshot::unavailable(request.key,
+                            "Companion disabled during recording or replay"),
+                    )))));
+                }
+            }
+            return;
+        }
         if let Some(io) = &mut self.home_io {
             if let Err(reason) = super::bootstrap::effects::app(&fx) {
                 io.failure = Some(reason);
@@ -1474,6 +1501,32 @@ impl Bridge {
             }
         }
         match fx {
+            AppFx::Discovery(request) => {
+                if let MachineId::Instance(who)=from {
+                    if let Some(reply)=self.discovery.request(who,request,self.companion_live && self.home_io.is_none()) {
+                        out.push(Fx::Deliver(from,Delivery::Screen(ScreenEvent::App(AppMsg::Discovery(reply)))));
+                    }
+                }
+            }
+            AppFx::Catalog(request) => {
+                if let MachineId::Instance(who)=from {
+                    let snapshot=self.catalog.request(who,request,self.companion_live && self.home_io.is_none());
+                    out.push(Fx::Deliver(from,Delivery::Screen(ScreenEvent::App(AppMsg::Catalog(snapshot)))));
+                }
+            }
+            AppFx::Companion(request) => {
+                if let MachineId::Instance(who) = from {
+                    let snapshot = if self.companion_live && self.home_io.is_none() {
+                        self.companion.request(who, request)
+                    } else {
+                        crate::media_companion::Snapshot::unavailable(request.key,
+                            "Companion disabled during recording or replay")
+                    };
+                    out.push(Fx::Deliver(from,
+                        Delivery::Screen(ScreenEvent::App(AppMsg::Companion(snapshot)))));
+                }
+            }
+
             AppFx::Session(command) => out.push(Fx::Deliver(MachineId::Session,
                 Delivery::Machine(AppMsg::Session(crate::auth::owner::SessionEvent::Command(command))))),
             AppFx::SessionEffect(effect) => self.session_effect(effect, out),
@@ -1770,6 +1823,23 @@ fn frame_ingest(
         rig.land_session_cache();
         let outcome = rig.stores.browse_discover_pump();
         execute_endpoint_outcomes(d, outcome.endpoints);
+    }
+    if let Some((who, reply))=rig.discovery.poll() {
+        if rig.companion_live && rig.home_io.is_none() {
+            d.emit(MachineId::Nav,Fx::Deliver(MachineId::Instance(who),Delivery::Screen(ScreenEvent::App(AppMsg::Discovery(reply)))));
+        }
+    }
+    if let Some((who, snapshot)) = rig.catalog.poll() {
+        if rig.companion_live && rig.home_io.is_none() {
+            d.emit(MachineId::Nav, Fx::Deliver(MachineId::Instance(who),
+                Delivery::Screen(ScreenEvent::App(AppMsg::Catalog(snapshot)))));
+        }
+    }
+    if let Some((who, snapshot)) = rig.companion.poll() {
+        if rig.companion_live && rig.home_io.is_none() {
+            d.emit(MachineId::Nav, Fx::Deliver(MachineId::Instance(who),
+                Delivery::Screen(ScreenEvent::App(AppMsg::Companion(snapshot)))));
+        }
     }
     let (browse_changed, hubs_changed, search_changed) = rig.capture_views(d);
     rig.capture_chrome(d);
@@ -2438,6 +2508,7 @@ pub(crate) fn follow_auth_landing(pages: &mut Dispatcher<AppHost>, bridge: &mut 
         // resets `install_pms` performs. It was `trail.reset()`, which emptied the loop's mirror
         // and left the CONTAINER's entries — bodies, `ReturnState`s and all — exactly where they
         // were, because `sync_page` only ever moved the top. `reset_for_profile` is the whole tree.
+        bridge.companion.reset();
         pages.reset_for_profile();
         // …and only NOW can the first-run question be asked: `install_pms` registers the granted
         // roster, which is the stable input to this decision even before asynchronous section

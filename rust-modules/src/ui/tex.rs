@@ -59,6 +59,7 @@ pub trait Source {
     /// the cache must go on drawing its placeholder without inferring that work is under way —
     /// asking again next frame is how a deferred request is eventually honoured. Touches the
     /// source's LRU.
+    fn peek(&self, _srv:u16, _path:&str, _w:i32, _h:i32, _png:bool)->Option<PosterKey>{None}
     fn probe(&self, srv: u16, path: &str, w: i32, h: i32, png: bool) -> Option<PosterKey>;
     /// The prefetch twin: start the fetch, take nothing, protect nothing.
     fn warm(&self, srv: u16, path: &str, w: i32, h: i32, png: bool) -> Warm;
@@ -178,6 +179,9 @@ fn with_source<T>(f: impl FnOnce(&dyn Source) -> T, absent: T) -> T {
 /// The renderer's question for art on a named server: the resident texture id, or 0 (the
 /// absent-resource rule: draw the placeholder at the final geometry; the request is already
 /// in flight).
+pub(crate) fn peek_on(srv:u16,path:&str,w:i32,h:i32,png:bool)->u32 {
+    with_source(|s|s.peek(srv,path,w,h,png),None).map_or(0,|key|resolve_key(key).0)
+}
 pub fn resolve_on(srv: u16, path: &str, w: i32, h: i32, png: bool) -> u32 {
     resolve_wh_on(srv, path, w, h, png).0
 }

@@ -111,6 +111,9 @@ const GREEN_500: [f32; 4] = rgb8(0x2f, 0xae, 0x5b);
 // primitive here because its one role — the tab track — is a translucent GRADIENT in this renderer;
 // see `TAB_TRACK_TOP`.
 
+/// Wall-clock labels over the playback video plane.
+pub const OVERLAY_CLOCK: [f32;4]=with_a(WHITE,0.70);
+
 // ── Text ────────────────────────────────────────────────────────────────────
 /// Primary reading text / high-emphasis title. Collapses the 3-4 near-whites.
 pub const TEXT_PRIMARY: [f32; 4] = COOL_0;
@@ -1387,3 +1390,6 @@ const PURPLE_700: [f32; 4] = rgb8(0x70, 0x30, 0xa0);
 /// Opaque main-thread checker warning surface (developer builds only).
 #[cfg(feature = "threadcheck")]
 pub(crate) const RUNTIME_WARNING: [f32; 4] = PURPLE_700;
+
+/// Companion capability is unavailable or has an in-flight action.
+pub const COMPANION_DISABLED_ALPHA:f32=0.45;

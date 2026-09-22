@@ -12,6 +12,7 @@
 mod abr; // client-managed fixed-session HLS controller: estimate, propose, prime, then commit
 mod app; // plex_run — the Rust app core / event loop (the entry inverted from main.c)
 mod aq;
+pub(crate) mod audio_local;
 mod auth; // plex.tv login/boot flow controller (PIN/QR → discovery → who's-watching → install)
 mod browse; // Library browse: per-section paged catalog (sparse store + off-thread page fetches)
 mod capture; // dev live UI capture stream: own-GLES-frame grab → MPEG1/TS or JPEG → TCP (UI plane only)
@@ -38,6 +39,8 @@ mod img;
 mod imgcache; // a small on-disk image cache — today for profile avatars only, so the picker has faces offline
 mod keymanager; // public LS2 key stores: keymanager3, legacy Palm service, or unavailable
 mod lab; // Cloud Lab bridge: pinned diagnostic uploads + optional outbound command long-poll
+mod media_version;
+mod media_companion;
 mod metadata; // item detail data layer (detail page): full metadata + seasons/episodes + cast + related
 mod net; // HTTPS client over the TV's libcurl (plex.tv account/login calls — stream.rs can't do TLS/DNS)
 mod paths; // where the app's own files live — /proc/self/exe, not a hardcoded install prefix
@@ -495,3 +498,6 @@ mod private_log_tests {
 mod storage;
 #[allow(dead_code)]
 mod storage_worker;
+
+pub(crate) mod catalog_action;
+mod discovery;

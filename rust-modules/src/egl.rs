@@ -583,6 +583,11 @@ pub(crate) mod fence {
     static API: OnceLock<Option<Api>> = OnceLock::new();
 
     fn api() -> Option<&'static Api> {
+        // Desktop simulators use GLX/CGL, not the TV's EGL context. GL proc lookup can
+        // return a non-null dispatch stub for an EGL name there; calling that stub as
+        // eglQueryString produced an invalid pointer during the first Home draw.
+        // Keep the existing frame-count fallback on hosts, as boot diagnostics do.
+        if !cfg!(target_arch = "arm") { return None; }
         API.get_or_init(|| {
             let mut lib: Option<Handle> = None;
             let get_display = resolve("eglGetCurrentDisplay", &mut lib)?;
@@ -608,6 +613,13 @@ pub(crate) mod fence {
             Some(api)
         })
         .as_ref()
+    }
+
+    #[cfg(all(test, not(target_arch = "arm")))]
+    #[test]
+    fn desktop_fences_use_the_frame_fallback_without_resolving_egl() {
+        assert!(api().is_none());
+        assert!(Fence::insert().is_none());
     }
 
     /// A fence in the GL command stream, destroyed on drop.

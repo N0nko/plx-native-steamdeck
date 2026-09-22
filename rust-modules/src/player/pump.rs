@@ -636,6 +636,14 @@ pub(crate) fn pump(ps: &mut crate::route::PlaybackSession, pa: &mut super::adapt
     // spot that cannot be forgotten as the pump grows, and it therefore keeps reporting through
     // the `sf_ready` and producer-died bail-outs — which is precisely when a stalled user is
     // looking at the panel. See `Shared`'s diagnostics-mirror block for the one-way rule.
+    super::engine::sync_local_audio(eng);
+    if SHARED.local_audio_failed.load(Acquire) {
+        if let Some(sink) = eng.local_audio.as_mut() { sink.flush(); }
+        crate::route::note_local_audio_failure(ps);
+        crate::route::fail_current_engine();
+        set_state(PlaybackState::Error);
+        return;
+    }
     publish_diag(eng, now);
     // The media thread may have returned from sf_load immediately, but it is not allowed to make
     // the route Stable before this Engine exists in the main-thread slot. Drain its exact-token
@@ -644,6 +652,11 @@ pub(crate) fn pump(ps: &mut crate::route::PlaybackSession, pa: &mut super::adapt
     // `sf_load == 0` may leave no callable object, so this must precede the sf_ready wait below;
     // otherwise the pump returns Connecting forever and never consumes the explicit failure.
     if SHARED.load_failed.load(Acquire) {
+        if let Some(sink) = eng.local_audio.as_mut() {
+            sink.flush();
+            crate::audio_local::failed();
+            crate::route::note_local_audio_failure(ps);
+        }
         if crate::route::is_preview(ps) {
             finish_preview_open_failure(ps, pa);
             return;
@@ -1166,6 +1179,7 @@ pub(crate) fn pump(ps: &mut crate::route::PlaybackSession, pa: &mut super::adapt
         // reopened stream supplies fresh post-seek AUs.
         eng.pending_video = None;
         eng.pending_audio = None;
+        if let Some(sink) = eng.local_audio.as_mut() { sink.flush(); }
         eng.prime_play = true; // paused above; Play once PRIME_NS is buffered (no fast-forward)
                                // "no post-seek frame presented yet" — the feed-ahead throttle feeds freely until the first
                                // real presented pts lands, instead of comparing the new fed pts against the STALE pre-seek

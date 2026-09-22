@@ -25,6 +25,7 @@
 //! on the dispatcher yet. The bridge drains them after every dispatcher frame.
 
 use crate::screens::family::SettingsPage;
+pub(crate) use crate::screens::catalog_details::CatalogDetailsArg;
 use crate::screens::settings::{Family, RouteSurface};
 use crate::stores::{StoreCmd, StoreId, StoreWork};
 use crate::ui::machine::{
@@ -34,6 +35,9 @@ use crate::ui::screen::{Mounter, ReturnState, Screen};
 
 /// The application's effects (spec §3.1). `Store` since phase 4; `Consent` and `Loop` since 5b.
 pub(crate) enum AppFx {
+    Catalog(crate::catalog_action::Request),
+    Discovery(crate::discovery::Request),
+    Companion(crate::media_companion::Request),
     Session(crate::auth::SessionCmd),
     SessionEffect(crate::auth::owner::SessionFx),
     /// A store command, executed as a `Deliver` to the store machine in the same drain.
@@ -759,11 +763,13 @@ pub(crate) enum ContentReq {
 /// overlays, which share a key ladder and a transport rule. These share nothing: two are read-only
 /// `Style::Alert` sheets (one with a page cursor, one with none), one is a `Style::Compact` menu
 /// anchored to a button whose OK navigates.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub(crate) enum ContentPanel {
+    CatalogDetails(CatalogDetailsArg),
     /// *Also available* (`screens::alt_sources`), anchored to the drawn rect of the pill that
     /// opened it — bit-preserving, so a canonical argument holds it without float equality.
     AltSources { anchor: [u32; 4] },
+    Versions { anchor: [u32; 4] },
     /// *Track information* (`screens::tracks_panel`), opened at 1-based `page`. Every interactive
     /// opening passes 1; `/tmp/plxnative-tracks=<n>` is the only caller that does not, and it is
     /// what makes a headless capture of page 2 possible at all.
@@ -799,6 +805,7 @@ impl ContentPanel {
     ) -> Option<(crate::ui::containers::modal::Style, AppArg)> {
         use crate::ui::containers::modal::Style;
         Some(match self {
+            Self::CatalogDetails(arg) => (Style::Alert, AppArg::CatalogDetails(arg)),
             Self::AltSources { anchor } => {
                 let (sid, rk) = subject?;
                 (
@@ -810,6 +817,12 @@ impl ContentPanel {
                         anchor,
                     }),
                 )
+            }
+            Self::Versions { anchor } => {
+                let (sid, rk) = subject?;
+                (Style::Compact, AppArg::Versions(crate::screens::versions::VersionsArg {
+                    host, sid, rk: rk.to_string(), anchor,
+                }))
             }
             Self::Tracks { page } => (
                 Style::Alert,
@@ -844,6 +857,7 @@ pub(crate) enum PlayIntent {
     /// than a `&'static` catalog borrow: it is held inside `PageAction`/`AppFx` across a frame
     /// boundary, and once Detail's `selected` becomes an owned per-page snapshot (rather than a
     /// process-wide catalog read) there is no `'static` row left to borrow.
+    #[expect(dead_code, reason = "kept for direct owned movie playback callers")]
     Movie(crate::pms::PmsMovie),
 }
 
@@ -916,6 +930,9 @@ pub(crate) enum DetailRefreshPhase {
 
 /// The application's messages (spec §3.1).
 pub(crate) enum AppMsg {
+    Catalog(crate::catalog_action::Snapshot),
+    Discovery(crate::discovery::Reply),
+    Companion(crate::media_companion::Snapshot),
     Session(crate::auth::owner::SessionEvent),
     Consent(ConsentCmd),
     RestartReply { correlation: u32, accepted: bool },
@@ -939,6 +956,7 @@ pub(crate) enum AppMsg {
     /// the destination and the PAGE navigates, which is `LibraryMenu`'s shape (`LibrarySelect`) and
     /// what keeps "what a press means on the Detail page" in one place instead of two.
     AltSourceOpen(ContentArg),
+    VersionSelected { sid: crate::plex::ServerId, rk: String, part: String },
 }
 
 /// What the consent machine is told (§2.3): a person's answer to both questions at once.
@@ -1308,6 +1326,8 @@ pub(crate) enum AppArg {
     /// rect of the pill it hangs off — is on the argument, `LibraryMenuArg`'s shape and for the
     /// same reason: the entry outlives any one frame's idea of where that pill was.
     AltSources(crate::screens::alt_sources::AltSourcesArg),
+    Versions(crate::screens::versions::VersionsArg),
+    CatalogDetails(CatalogDetailsArg),
     /// The Detail page's *Track information* sheet (§6.2's page-owned panels). It carries only the
     /// 1-based PAGE the sheet opens at — a boot address like `Settings`'s root, not an identity —
     /// because the sheet describes `metadata::current()` and the host it is presented over is the
@@ -1359,7 +1379,7 @@ pub(crate) enum AppArg {
 pub(crate) const ARG_SHAPE: &str = "AppArg{Login,Profiles,Onboard,Home,Library,Search,Player,Content:{Detail{sid:u32,rk:str},Person{sid:u32,key:str,guid:str,name:str,thumb:str},Filmography{sid:u32,key:str}},Settings:SettingsPage{Root,Favourites,Privacy,Legal,About,Document(u8),Preview(u8),ConsentStage(u8)},FirstRunConsent(u8),LibraryMenu{host:u32,target:{epoch:u32,sid:u32,section:u64},kind:u32,anchor:[u32;4]},\
      PlayerOverlay{Tracks(tab:i32),Info,Chapters,More(quality:bool)},\
      AltSources{host:u32,sid:u32,rk:str,anchor:[u32;4]},\
-     TracksPanel{page:i32},AboutPanel,PersonBio,AccountMenu,\
+     Versions{host:u32,sid:u32,rk:str,anchor:[u32;4]},CatalogDetails{catalog_id:str,title:str,person:str,department:str,role:str,year:i32},TracksPanel{page:i32},AboutPanel,PersonBio,AccountMenu,\
      ItemMenu{sid:u32,rk:str,kind:{Card{from_deck:bool,type:u32},Episode{mark:u32},Season{mark:u32}},\
      host:u32,focus:Option<{entry:u32,elem:u32}>,anchor:[u32;4],loaded_episode:bool,from_home:bool}}";
 
@@ -1369,6 +1389,8 @@ impl LogicalState for AppArg {
             Self::LibraryMenu(arg) => { c.u32(4); arg.write(c); }
             Self::PlayerOverlay(arg) => { c.u32(5); arg.write(c); }
             Self::AltSources(arg) => { c.u32(6); arg.write(c); }
+            Self::Versions(arg) => { c.u32(12); arg.write(c); }
+            Self::CatalogDetails(arg) => { c.u32(13); arg.write(c); }
             Self::TracksPanel(arg) => { c.u32(7); arg.write(c); }
             // 10, after the two menus' 8 and 9: a canon tag is a surface's identity in a recorded
             // state, so a retired or reallocated one would make two surfaces indistinguishable in
@@ -1421,6 +1443,8 @@ impl crate::ui::screen::ScreenArg for AppArg {
             | AppArg::ItemMenu(_)
             | AppArg::PlayerOverlay(_)
             | AppArg::AltSources(_)
+            | AppArg::CatalogDetails(_)
+            | AppArg::Versions(_)
             | AppArg::TracksPanel(_)
             | AppArg::AboutPanel
             | AppArg::PersonBio => Chrome::None,
@@ -1434,6 +1458,8 @@ impl crate::ui::screen::ScreenArg for AppArg {
             // think it is holding two of them.
             AppArg::PlayerOverlay(_) => 16,
             AppArg::AltSources(_) => 17,
+            AppArg::Versions(_) => 23,
+            AppArg::CatalogDetails(_) => 24,
             AppArg::TracksPanel(_) => 18,
             // 21, not a vacated id: allocated forward, so a retired identity is never handed to
             // the screen that replaced it.
@@ -1484,6 +1510,9 @@ impl crate::ui::screen::ScreenArg for AppArg {
         // carries no overlay at all any more, which is what makes a BACK out of the track menu
         // dismiss a surface instead of remounting the page (the reuse-vs-remount risk this rule
         // exists for).
+        if let (Self::CatalogDetails(a), Self::CatalogDetails(b)) = (self, other) {
+            return a.catalog_id == b.catalog_id && a == b;
+        }
         if let (Self::PlayerOverlay(a), Self::PlayerOverlay(b)) = (self, other) {
             return a.kind.slot() == b.kind.slot();
         }
@@ -1567,6 +1596,10 @@ where
             ),
             AppArg::AltSources(arg) => Box::new(
                 crate::screens::alt_sources::AltSourcesScreen::new(entry, arg.clone(), H::metadata(cx)),
+            ),
+            AppArg::CatalogDetails(arg) => Box::new(crate::screens::catalog_details::CatalogDetailsScreen::new(entry, arg.clone())),
+            AppArg::Versions(arg) => Box::new(
+                crate::screens::versions::VersionsScreen::new(entry, arg.clone(), H::metadata(cx)),
             ),
             AppArg::TracksPanel(arg) => Box::new(
                 crate::screens::tracks_panel::TracksPanelScreen::new(entry, *arg),
@@ -1725,6 +1758,14 @@ pub(crate) fn every_surface_arg() -> Vec<AppArg> {
             rk: "1".into(),
             anchor: [0; 4],
         }),
+        AppArg::Versions(crate::screens::versions::VersionsArg {
+            host: crate::ui::machine::InstanceId(1), sid: crate::plex::ServerId::UNSET,
+            rk: "1".into(), anchor: [0; 4],
+        }),
+        AppArg::CatalogDetails(CatalogDetailsArg {
+            catalog_id: "catalog-1".into(), title: "Catalog credit".into(), person: "Performer".into(),
+            department: "Acting".into(), role: String::new(), year: 2020,
+        }),
         AppArg::TracksPanel(crate::screens::tracks_panel::TracksPanelArg { page: 1 }),
         AppArg::AboutPanel,
         AppArg::PersonBio,
@@ -1743,6 +1784,8 @@ pub(crate) fn every_surface_arg() -> Vec<AppArg> {
             | AppArg::AccountMenu
             | AppArg::ItemMenu(_)
             | AppArg::AltSources(_)
+            | AppArg::CatalogDetails(_)
+            | AppArg::Versions(_)
             | AppArg::TracksPanel(_)
             | AppArg::AboutPanel
             | AppArg::PersonBio
@@ -1810,6 +1853,9 @@ pub(crate) const SCREEN_SHAPES: &[&str] = &[
     crate::screens::tracks_panel::SHAPE,
     crate::screens::about_panel::SHAPE,
     crate::screens::person_bio::SHAPE,
+    crate::screens::versions::SHAPE[0],
+    crate::screens::versions::SHAPE[1],
+    crate::screens::catalog_details::SHAPE,
 ];
 
 /// The pin over [`SCREEN_SHAPES`] — bump it in the same edit that adds an entry, and say why.
@@ -1877,8 +1923,11 @@ pub(crate) const SCREEN_SHAPES: &[&str] = &[
 /// **Home modal cover state** (0x0e66_311c_e4f1_0769 → this): `screens::home::SHAPE` gains
 /// `covered:bool`. Compact surfaces keep their host page ticking, so the recorder must distinguish
 /// a Home whose hero timer is paused beneath a surface from the same visible state while active.
+/// Version-selection port: new argument, surface, selected Part, and companion confirmation.
+/// Owned catalog/discovery/keyboard state changes the shape. Old replay fixtures must be
+/// re-recorded; this pin is measured by the integration's Rust schema regression test.
 #[cfg(test)]
-const SCREEN_SHAPES_PIN: u64 = 0x285a_3a99_d1e2_f068;
+const SCREEN_SHAPES_PIN: u64 = 0x56fac63bce854756;
 
 #[cfg(test)]
 mod arg_tests {

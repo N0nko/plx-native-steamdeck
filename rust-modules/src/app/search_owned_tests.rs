@@ -167,7 +167,8 @@ fn owned_search_is_covered_for_a_result_then_unmounted_for_good_at_home() {
     assert!(d.top_screen().unwrap().as_any().unwrap()
         .is::<crate::screens::search::SearchScreen>());
 
-    super::frame(&mut d, &mut rig, tick(2), script_key(Key::Ok, tick(2)));
+    prepare_system_key(&mut d,&mut rig,tick(2));
+    super::frame(&mut d, &mut rig, tick(2), script_key(Key::Ok,tick(2)));
     assert!(d.input.keyboard);
     assert_eq!(rig.keyboard_calls, [true]);
 
@@ -188,7 +189,8 @@ fn owned_search_is_covered_for_a_result_then_unmounted_for_good_at_home() {
     assert_eq!(d.nav.top_page().map(|entry| entry.id), Some(search_entry));
     assert_eq!(d.nav.instance_of(search_entry), Some(search_instance));
 
-    super::frame(&mut d, &mut rig, tick(5), script_key(Key::Ok, tick(5)));
+    prepare_system_key(&mut d,&mut rig,tick(5));
+    super::frame(&mut d, &mut rig, tick(5), script_key(Key::Ok,tick(5)));
     assert!(d.input.keyboard);
     assert_eq!(rig.keyboard_calls, [true, false, true]);
     let mut left = OwnedLeaveTrace::default();
@@ -310,7 +312,8 @@ directory: rig.directory.view(), section_hubs: rig.section_hubs.view(), search: 
     for i in 82..160 { frame(&mut d, &mut rig, AppArg::Search, tick(i), vec![]); }
     assert_eq!(d.focus(), Some(field));
     assert!((field_y(&d, &rig) - before).abs() < 0.5, "D-pad focus reveals the field again");
-    frame(&mut d, &mut rig, AppArg::Search, tick(160), script_key(Key::Ok, tick(160)));
+    prepare_system_key(&mut d,&mut rig,tick(160));
+    frame(&mut d, &mut rig, AppArg::Search, tick(160), script_key(Key::Ok,tick(160)));
     frame(&mut d, &mut rig, AppArg::Search, tick(161), vec![InputEvent { at: tick(161), source: Source::Sdl,
         kind: InputKind::Wheel { dy: -1.0 } }]);
     for i in 162..200 { frame(&mut d, &mut rig, AppArg::Search, tick(i), vec![]); }
@@ -377,12 +380,14 @@ fn owned_search_observed_keyboard_dismissal_releases_native_latch_and_reopens() 
     let mut d = Dispatcher::<AppHost>::new();
     let mut rig = Bridge::for_test(|| 0);
     frame(&mut d, &mut rig, AppArg::Search, tick(0), vec![]);
-    let mut events = script_key(Key::Ok, tick(1));
+    prepare_system_key(&mut d,&mut rig,tick(1));
+    let mut events = script_key(Key::Ok,tick(1));
     events.push(InputEvent { at: tick(1), source: Source::Sdl, kind: InputKind::SystemKeyboard(false) });
     frame(&mut d, &mut rig, AppArg::Search, tick(1), events);
     assert!(!d.input.keyboard);
     assert_eq!(rig.keyboard_calls, [true, false], "the native STARTED latch must also be released");
-    frame(&mut d, &mut rig, AppArg::Search, tick(2), script_key(Key::Ok, tick(2)));
+    prepare_system_key(&mut d,&mut rig,tick(2));
+    frame(&mut d, &mut rig, AppArg::Search, tick(2), script_key(Key::Ok,tick(2)));
     assert!(d.input.keyboard);
     assert_eq!(rig.keyboard_calls, [true, false, true]);
 }
@@ -402,7 +407,7 @@ fn owned_search_adopts_panel_text_without_restarting_or_losing_the_commit() {
         })] }]);
     frame(&mut d, &mut rig, AppArg::Search, tick(0), vec![]);
     let field = d.focus();
-    frame(&mut d, &mut rig, AppArg::Search, tick(1), script_key(Key::Down, tick(1)));
+    frame(&mut d, &mut rig, AppArg::Search, tick(1), through_filters(tick(1)));
     assert_ne!(d.focus(), field);
     frame(&mut d, &mut rig, AppArg::Search, tick(2),
         crate::app::events::text_inputs("stray", false, tick(2), Source::Sdl));
@@ -433,7 +438,8 @@ fn owned_search_opens_edits_and_closes_in_one_input_batch_in_order() {
     frame(&mut d, &mut rig, AppArg::Search, tick(0), vec![]);
     let text = |s: &str, at| InputEvent { at, source: Source::Script,
         kind: InputKind::Text(crate::ui::machine::TextEdit::Commit(s.into())) };
-    let mut events = script_key(Key::Ok, tick(1));
+    prepare_system_key(&mut d,&mut rig,tick(1));
+    let mut events = script_key(Key::Ok,tick(1));
     events.push(text("a", tick(1)));
     events.extend(script_key(Key::Left, tick(1)));
     events.push(text("b", tick(1)));
@@ -457,7 +463,8 @@ fn an_old_search_keyboard_request_cannot_close_the_new_instances_keyboard() {
     let mut rig = Bridge::for_test(|| 0);
     frame(&mut d, &mut rig, AppArg::Search, tick(0), vec![]);
     let old = d.nav.top_page().unwrap().inst.as_ref().unwrap().id;
-    frame(&mut d, &mut rig, AppArg::Search, tick(1), script_key(Key::Ok, tick(1)));
+    prepare_system_key(&mut d,&mut rig,tick(1));
+    frame(&mut d, &mut rig, AppArg::Search, tick(1), script_key(Key::Ok,tick(1)));
     assert_eq!(d.input.keyboard_owner, Some(old));
     d.request(MachineId::Nav, NavOp::Push(AppArg::Search));
     frame(&mut d, &mut rig, AppArg::Search, tick(2), vec![]);
@@ -465,7 +472,8 @@ fn an_old_search_keyboard_request_cannot_close_the_new_instances_keyboard() {
     assert_ne!(current, old);
     assert!(!d.input.keyboard, "the departing owner can release its keyboard after navigation commits");
     assert_eq!(rig.keyboard_calls, [true, false]);
-    frame(&mut d, &mut rig, AppArg::Search, tick(3), script_key(Key::Ok, tick(3)));
+    prepare_system_key(&mut d,&mut rig,tick(3));
+    frame(&mut d, &mut rig, AppArg::Search, tick(3), script_key(Key::Ok,tick(3)));
     assert!(d.input.keyboard);
     assert_eq!(d.input.keyboard_owner, Some(current));
     d.emit(MachineId::Instance(old), Fx::Deliver(MachineId::Instance(old), Delivery::Keyboard { up: false }));
@@ -489,7 +497,8 @@ fn covering_owned_search_releases_its_native_keyboard() {
     let mut d = Dispatcher::<AppHost>::new();
     let mut rig = Bridge::for_test(|| 0);
     frame(&mut d, &mut rig, AppArg::Search, tick(0), vec![]);
-    frame(&mut d, &mut rig, AppArg::Search, tick(1), script_key(Key::Ok, tick(1)));
+    prepare_system_key(&mut d,&mut rig,tick(1));
+    frame(&mut d, &mut rig, AppArg::Search, tick(1), script_key(Key::Ok,tick(1)));
     assert_eq!(rig.keyboard_calls, [true]);
     d.request(MachineId::Nav, NavOp::Present(AppArg::Settings(crate::screens::family::SettingsPage::Root)));
     frame(&mut d, &mut rig, AppArg::Search, tick(2), vec![]);
@@ -560,7 +569,8 @@ fn owned_search_opens_system_ownership_and_empty_down_keeps_editing() {
     let mut d = Dispatcher::<AppHost>::new();
     let mut rig = Bridge::for_test(|| 0);
     frame(&mut d, &mut rig, AppArg::Search, tick(0), vec![]);
-    frame(&mut d, &mut rig, AppArg::Search, tick(1), script_key(Key::Ok, tick(1)));
+    prepare_system_key(&mut d,&mut rig,tick(1));
+    frame(&mut d, &mut rig, AppArg::Search, tick(1), script_key(Key::Ok,tick(1)));
     assert!(d.input.keyboard);
     assert!(owned_search_probe(&d).contains("editing=true"));
     let before = d.focus();
@@ -600,7 +610,7 @@ fn owned_search_result_keys_are_server_scoped_and_survive_same_query_reordering(
     rig.stores.search.publish_shelves_for_test(vec![crate::search::Shelf { kind: crate::search::Kind::Movie,
         items: vec![item(a), item(b)] }]);
     frame(&mut d, &mut rig, AppArg::Search, tick(0), vec![]);
-    frame(&mut d, &mut rig, AppArg::Search, tick(1), script_key(Key::Down, tick(1)));
+    frame(&mut d, &mut rig, AppArg::Search, tick(1), through_filters(tick(1)));
     let first = d.focus().unwrap();
     frame(&mut d, &mut rig, AppArg::Search, tick(2), script_key(Key::Right, tick(2)));
     let second = d.focus().unwrap();
@@ -674,7 +684,7 @@ fn owned_search_return_memory_reconstructs_positions_with_a_query_guard() {
     rig.search_run(crate::stores::search::SearchCmd::SetQuery("memory".into()));
     rig.stores.search.publish_shelves_for_test(catalog());
     frame(&mut d, &mut rig, AppArg::Search, tick(0), vec![]);
-    frame(&mut d, &mut rig, AppArg::Search, tick(1), script_key(Key::Down, tick(1)));
+    frame(&mut d, &mut rig, AppArg::Search, tick(1), through_filters(tick(1)));
     for i in 2..9 { frame(&mut d, &mut rig, AppArg::Search, tick(i), script_key(Key::Right, tick(i))); }
     for i in 9..100 { frame(&mut d, &mut rig, AppArg::Search, tick(i), vec![]); }
     let ret = d.return_state();
@@ -745,7 +755,7 @@ fn owned_search_walks_the_shared_strip_to_the_chip_and_back_to_the_field() {
     assert_eq!(d.focus().map(|key| key.elem), Some(base),
         "▶ walks back onto the FIRST pill, the one it left");
 
-    frame(&mut d, &mut rig, AppArg::Search, tick(11), script_key(Key::Down, tick(11)));
+    frame(&mut d, &mut rig, AppArg::Search, tick(11), script_key(Key::Down,tick(11)));
     assert_eq!(d.focus(), Some(field), "▼ off the bar lands on the field, whatever pill it was on");
 }
 
@@ -821,7 +831,8 @@ fn leaving_owned_search_through_a_real_route_change_releases_its_keyboard() {
     let mut d = Dispatcher::<AppHost>::new();
     let mut rig = Bridge::for_test(|| 0);
     frame(&mut d, &mut rig, AppArg::Search, tick(0), vec![]);
-    frame(&mut d, &mut rig, AppArg::Search, tick(1), script_key(Key::Ok, tick(1)));
+    prepare_system_key(&mut d,&mut rig,tick(1));
+    frame(&mut d, &mut rig, AppArg::Search, tick(1), script_key(Key::Ok,tick(1)));
     assert!(d.input.keyboard, "OK on the field opens the television's keyboard");
     assert_eq!(rig.keyboard_calls, [true]);
     // The real navigation: nothing here names a teardown table or the retired legacy screen's own
@@ -1023,7 +1034,7 @@ fn owned_search_content_probe_reports_zone_row_col_pill_and_card_as_focus_moves(
     assert!(on_field.contains("below=Results"), "a real query with a shelf draws Results below the field: {on_field}");
 
     // Down, with no recents remembered, reaches the one seeded shelf's one card directly.
-    frame(&mut d, &mut rig, AppArg::Search, tick(1), script_key(Key::Down, tick(1)));
+    frame(&mut d, &mut rig, AppArg::Search, tick(1), through_filters(tick(1)));
     for i in 2..10 { frame(&mut d, &mut rig, AppArg::Search, tick(i), vec![]); }
     let on_shelf = content_probe(&d, &rig);
     assert!(on_shelf.contains("zone=Results"), "Down from the field must reach the shelf: {on_shelf}");
@@ -1049,4 +1060,22 @@ fn owned_search_content_probe_reports_zone_row_col_pill_and_card_as_focus_moves(
     assert!(on_strip.contains("zone=Strip"), "Up from the field must reach the shared strip: {on_strip}");
     assert!(on_strip.contains(" row=-1 col=-1 recent=-1 pill=1 card=0 "),
         "the Search pill (Home, Search — no library tabs seeded here) sits at index 1, off this screen's own groups: {on_strip}");
+}
+
+/// Exercise the real custom keyboard controls before grading the native ownership seam.
+fn prepare_system_key(d:&mut Dispatcher<AppHost>,rig:&mut Bridge,at:Tick) {
+ for key in [Key::Ok,Key::Up,Key::Right]{super::frame(d,rig,at,script_key(key,at));}
+}
+fn through_filters(at:Tick)->Vec<InputEvent<u32>> {let mut input=script_key(Key::Down,at);input.extend(script_key(Key::Down,at));input}
+
+#[test]
+fn custom_system_key_navigation_regression() {
+ let _serial=crate::testlock::serial();let session=crate::plex::session::TempSession::new("keypad-navigation");session.watching("synthetic");crate::plex::reset_servers_for_test();
+ let mut d=Dispatcher::<AppHost>::new();let mut rig=Bridge::for_test(||0);
+ frame(&mut d,&mut rig,AppArg::Search,tick(0),vec![]);
+ for (i,(key,want)) in [(Key::Ok,0x7006),(Key::Up,0x7003),(Key::Right,0x7004),(Key::Ok,1)].into_iter().enumerate(){
+ frame(&mut d,&mut rig,AppArg::Search,tick(i as u32+1),script_key(key,tick(i as u32+1)));
+ assert_eq!(d.focus().map(|k|k.elem),Some(want),"step {i}; keyboard={:?}",rig.keyboard_calls);
+ }
+ assert!(d.input.keyboard);
 }

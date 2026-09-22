@@ -122,8 +122,8 @@ fn a_reencode_keeps_the_selected_dts_instead_of_the_ac3_sibling() {
     );
     assert_eq!(
         encode_audio_id(true, dp, 2669, &tracks, None),
-        2663,
-        "remux still copies the sibling even when a DTS pick is in env"
+        2669,
+        "an explicit DTS choice must be retained; route policy requests conversion"
     );
     assert_eq!(
         encode_audio_id(false, dp, dp, &tracks, None),
@@ -495,7 +495,7 @@ fn a_show_audio_preference_survives_a_video_transcode() {
 fn transcode_show_preference_preserves_overrides_and_missing_language_fallback() {
     let tracks = [trk(1, "ac3", "hun", true), trk(2, "dts", "eng", false)];
     assert_eq!(encode_audio_id(false, 1, 2, &tracks, Some("hu-HU")), 2);
-    assert_eq!(encode_audio_id(true, 1, 2, &tracks, Some("en-US")), 1);
+    assert_eq!(encode_audio_id(true, 1, 2, &tracks, Some("en-US")), 2);
     assert_eq!(encode_audio_id(false, 1, 0, &tracks, Some("fr-FR")), 2);
     let tracks = [trk(1, "ac3", "hun", true), server_selected(trk(2, "dts", "eng", false))];
     assert_eq!(encode_audio_id(false, 1, 0, &tracks, Some("hu-HU")), 2);

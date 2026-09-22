@@ -433,8 +433,9 @@ CARGO_INCREMENTAL ?= 0
 export CARGO_INCREMENTAL
 endif
 
-RUST_FEATFLAGS = $(if $(RELEASE),--no-default-features,)$(if $(LAB), --features lab-diagnostics,)
-RUST_TDIR      = target$(if $(RELEASE),-release,)$(if $(LAB),-lab,)$(if $(SYMBOLS),-sym,)
+LOCAL_AUDIO ?= 0
+RUST_FEATFLAGS = $(if $(RELEASE),--no-default-features,)$(if $(LAB), --features lab-diagnostics,)$(if $(filter 1,$(LOCAL_AUDIO)), --features local-audio,)
+RUST_TDIR      = target$(if $(RELEASE),-release,)$(if $(LAB),-lab,)$(if $(SYMBOLS),-sym,)$(if $(filter 1,$(LOCAL_AUDIO)),-local-audio,)
 # OVERRIDING RUST_FEATFLAGS BY HAND? PASS RUST_TDIR TOO. This dir is keyed on RELEASE, not on the
 # flag set, so `make RUST_FEATFLAGS=...` alone lands in the SAME target/ as an ordinary build:
 # cargo's staticlib looks up to date, the stamp below deletes pkg/plxnative, and make relinks the
@@ -606,7 +607,7 @@ PURE_QUERY := $(if $(MAKECMDGOALS),$(if $(filter-out $(SIDE_EFFECT_FREE),$(MAKEC
 ifneq ($(PURE_QUERY),yes)
 ifneq ($(RUST_CFG),$(shell cat $(RUST_STAMP) 2>/dev/null))
   $(shell mkdir -p pkg && printf '%s' '$(RUST_CFG)' > $(RUST_STAMP) && rm -f pkg/plxnative pkg/plxnative-storage \
-          vendor/ffmpeg-prefix/include/libavformat/avformat.h pkg/lib*-plx.so.* pkg/.ffabi-ok)
+          vendor/ffmpeg-prefix/include/libavformat/avformat.h pkg/lib*-plx.so.* pkg/.ffabi-ok src/local_audio.o src/local_pcm.o)
 endif
 endif
 
@@ -657,7 +658,7 @@ FFMPEG_PREFIX = vendor/ffmpeg-prefix
 FFMPEG_INC    = $(FFMPEG_PREFIX)/include
 # Staged into pkg/ under their SONAMEs, which is the name ff.rs dlopens by absolute path.
 FFMPEG_SONAMES = libavutil-plx.so.61 libavcodec-plx.so.63 libavformat-plx.so.63 \
-                 $(if $(RELEASE),,libswscale-plx.so.10)
+                 $(if $(RELEASE),,libswscale-plx.so.10) $(if $(filter 1,$(LOCAL_AUDIO)),libswresample-plx.so.7,)
 FFMPEG_STAGED = $(addprefix pkg/,$(FFMPEG_SONAMES))
 
 # Sentry Native supplies only the async-signal-safe capture and out-of-process ARM stack walk. Its
@@ -685,7 +686,14 @@ $(SENTRY_NATIVE_STAMP): $(SENTRY_NATIVE_INPUTS)
 sentry-native: $(SENTRY_NATIVE_STAMP)
 
 $(FFMPEG_INC)/libavformat/avformat.h: ci/build-ffmpeg.sh ci/arm-cc.py ci/check-link-evidence.py ci/stage-link-evidence.py
-	RELEASE=$(RELEASE) ./ci/build-ffmpeg.sh
+	RELEASE=$(RELEASE) LOCAL_AUDIO=$(LOCAL_AUDIO) ./ci/build-ffmpeg.sh
+
+# Decoder headers are required only for the explicit experiment; default builds compile stubs.
+ifeq ($(LOCAL_AUDIO),1)
+src/local_audio.o: CFLAGS += -DPLX_LOCAL_AUDIO=1 -I$(FFMPEG_INC)
+src/local_audio.o: $(FFMPEG_INC)/libavformat/avformat.h
+src/local_pcm.o: CFLAGS += -DPLX_LOCAL_AUDIO=1
+endif
 
 # The real files carry a full version (libavutil-plx.so.58.29.100); ship them under the SONAME.
 $(FFMPEG_STAGED): pkg/%: $(FFMPEG_INC)/libavformat/avformat.h
@@ -719,6 +727,8 @@ $(RUST_LIB): LICENSE $(RUST_INPUTS) rust-modules/Cargo.toml rust-modules/Cargo.l
 
 # The helper is an independent executable: it has its own auxv implementation and must never
 # link app getauxval.o. The project linker wrapper attests its map, trace and ELF bytes too.
+# Select the NDK's GNU linker explicitly: newer rustc may otherwise add -fuse-ld=lld,
+# whose map format cannot satisfy the existing GNU input-map evidence gate.
 #
 # ITS OWN TARGET DIR, deliberately not $(RUST_TDIR): this `cargo rustc --bin ... --no-default-
 # -features` and $(RUST_LIB)'s `cargo build --lib` (default features) are two DIFFERENTLY-
@@ -741,7 +751,7 @@ pkg/plxnative-storage: LICENSE $(RUST_INPUTS) rust-modules/Cargo.toml rust-modul
 	  cargo +$(RUST_NIGHTLY) rustc --release --target $(RUST_TARGET) \
 	    --bin plxnative-storage --target-dir $(STORAGE_TDIR) --no-default-features -- \
 	    -C link-arg=--sysroot=$(SYSROOT) -L native=$(SYSROOT)/usr/lib \
-	    -C link-arg=-Wl,-rpath-link,$(SYSROOT)/usr/lib -C link-arg=-Wl,--build-id=sha1
+	    -C link-arg=-Wl,-rpath-link,$(SYSROOT)/usr/lib -C link-arg=-Wl,--build-id=sha1 -C link-arg=-fuse-ld=bfd
 	cp $(STORAGE_BIN) $@
 	chmod 755 $@
 	python3 ci/stage-link-evidence.py $(STORAGE_BIN) $@

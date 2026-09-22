@@ -2152,7 +2152,8 @@ mod tests {
         // has not. The predecessor 0x6c07_e505_2de6_63b8 is kept in this comment for the same
         // reason every value above it is: it is what the recordings made before the change were
         // graded under.
-        assert_eq!(crate::ui::rec::state_fp(APP_SHAPES), 0xb2a6_c39d_095e_c1b6);
+        // Catalog GUID joins PmsMovie; predecessor was 0xb2a6_c39d_095e_c1b6.
+        assert_eq!(crate::ui::rec::state_fp(APP_SHAPES), 0xdada3866fe23d9e1);
     }
 
     /// The gate at the REAL hubs landing site, through the recording the driver loads: a result
@@ -2351,7 +2352,10 @@ mod tests {
 
     #[test]
     fn consent_and_session_frame_shapes_refuse_their_predecessors() {
+        // Freeze the pre-catalog payload when reconstructing historical censuses.
+        let pre_catalog = crate::pms::record::SHAPE.replace(",guid:str}", "}");
         let mut pre_settings = APP_SHAPES.to_vec();
+        pre_settings[7] = &pre_catalog;
         pre_settings[APP_SHAPES.len() - 2] = super::super::bootstrap::PRE_SETTINGS_SHAPE;
         assert_eq!(crate::ui::rec::state_fp(&pre_settings), 0x9f03_9e4f_2ff6_4d19,
             "retain the pre-typed-Settings census");

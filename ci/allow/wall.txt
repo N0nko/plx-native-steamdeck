@@ -1,5 +1,7 @@
-# count: 3
-# Wall-clock reads in ui/ and app/ are INSTRUMENTS only (spec §15.2); logical state ticks.
+# count: 5
+# Wall-clock reads are instruments or explicitly owned resource deadlines; UI state uses logical ticks.
 rust-modules/src/ui/profile.rs	the draw-phase profiler
 rust-modules/src/app/recorder.rs	the recorder times its own spend (rec=)
 rust-modules/src/app/adapters/poster.rs	throttles the residency-loss log line; app/clock.rs is main-thread only and unresident/lookup also run on worker threads
+rust-modules/src/app/adapters/media_companion.rs	resource evidence expiry and single-flight polling only; no wall clock reaches screen logic
+rust-modules/src/ui/player_hud.rs	wall/finish-clock text and minute repaint fingerprint only; excluded from canonical logical state and playback timing
