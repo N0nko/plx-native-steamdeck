@@ -1927,7 +1927,8 @@ pub(crate) const SCREEN_SHAPES: &[&str] = &[
 /// Owned catalog/discovery/keyboard state changes the shape. Old replay fixtures must be
 /// re-recorded; this pin is measured by the integration's Rust schema regression test.
 #[cfg(test)]
-const SCREEN_SHAPES_PIN: u64 = 0x6b067c0db80c43b7;
+// Discovery now hashes provider browse-key seeds alongside title/person seeds.
+const SCREEN_SHAPES_PIN: u64 = 0xebeb41aefb967780;
 
 #[cfg(test)]
 mod arg_tests {

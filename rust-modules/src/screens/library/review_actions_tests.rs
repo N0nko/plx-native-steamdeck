@@ -451,7 +451,7 @@ fn switch_diagnostic_requests_type_sort_filter_and_rail_actions() {
 }
 
 #[test]
-fn rail_keyboard_ok_and_back_return_the_exact_engine_remembered_item() {
+fn rail_ok_returns_to_remembered_item_and_back_requests_top_navigation() {
     let _guard = crate::testlock::serial();
     for key in [Key::Ok, Key::Back] {
         let fixture = Fixture::new();
@@ -507,6 +507,10 @@ fn rail_keyboard_ok_and_back_return_the_exact_engine_remembered_item() {
             ),
             Handled::Yes
         );
+        if key == Key::Back {
+            assert!(output.iter().any(|e|matches!(e.fx,Fx::App(AppFx::Library(LibraryReq::BackToHome{..})))));
+            continue;
+        }
         let target = output
             .into_iter()
             .find_map(|e| match e.fx {
