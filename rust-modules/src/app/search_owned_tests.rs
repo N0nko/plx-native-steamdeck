@@ -1075,11 +1075,18 @@ fn catalog_library_action_opens_exact_detail_without_watchlist_or_play(){
  let mut present=Present::new();let mut out=Vec::new();
  {let mut fx=Effects::new(&mut out,MachineId::Instance(instance),&mut present);screen.step(&ScreenEvent::Mount,&cx,&mut fx);}
  out.clear();
+ assert!(screen.place(&2,&cx,At::SpringTarget).is_none());
+ {let mut fx=Effects::new(&mut out,MachineId::Instance(instance),&mut present);screen.step(&ScreenEvent::Activate(2),&cx,&mut fx);}
+ assert!(out.is_empty(),"pending catalog data must not expose a library action");
  {let mut fx=Effects::new(&mut out,MachineId::Instance(instance),&mut present);
- screen.step(&ScreenEvent::App(crate::screens::registry::AppMsg::Catalog(crate::catalog_action::Snapshot{id,profile:crate::plex::session::current_gen(),title:"Exact title".into(),summary:String::new(),year:2026,watchlisted:Some(false),busy:false,failed:false,local:Some((crate::plex::ServerId::UNSET,"server-key-42".into()))})),&cx,&mut fx);
+ screen.step(&ScreenEvent::App(crate::screens::registry::AppMsg::Catalog(crate::catalog_action::Snapshot{id,profile:crate::plex::session::current_gen(),title:"Exact title".into(),summary:String::new(),year:2026,watchlisted:Some(false),busy:false,failed:false,poster:None,local:Some((crate::plex::ServerId::UNSET,"server-key-42".into()))})),&cx,&mut fx);
  screen.step(&ScreenEvent::Activate(2),&cx,&mut fx);}
  assert!(out.iter().any(|e|matches!(&e.fx,Fx::App(AppFx::Content(crate::screens::registry::ContentReq::Present(crate::screens::registry::ContentArg::Detail{rk,..}))) if rk=="server-key-42")));
  assert!(!out.iter().any(|e|matches!(&e.fx,Fx::App(AppFx::Catalog(_))|Fx::App(AppFx::Content(crate::screens::registry::ContentReq::Play{..})))));
+ let library=screen.place(&2,&cx,At::SpringTarget).unwrap();
+ let watchlist=screen.place(&1,&cx,At::SpringTarget).unwrap();
+ assert!(library.rect.x+library.rect.w < watchlist.rect.x);
+ assert_eq!(library.index,Some(0));assert_eq!(watchlist.index,Some(1));
 }
 
 #[test]

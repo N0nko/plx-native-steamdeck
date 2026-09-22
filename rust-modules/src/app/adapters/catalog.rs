@@ -34,6 +34,10 @@ impl Controller {
                     None => client.watchlisted(&worker.id),
                 };
                 if let Some(meta) = client.catalog_detail(&worker.id) {
+                    if let Some(sid) = crate::plex::server_ids().next() {
+                        let item = crate::pms::parse_item(&meta, sid);
+                        if !item.thumb.is_empty() { reply.poster = Some((sid, item.thumb)); }
+                    }
                     for sid in crate::plex::server_ids() {
                         if worker.profile != crate::plex::session::current_gen() { break; }
                         let Some(server) = crate::plex::client_for(sid) else { continue };

@@ -16,6 +16,7 @@ pub(crate) struct Snapshot {
     pub busy: bool,
     pub failed: bool,
     pub local: Option<(crate::plex::ServerId, String)>,
+    pub poster: Option<(crate::plex::ServerId, String)>,
 }
 impl Snapshot {
     pub(crate) fn pending(r: &Request) -> Self {
@@ -29,6 +30,7 @@ impl Snapshot {
             busy: true,
             failed: false,
             local: None,
+            poster: None,
         }
     }
 }

@@ -35,7 +35,7 @@ impl LogicalState for CatalogDetailsArg {
         out.push_str("catalog_credit");
     }
 }
-pub(crate) const SHAPE: &str = "CatalogDetails{watchlist_v2:profile_status_summary_local_sid_rk,catalog_id:str,title:str,person:str,department:str,role:str,year:i32}";
+pub(crate) const SHAPE: &str = "CatalogDetails{watchlist_v3:profile_status_summary_local_sid_rk_poster_sid_thumb,catalog_id:str,title:str,person:str,department:str,role:str,year:i32}";
 pub(crate) struct CatalogDetailsScreen {
     entry: EntryId,
     arg: CatalogDetailsArg,
@@ -44,9 +44,14 @@ pub(crate) struct CatalogDetailsScreen {
 }
 const WATCHLIST: u32 = 1;
 const LIBRARY: u32 = 2;
+const PANEL: Rect = Rect::new(336.0, 208.0, 1248.0, 664.0);
+const POSTER: Rect = Rect::new(384.0, 256.0, 250.0, 375.0);
+const TEXT_X: f32 = 666.0;
+const TEXT_W: f32 = 870.0;
+const BUTTON_Y: f32 = 720.0;
 fn button_rect(elem: u32, local: bool) -> Rect {
-    let width=if local {496.0}else{1008.0};
-    Rect::new(456.0 + if elem==LIBRARY {512.0}else{0.0}, 736.0, width, 64.0)
+    let width=if local {568.0}else{1152.0};
+    Rect::new(384.0 + if local && elem==WATCHLIST {584.0}else{0.0}, BUTTON_Y, width, 64.0)
 }
 impl CatalogDetailsScreen {
     pub(crate) fn new(entry: EntryId, arg: CatalogDetailsArg) -> Self {
@@ -81,6 +86,7 @@ impl LogicalState for CatalogDetailsScreen {
         c.option(self.state.as_ref(), |c, s| {
             c.bool(s.busy).bool(s.failed).str(&s.summary).str(&s.title);
             c.option(s.local.as_ref(),|c,(sid,rk)|{c.u32(sid.raw() as u32).str(rk);});
+            c.option(s.poster.as_ref(),|c,(sid,thumb)|{c.u32(sid.raw() as u32).str(thumb);});
             c.option(s.watchlisted, |c, v| {
                 c.bool(v);
             });
@@ -149,7 +155,7 @@ impl<H: AppLike> Focusable<H> for CatalogDetailsScreen {
             seat: Seat::First,
             reachable: AxisMask::BOTH,
             edge: [EdgeRule::Stop; 4],
-            extent: Rect::new(456.0,736.0,1008.0,64.0),
+            extent: Rect::new(384.0,BUTTON_Y,1152.0,64.0),
             len: if self.has_local(){2}else{1},
             elem: ElemKind::Control,
         });
@@ -158,7 +164,7 @@ impl<H: AppLike> Focusable<H> for CatalogDetailsScreen {
         (*e == WATCHLIST || *e==LIBRARY && self.has_local()).then_some(GroupId(1))
     }
     fn neighbour(&self, from: FocusKey<u32>, dir: Dir, _: &Cx<'_, H>) -> Step<u32> {
-        if self.has_local() && matches!((from.elem,dir),(WATCHLIST,Dir::Right)|(LIBRARY,Dir::Left)){
+        if self.has_local() && matches!((from.elem,dir),(WATCHLIST,Dir::Left)|(LIBRARY,Dir::Right)){
             return Step::Move(FocusKey{entry:self.entry,elem:if from.elem==WATCHLIST{LIBRARY}else{WATCHLIST}});
         }
         Step::Edge
@@ -168,7 +174,7 @@ impl<H: AppLike> Focusable<H> for CatalogDetailsScreen {
             rect: button_rect(*e,self.has_local()),
             rest_rect: button_rect(*e,self.has_local()),
             clip: Rect::new(0.0, 0.0, 1920.0, 1080.0),
-            index: Some(e-1),
+            index: Some(if self.has_local() && *e==WATCHLIST {1}else{0}),
         })
     }
     fn reconcile(&self, want: FocusKey<u32>, _: &Cx<'_, H>) -> FocusKey<u32> {
@@ -177,7 +183,7 @@ impl<H: AppLike> Focusable<H> for CatalogDetailsScreen {
     fn seat(&self, _: GroupId, _: Placed, _: &Cx<'_, H>) -> FocusKey<u32> {
         FocusKey {
             entry: self.entry,
-            elem: WATCHLIST,
+            elem: if self.has_local(){LIBRARY}else{WATCHLIST},
         }
     }
 }
@@ -196,16 +202,14 @@ impl<H: AppLike> Screen<H> for CatalogDetailsScreen {
         Scrim::dim(theme::underlay::DIM_PANEL)
     }
     fn draw(&mut self, f: &mut DrawFrame<'_, '_, H>) {
-        let r = Rect::new(
-            (crate::ui::consts::SCR_W - 1120.0) * 0.5,
-            (crate::ui::consts::SCR_H - 600.0) * 0.5,
-            1120.0,
-            600.0,
-        );
+        let r = PANEL;
         let p = f.painter.alpha(f.page_alpha);
         crate::ui::widgets::panel_ground(p, r, theme::ALERT_PANEL_RAD, f.underlay);
-        let x = r.x + theme::alert::PAD;
-        let w = r.w - 2.0 * theme::alert::PAD;
+        let x = TEXT_X;
+        let w = TEXT_W;
+        if let Some((sid, thumb))=self.state.as_ref().and_then(|s|s.poster.as_ref()) {
+            crate::ui::widgets::card(p, POSTER, crate::ui::widgets::Art::Thumb{sid:*sid,key:thumb,res:(250,375)}, theme::CARD_RING_RAD, false, 1.0, 0.0);
+        }
         let text = |s: &str, y, size, ink, lines| {
             TextView::new(s, size, ink)
                 .with_measure(f.measure)
@@ -230,28 +234,22 @@ impl<H: AppLike> Screen<H> for CatalogDetailsScreen {
             theme::TEXT_HEADING,
             2,
         );
-        let year = if self.arg.year > 0 {
-            self.arg.year.to_string()
+        let year_value=self.state.as_ref().map_or(self.arg.year,|s|if s.year>0{s.year}else{self.arg.year});
+        let year = if year_value > 0 {
+            year_value.to_string()
         } else {
             "Year not supplied".into()
         };
-        text(&year, 205.0, theme::size::BODY, theme::TEXT_READING, 1);
-        let credit = if self.arg.role.is_empty() {
-            format!("{} · {}", self.arg.person, self.arg.department)
-        } else {
-            format!(
-                "{} · {} · {}",
-                self.arg.person, self.arg.department, self.arg.role
-            )
-        };
-        text(&credit, 252.0, theme::size::BODY, theme::TEXT_READING, 1);
+        text(&year, 180.0, theme::size::CAPTION, theme::TEXT_SECONDARY, 1);
+        let credit = [&self.arg.person,&self.arg.department,&self.arg.role].into_iter().filter(|s|!s.trim().is_empty()).map(String::as_str).collect::<Vec<_>>().join(" · ");
+        if !credit.is_empty(){text(&credit, 220.0, theme::size::CAPTION, theme::TEXT_SECONDARY, 1);}
         let summary = self
             .state
             .as_ref()
             .map(|s| s.summary.as_str())
             .filter(|s| !s.is_empty())
             .unwrap_or("Catalog information is unavailable.");
-        text(summary, 310.0, theme::size::BODY, theme::TEXT_READING, 4);
+        text(summary, if credit.is_empty(){232.0}else{264.0}, theme::size::BODY, theme::TEXT_READING, 5);
         let label = match self.state.as_ref() {
             Some(s) if s.busy => c"Loading…",
             Some(s) if s.failed => c"Retry Watchlist status",
@@ -259,7 +257,7 @@ impl<H: AppLike> Screen<H> for CatalogDetailsScreen {
             _ => c"Add to Watchlist",
         };
         use crate::ui::View;
-        for (elem,label) in [(WATCHLIST,label),(LIBRARY,c"Open in Library")] {
+        for (elem,label) in [(LIBRARY,c"Open in Library"),(WATCHLIST,label)] {
         if elem==LIBRARY && !self.has_local(){continue;}
         let rect=button_rect(elem,self.has_local());
         crate::ui::widgets::Button::new(label.as_ptr(), theme::size::BODY, rect)
@@ -282,7 +280,7 @@ impl<H: AppLike> Screen<H> for CatalogDetailsScreen {
         }
 
         let hint = crate::ui::widgets::KeyHint::new(c"Press", c"BACK", c"to return");
-        hint.draw(p, x + w - hint.width(f.measure), r.y + 572.0, f.measure);
+        hint.draw(p, r.x+r.w-theme::alert::PAD-hint.width(f.measure), r.y+r.h-theme::space::MD-crate::ui::widgets::KeyHint::height()/2.0, f.measure);
     }
     fn render(&self) -> RenderStrategy {
         RenderStrategy::Page

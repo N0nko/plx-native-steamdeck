@@ -22,7 +22,7 @@ pub(super) fn input(index: usize) -> char {
     b"abcdefghijklmnopqrstuvwxyz1234567890"[index-FIRST_KEY] as char
 }
 pub(super) fn rect(index: usize, numeric: bool) -> Rect {
-    if numeric {let cell=if index>=9 {index+1}else{index};return Rect::new(96.0+(cell%3) as f32*(WIDTH/3.0),TOP+(cell/3) as f32*STEP,WIDTH/3.0-8.0,HEIGHT);}
+    if numeric {let cell=match index {9=>10,10=>9,_=>index};return Rect::new(96.0+(cell%3) as f32*(WIDTH/3.0),TOP+(cell/3) as f32*STEP,WIDTH/3.0-8.0,HEIGHT);}
     let cols = columns(numeric);
     let (row,col,width) = if index<FIRST_KEY {(0,index,WIDTH/2.0)} else {
         let key=index-FIRST_KEY;
@@ -44,7 +44,7 @@ mod tests {
     fn compact_keyboard_and_centered_filters() {
         assert_eq!(len(false),38);assert_eq!(len(true),11);
         assert_eq!(label(0,true),"1 ⌫");assert_eq!(label(10,true),"ABC");
-        for i in 0..len(true) {let cell=if i>=9{i+1}else{i};let row=cell/3;let col=cell%3;
+        for i in 0..len(true) {let cell=match i {9=>10,10=>9,_=>i};let row=cell/3;let col=cell%3;
             let key=rect(i,true);
             assert_eq!(key.w,124.0);assert_eq!(key.h,48.0);
             assert_eq!(key.x,96.0+col as f32*132.0);assert_eq!(key.y,360.0+row as f32*56.0);
@@ -58,6 +58,14 @@ mod tests {
                 assert!(r.x + r.w <= 484.0 && r.y + r.h <= 744.0);
             }
         }
+    }
+    #[test]
+    fn abc_is_left_of_zero_and_navigation_follows_geometry() {
+        use crate::ui::screen::Dir;
+        assert!(rect(10,true).x < rect(9,true).x);
+        assert_eq!(next(9,Dir::Left,true),Some(10));
+        assert_eq!(next(10,Dir::Right,true),Some(9));
+        assert_eq!(next(10,Dir::Up,true),Some(6));
     }
     #[test]
     fn every_key_is_on_screen_and_labels_cover_both_layouts() {
