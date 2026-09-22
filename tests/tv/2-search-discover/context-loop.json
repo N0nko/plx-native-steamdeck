@@ -1,0 +1,57 @@
+{
+  "group": "2-search-discover",
+  "description": "Setup: focus the last base result shelf in a local search with related titles/cast already loaded. Capture each tier; verify headings change and Back restores its parent. No acquisition actions.",
+  "steps": [
+    {
+      "name": "01-context-enter",
+      "before": "search",
+      "after": "search",
+      "keys": [
+        "DOWN"
+      ],
+      "settle": 3,
+      "review": "Appended context becomes the active tier and the keyboard is closed.",
+      "covers": [
+        "context-depth",
+        "keyboard-auto-close"
+      ]
+    },
+    {
+      "name": "02-context-next-tier",
+      "before": "search",
+      "after": "search",
+      "keys": [
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN"
+      ],
+      "settle": 3,
+      "review": "Reach the next available related/cast tier. Inspect headings; route success alone does not prove deeper results.",
+      "covers": [
+        "context-depth"
+      ]
+    },
+    {
+      "name": "03-context-parent",
+      "before": "search",
+      "after": "search",
+      "keys": [
+        "BACK"
+      ],
+      "settle": 1,
+      "review": "Returns to the prior tier and selected card.",
+      "covers": [
+        "context-back"
+      ]
+    }
+  ]
+}

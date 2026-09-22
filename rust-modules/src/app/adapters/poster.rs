@@ -1259,16 +1259,9 @@ fn poster_worker() {
         // did, and the state transition below is untouched.
         let mut w = 0i32;
         let mut h = 0i32;
-        // A DURABLE class of art (today: profile avatars, which the server proxies from plex.tv)
-        // also lives in `crate::imgcache`, and the FILE WINS whenever there is one: the key
-        // carries plex.tv's own cache-buster, so a cached file is current for its key by
-        // construction and there is nothing a fetch could refresh. Going to the network first
-        // was the 2026-09-06 picker with no faces: offline, the proxy's request to plex.tv
-        // hangs for the whole transfer budget, both workers sat on avatars, and the tiles
-        // stayed skeletons until long after the pick. On a miss the fetch runs as before, and
-        // the bytes are written only AFTER they decode — a proxy answering 2xx with something
-        // that is not the picture must never overwrite a good file.
-        let disk = crate::imgcache::classify(&key_s);
+        // Disk reads and decoding remain on this worker, including evicted browsing art.
+        let disk = crate::plex::client_for(srv)
+            .and_then(|c| crate::imgcache::classify_scoped(&key_s, &c.origin().base()));
         let cache_gen = crate::imgcache::generation();
         let mut fetched: Option<Vec<u8>> = None;
         let mut px = std::ptr::null_mut();

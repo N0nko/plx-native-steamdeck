@@ -10,9 +10,11 @@
         "detail-hero",
         "media-status",
         "get-ready",
-        "repair"
+        "repair",
+        "detail-first-image"
       ],
-      "settle": 6
+      "settle": 6,
+      "review": "Observe opening from a Library/Search card: title and still appear before metadata and trailer. For latency, watch the transition live; this settled capture alone cannot grade first-frame time."
     },
     {
       "name": "02-play-version-focused",

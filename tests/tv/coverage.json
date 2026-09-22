@@ -328,5 +328,30 @@
     "group": "3-playback-details-watchlist",
     "id": "companion-errors",
     "title": "Unavailable companion/TLS/pairing failure remain honest"
+  },
+  {
+    "group": "2-search-discover",
+    "id": "keyboard-auto-close",
+    "title": "Leaving either keyboard or wheel scrolling closes it before navigating cards"
+  },
+  {
+    "group": "2-search-discover",
+    "id": "filter-roundtrip",
+    "title": "Repeated results \u2192 filters \u2192 results navigation without a focus trap"
+  },
+  {
+    "group": "3-playback-details-watchlist",
+    "id": "detail-first-image",
+    "title": "A library/search card shows its title and still while metadata/trailer requests are pending"
+  },
+  {
+    "group": "1-home-movies-tv",
+    "id": "art-cache-return",
+    "title": "Revisit Home/Movies/TV; cached artwork and clean tab transitions"
+  },
+  {
+    "group": "2-search-discover",
+    "id": "context-depth",
+    "title": "Repeated related-title/cast tiers remain navigable and Back restores the parent"
   }
 ]

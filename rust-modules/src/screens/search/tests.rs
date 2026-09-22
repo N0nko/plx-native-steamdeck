@@ -321,9 +321,9 @@ fn a_shelf_that_shrinks_under_the_cursor_re_seats_it() {
         assert_eq!(index(&screen, landed), Some((row, col)), "{dir:?} at the end of its row holds");
     }
 
-    // ▲ off shelf 0 leaves the shelves entirely — the field.
+    // Up off shelf 0 returns to its filter tabs.
     engine.set(OWNER, screen.key(screen.rows[0].elems[3]), Some(screen.rows[0].group), By::Restore);
-    assert_eq!(step_dir(&mut screen, &fixture, &mut engine, Dir::Up), Some(screen.key(FIELD)));
+    assert_eq!(step_dir(&mut screen, &fixture, &mut engine, Dir::Up), Some(screen.key(keypad::FILTER_BASE)));
 }
 
 /// Legacy `focus_is_clamped_when_the_shelves_shrink_under_it` and
@@ -1016,4 +1016,63 @@ fn live_discovery_projects_all_shelves_and_directory_click_rejects_previous_prev
  deliver(&mut screen,&fixture,focus,ScreenEvent::App(AppMsg::Discovery(crate::discovery::Reply{request,page:Some(page)})));
  assert_eq!(screen.shown.label,"Action");assert_eq!(screen.rows[0].elems.len(),30);
  drop(session);
+}
+
+#[test]
+fn leaving_keyboard_closes_it_and_filters_roundtrip_to_results() {
+    let _serial = crate::testlock::serial();
+    let mut fixture = Fixture::new();
+    fixture.query("seed").shelves(vec![shelf(Kind::Movie, "results", 3)]);
+    let mut screen = fixture.screen();
+    let field = screen.key(FIELD);
+    deliver(&mut screen, &fixture, Some(field), ScreenEvent::Activate(FIELD));
+    let keyboard = screen.key(keypad::BASE + keypad::FIRST_KEY as u32);
+    let mut keyboard_engine = FocusEngine::new();
+    keyboard_engine.set(OWNER, screen.key(keypad::BASE + 7), Some(KEYPAD_GROUP), By::Restore);
+    let right = step_dir(&mut screen, &fixture, &mut keyboard_engine, Dir::Right).unwrap();
+    assert!(screen.rows[0].elems.contains(&right.elem));
+    assert!(!screen.keypad_open, "Right exits the keyboard directly into results");
+    deliver(&mut screen, &fixture, Some(field), ScreenEvent::Activate(FIELD));
+    let filter = screen.key(keypad::FILTER_BASE);
+    deliver(&mut screen, &fixture, Some(filter), ScreenEvent::FocusMoved {
+        from: Some(keyboard), to: filter, by: By::Dir,
+    });
+    assert!(!screen.keypad_open);
+    assert_eq!(screen.draft.query(), "seed");
+    let mut engine = seated(&screen, &fixture);
+    step_dir(&mut screen, &fixture, &mut engine, Dir::Down);
+    let card = step_dir(&mut screen, &fixture, &mut engine, Dir::Down).unwrap();
+    assert_eq!(card.elem, screen.rows[0].elems[0]);
+    assert_eq!(step_dir(&mut screen, &fixture, &mut engine, Dir::Up), Some(filter));
+    assert_eq!(step_dir(&mut screen, &fixture, &mut engine, Dir::Down), Some(card));
+    deliver(&mut screen, &fixture, Some(field), ScreenEvent::Activate(FIELD));
+    deliver(&mut screen, &fixture, Some(keyboard), ScreenEvent::Input(InputEvent {
+        at: tick(0), source: Source::Script, kind: InputKind::Wheel { dy: -1.0 },
+    }));
+    assert!(!screen.keypad_open, "wheel scrolling must not leave the keyboard over the cards");
+}
+
+#[test]
+fn pointer_entered_context_promotes_and_filter_keeps_the_trail() {
+    let _serial = crate::testlock::serial();
+    let mut fixture = Fixture::new();
+    fixture.query("seed").shelves(vec![shelf(Kind::Movie, "base", 2)]);
+    let mut screen = fixture.screen();
+    screen.discovery.preview = Some(crate::discovery::Page {
+        label: "Next tier".into(), rows: vec![shelf(Kind::Movie, "context", 2)],
+        headings: vec!["More like this".into()],
+    });
+    screen.content_dirty = true;
+    deliver(&mut screen, &fixture, None, ScreenEvent::Tick(tick(1)));
+    let from = screen.key(screen.rows[0].elems[1]);
+    let to = screen.key(screen.rows[1].elems[0]);
+    deliver(&mut screen, &fixture, Some(to), ScreenEvent::FocusMoved {
+        from: Some(from), to, by: By::Pointer,
+    });
+    assert_eq!(screen.shown.label, "Next tier");
+    assert_eq!(screen.base_rows, screen.rows.len());
+    assert_eq!(screen.discovery.trail.len(), 1);
+    deliver(&mut screen, &fixture, None, ScreenEvent::Activate(keypad::FILTER_BASE + 1));
+    assert_eq!(screen.discovery.trail.len(), 1);
+    assert!(screen.discovery.page.is_some());
 }

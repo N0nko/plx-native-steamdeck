@@ -48,7 +48,7 @@ const BLINK_US: u32 = BLINK_MS * 1000;
 
 pub(crate) const SHAPE: &str = "SearchScreen{custom_v1:{keypad_open:bool,numeric:bool,filter:u64,multitap:pending_echo,discovery:owned_pages_trail_v4_provider_hub_seed_directory,shown:rows,base_rows:u64},entry:u32,instance:u32,draft:{text:str,caret:u64,profile:u32,pending:bool},mounted:bool,editing:bool,blink_us:u32,hot:Spring,scroll:Spring,scroll_target:f32,next_elem:u32,query_gen:u32,recent_clear_pending:bool,content_dirty:bool,fade:Xfade,ground:PageGround,owner_row:Option<u64>,owner:str,owner_alpha:Spring,restored:Option<SearchMemory>,keys:[SearchKey],recents:[u32],rows:[{kind:u32,group:u32,elems:[u32],motion:CardRow}]}";
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 enum Identity {
     Recent(String),
     Catalog(Kind,crate::plex::ServerId,String),
@@ -246,7 +246,9 @@ impl SearchScreen {
         self.base_rows=self.shown.rows.len();
         if let Some(preview)=&self.discovery.preview {let p=preview.filter(self.filter);self.shown.rows.extend(p.rows);self.shown.headings.extend(p.headings);}
         if !self.shown.rows.is_empty(){self.recents.clear();}
-        let shown=self.shown.clone();
+        let shown=std::mem::take(&mut self.shown);
+        let mut index: std::collections::HashMap<_, _> = self.keys.iter().enumerate()
+            .map(|(i, key)| ((key.identity.clone(), key.group), i)).collect();
         let mut previous = std::mem::take(&mut self.rows);
         for (row_index,shelf) in shown.rows.iter().enumerate() {
             let group = if self.discovery.page.is_none() && self.real_query() && row_index<self.base_rows {layout::group(shelf.kind)} else {GroupId(0x5345_4300+row_index as u32)};
@@ -259,12 +261,24 @@ impl SearchScreen {
                         Identity::Tag(shelf.kind, tag.sid, if tag.tag_key.is_empty() { tag.id.clone() } else { tag.tag_key.clone() }),
                     _ => Identity::Slot(shelf.kind, view.query_gen(), slot),
                 };
-                elems.push(self.intern(identity, group, slot));
+                let key = (identity.clone(), group);
+                let elem = if let Some(&i) = index.get(&key) {
+                    self.keys[i].slot = slot;
+                    self.keys[i].elem
+                } else {
+                    let elem = self.next_elem;
+                    self.next_elem = self.next_elem.checked_add(1).expect("Search element space exhausted");
+                    index.insert(key, self.keys.len());
+                    self.keys.push(KeyEntry { identity, elem, group, slot });
+                    elem
+                };
+                elems.push(elem);
             }
             let motion = previous.iter().position(|row| row.group == group)
                 .map(|i| previous.remove(i).motion).unwrap_or_else(CardRow::new);
             self.rows.push(Row { kind: shelf.kind, group, elems, motion });
         }
+        self.shown = shown;
         if let Some(memory) = restored {
             for row in &mut self.rows {
                 if let Some((_, x)) = memory.rows.iter().find(|(kind, _)| *kind == row.kind) {
@@ -275,7 +289,7 @@ impl SearchScreen {
         if let Some(scrolls)=self.discovery_return.take(){for row in &mut self.rows{if let Some((_,x))=scrolls.iter().find(|(g,_)|*g==row.group){row.motion.restore_scroll(*x,row.elems.len(),&layout::style(row.kind));}}}
         if let Some((row,col))=self.discovery_seat.take(){if let Some(elem)=self.rows.get(row).and_then(|r|r.elems.get(col)).copied(){self.reseat(FocusTarget::Elem(self.key(elem)),fx);}}
         if self.keys.len()>1024 {
-            let live:Vec<_>=self.rows.iter().flat_map(|r|r.elems.iter().copied()).chain(self.recents.iter().copied()).collect();
+            let live:std::collections::HashSet<_>=self.rows.iter().flat_map(|r|r.elems.iter().copied()).chain(self.recents.iter().copied()).collect();
             self.keys.retain(|key|live.contains(&key.elem));
         }
         if shelves_changed {
@@ -300,8 +314,10 @@ impl SearchScreen {
         if !self.editing && (keypad::FILTER_BASE..keypad::FILTER_BASE+3).contains(&elem) {
             if self.discovery.home_failed{self.discovery.home_requested=false;}
             self.filter=(elem-keypad::FILTER_BASE) as usize;self.scroll_target=0.0;
-            self.discovery.page=None;self.discovery.trail.clear();self.discovery.preview=None;self.discovery.pending=None;self.discovery.request=None;self.discovery.serial=self.discovery.serial.wrapping_add(1);self.content_dirty=true;
-            self.store(SearchCmd::SetFilter{profile_generation:self.draft.profile(),filter:self.filter},fx);
+            self.discovery.preview=None;self.discovery.pending=None;self.discovery.request=None;self.discovery.serial=self.discovery.serial.wrapping_add(1);self.content_dirty=true;
+            if self.discovery.page.is_none() {
+                self.store(SearchCmd::SetFilter{profile_generation:self.draft.profile(),filter:self.filter},fx);
+            }
             fx.invalidate(Provenance::Input);return Handled::Yes;
         }
         if elem == FIELD {
@@ -414,6 +430,7 @@ impl<H: SearchLike> Machine<H> for SearchScreen {
                 InputKind::Text(edit) if self.editing || self.keypad_open || matches!(cx.owner, InputOwner::System(_)) => self.edit(edit, fx),
                 InputKind::Wheel { dy } => {
                     if !self.editing && dy.is_finite() {
+                        if self.keypad_open { self.keyboard(false, true, fx); }
                         let (kinds, n) = self.kinds();
                         let end = layout::top(&kinds[..n], n, |i| self.rows[i].motion.band_expand());
                         let max = (end + crate::ui::consts::MARGIN_Y - SCR_H).max(0.0);
@@ -468,8 +485,27 @@ impl<H: SearchLike> Machine<H> for SearchScreen {
                 _ => return Handled::No,
             },
             ScreenEvent::Tick(tick) => self.tick(*tick, cx, fx),
-            ScreenEvent::FocusMoved { to, .. } => {
-                if self.editing && to.elem != FIELD { self.keyboard(false, true, fx); }
+            ScreenEvent::FocusMoved { from, to, .. } => {
+                let on_keypad = to.entry == self.entry
+                    && (keypad::BASE..keypad::BASE + keypad::len(self.numeric) as u32).contains(&to.elem);
+                if self.keypad_open && !on_keypad || self.editing && to.elem != FIELD {
+                    self.keyboard(false, true, fx);
+                }
+                // Pointer and geometric focus can enter an appended context without the Down
+                // key handler. Promote it too, so its cards can seed the next discovery tier.
+                if let Some((row, col)) = self.rows.iter().enumerate().skip(self.base_rows)
+                    .find_map(|(row, r)| r.elems.iter().position(|e| *e == to.elem).map(|col| (row, col))) {
+                    let origin = from.filter(|key| key.entry == self.entry && self.rows.iter()
+                        .take(self.base_rows).any(|r| r.elems.contains(&key.elem)))
+                        .map(|key| key.elem)
+                        .or_else(|| self.rows.get(self.base_rows.saturating_sub(1))?.elems.first().copied());
+                    if let Some(origin) = origin {
+                        if self.discover_enter(row - self.base_rows, col, origin, fx) {
+                            self.sync(cx, false, fx);
+                            return Handled::Yes;
+                        }
+                    }
+                }
                 self.reveal(*to, cx);
                 fx.invalidate(Provenance::Input);
             }
@@ -766,17 +802,16 @@ impl<H: SearchLike> Screen<H> for SearchScreen {
     fn links(&self, out: &mut Vec<Link>) {
         if self.keypad_open {
             out.push(Link {from:KEYPAD_GROUP,dir:Dir::Up,to:FILTER_GROUP});
-            if let Some(first)=self.first_content(){out.push(Link{from:KEYPAD_GROUP,dir:Dir::Right,to:first});out.push(Link{from:first,dir:Dir::Left,to:KEYPAD_GROUP});}
+            if let Some(first)=self.first_content(){out.push(Link{from:KEYPAD_GROUP,dir:Dir::Right,to:first});out.push(Link{from:KEYPAD_GROUP,dir:Dir::Down,to:first});}
         }
         out.push(Link{from:FIELD_GROUP,dir:Dir::Down,to:FILTER_GROUP});
         out.push(Link{from:FILTER_GROUP,dir:Dir::Up,to:FIELD_GROUP});
-        if self.keypad_open {out.push(Link{from:FILTER_GROUP,dir:Dir::Down,to:KEYPAD_GROUP});}
-        else if let Some(first)=self.first_content(){out.push(Link{from:FILTER_GROUP,dir:Dir::Down,to:first});}
+        if let Some(first)=self.first_content(){out.push(Link{from:FILTER_GROUP,dir:Dir::Down,to:first});}
         out.push(Link { from: STRIP, dir: Dir::Down, to: FIELD_GROUP });
         out.push(Link { from: FIELD_GROUP, dir: Dir::Up, to: STRIP });
         if let Some(first) = self.first_content() {
 
-            out.push(Link { from: first, dir: Dir::Up, to: FIELD_GROUP });
+            out.push(Link { from: first, dir: Dir::Up, to: FILTER_GROUP });
         }
         if !self.recents.is_empty() {
             out.push(Link { from: RECENTS_GROUP, dir: Dir::Down, to: CLEAR_GROUP });

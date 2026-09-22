@@ -1612,6 +1612,15 @@ where
             ),
             AppArg::Content(ContentArg::Detail { sid, rk }) => {
                 let mut page = crate::screens::detail::DetailScreen::new(entry, *sid, rk.clone(), H::hubs(cx));
+                let selected = H::listing(cx).find(*sid, rk)
+                    .or_else(|| H::section_hubs(cx).shelves().iter().flat_map(|row| row.items.iter())
+                        .find(|item| item.sid == *sid && item.rk == *rk))
+                    .or_else(|| H::search(cx).shelves().iter().flat_map(|row| row.items.iter())
+                        .find_map(|item| match item {
+                            crate::search::Item::Media(item) if item.sid == *sid && item.rk == *rk => Some(item),
+                            _ => None,
+                        }));
+                if let Some(item) = selected { page.seed_selected(item); }
                 // No `RequestDetail` push here: `DetailScreen`'s own `Enter(Fresh)` handler (fired
                 // this same frame, right after mount) already decides whether the freshly mounted
                 // page needs a fetch (`refresh == None && request_status != Some(true)` — a fresh

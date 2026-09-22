@@ -1,41 +1,10 @@
-//! A small on-disk image cache — the foundation, used today for ONE class of art: Plex Home
-//! profile avatars on the who's-watching screen.
-//!
-//! ## Why it exists, and why only avatars
-//!
-//! Every image the app draws is fetched through the Plex server's `/photo/:/transcode` proxy and
-//! held in memory by `app/adapters/poster.rs` for the run. Posters, backdrops and hero art come from the
-//! server itself, one hop away, and so load offline as they do online (`docs/shared-servers.md`,
-//! the offline section). Avatars do not: a profile's `thumb` is an absolute `https://plex.tv/users/
-//! …/avatar` URL that the SERVER fetches from plex.tv on the app's behalf, so with the uplink down
-//! the picker shows blank circles — the one screen a household sees on every boot, blank on the
-//! one day this app most needs to look alive (owner, 2026-09-06). A few small images per house,
-//! changing rarely: exactly the shape a disk cache is for. Cast headshots
-//! (`metadata-static.plex.tv`) are the same failure and NOT cached here yet — thousands per
-//! library, a different bound and a different eviction question — and posters never will be.
-//!
-//! ## How it is wired
-//!
-//! No caller names it. `app/adapters/poster.rs`'s worker classifies the key it is about to fetch
-//! ([`classify`]: the built `/photo/:/transcode?…url=<encoded source>…` path is decoded and the
-//! source graded), and for a durable class **the file wins whenever there is one**; only a miss
-//! fetches, and the fetched bytes are written after they decode. The file key is a SHA-256 of
-//! the class, the source URL WITHOUT its query and the requested size — plex.tv's `?c=` is the
-//! time it answered, not a version of the picture (see [`classify`]) — and a file older than
-//! [`REFRESH_AFTER`] is fetched again when the network is there, so a changed avatar shows up
-//! within a day. Neither the server nor the token is part of the key: an avatar is the
-//! person's, not the server's. (The first cut fetched first and used
-//! the file as a fallback; offline, the server's own request to plex.tv hangs for the whole
-//! transfer budget, both poster workers sat on avatars, and the picker showed no faces — owner,
-//! 2026-09-06.)
-//!
-//! ## Bounds and hygiene
-//!
-//! One directory, chosen once from [`crate::paths::image_cache_candidates`] (the session file's
-//! search order, as directories). Writes are atomic (tmp + rename), a file over [`MAX_FILE`] is
-//! not stored, and every write prunes the class to its [`Class::cap`] newest files by mtime, so
-//! the cache cannot grow past a few hundred kilobytes whatever a roster does. Sign-out empties it
-//! ([`clear`], from `auth::forget_account`): the pictures belong to the account that left.
+//! Bounded disk cache for profile avatars and browsing artwork. Poster workers read and
+//! decode cached files before fetching. Network refresh follows publication of stale art.
+//! Artwork keys hash the complete request and server origin (including the credential grant);
+//! avatars retain their account-independent identity and daily refresh policy.
+//! Atomic writes accept only successfully decoded images, capped at 512 KiB per file.
+//! At most 192 artwork files (96 MiB) and 48 avatars are retained. Sign-out clears both classes
+//! and rejects writes from workers admitted before it. No disk I/O runs in the frame loop.
 
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
@@ -55,12 +24,14 @@ const MAX_FILE: usize = 512 * 1024;
 pub(crate) enum Class {
     /// `https://plex.tv/users/<id>/avatar…` — a Plex Home profile picture.
     Avatar,
+    Artwork,
 }
 
 impl Class {
     fn tag(self) -> &'static str {
         match self {
             Class::Avatar => "avatar",
+            Class::Artwork => "artwork",
         }
     }
     /// Files kept per class, newest first. A Plex Home holds at most 15 profiles; two sizes each
@@ -68,6 +39,7 @@ impl Class {
     fn cap(self) -> usize {
         match self {
             Class::Avatar => 48,
+            Class::Artwork => 192,
         }
     }
 }
@@ -109,6 +81,18 @@ pub(crate) fn classify(built_key: &str) -> Option<DiskKey> {
         class,
         name: format!("{}-{hex}.img", class.tag()),
     })
+}
+
+/// Scope server-relative artwork to the actual server and credential-bearing request.
+/// Only the digest reaches disk; tokens, source URLs and host names never become filenames.
+pub(crate) fn classify_scoped(built_key: &str, origin: &str) -> Option<DiskKey> {
+    if let Some(avatar) = classify(built_key) { return Some(avatar); }
+    if origin.is_empty() || !built_key.starts_with("/photo/:/transcode?") {
+        return None;
+    }
+    let digest = crate::sha256::sha256(format!("{}\n{}\n{}", Class::Artwork.tag(), origin, built_key).as_bytes());
+    let hex: String = digest.iter().map(|b| format!("{b:02x}")).collect();
+    Some(DiskKey { class: Class::Artwork, name: format!("artwork-{hex}.img") })
 }
 
 /// The one rule per class. Host AND path shape, both, so a future plex.tv route does not fall
@@ -175,7 +159,7 @@ fn dir() -> Option<&'static Path> {
                 return Some(cand);
             }
         }
-        crate::log("imgcache: no writable directory — avatars will not survive a relaunch");
+        crate::log("imgcache: no writable directory — artwork will not survive a relaunch");
         None
     })
     .as_deref()
@@ -425,5 +409,27 @@ mod tests {
         assert!(read_in(&d, &names[0]).is_none(), "the oldest went first");
         assert!(read_in(&d, &names[cap + 4]).is_some(), "the newest stayed");
         let _ = std::fs::remove_dir_all(&d);
+    }
+}
+
+#[cfg(test)]
+mod artwork_tests {
+    use super::*;
+    #[test]
+    fn artwork_is_partitioned_by_origin_grant_and_size() {
+        let request = "/photo/:/transcode?url=%2Flibrary%2Fmetadata%2F1%2Fthumb&width=300&height=450&X-Plex-Token=test-grant";
+        let key = classify_scoped(request, "https://synthetic.invalid:32400").unwrap();
+        assert_eq!(key.class, Class::Artwork);
+        assert_eq!(key.name, classify_scoped(request, "https://synthetic.invalid:32400").unwrap().name);
+        for (request, origin) in [
+            (request.to_owned(), "https://other.invalid:32400"),
+            (request.replace("test-grant", "another-grant"), "https://synthetic.invalid:32400"),
+            (request.replace("width=300", "width=600"), "https://synthetic.invalid:32400"),
+        ] {
+            assert_ne!(key.name, classify_scoped(&request, origin).unwrap().name);
+        }
+        assert!(!key.name.contains("test-grant"));
+        assert!(classify_scoped("/library/metadata/1", "https://synthetic.invalid").is_none());
+        assert_eq!(Class::Artwork.cap() * MAX_FILE, 96 * 1024 * 1024);
     }
 }

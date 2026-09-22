@@ -51,7 +51,7 @@ impl Resources {
             self.query = q.into();
             self.caret = caret;
             self.run = if q.trim().is_empty() {
-                c"Search your library and Plex catalog".into()
+                c"Search".into()
             } else {
                 cstring(q)
             };
@@ -128,6 +128,10 @@ pub(super) fn draw<H: SearchLike>(screen: &SearchScreen, f: &mut DrawFrame<'_, '
     screen.ground.draw(p, Rect::FULL);
     field(screen, f, p);
     let p = p.alpha(screen.fade.alpha());
+    {
+    // Painting and hit testing must agree when horizontal rows pass the keyboard.
+    let left = if screen.keypad_open { (keypad::extent(screen.numeric).x + keypad::extent(screen.numeric).w) + theme::space::MD } else { 0.0 };
+    let _clip = f.clip(p, Rect::new(left, crate::ui::widgets::TOP_BAR_BOTTOM, SCR_W - left, SCR_H - crate::ui::widgets::TOP_BAR_BOTTOM));
     if !screen.recents.is_empty() {
         recents(screen, f, p);
     } else if screen.rows.is_empty() {
@@ -185,6 +189,7 @@ pub(super) fn draw<H: SearchLike>(screen: &SearchScreen, f: &mut DrawFrame<'_, '
         if let Some(col) = focused {
             tile(screen, i, col, true, f, p);
         }
+    }
     }
     controls(screen,f);
 }

@@ -113,7 +113,7 @@ pub(crate) const KINDS: [Kind; 5] = [
 /// How many shelves there are — the index space every per-source projection is keyed by.
 const NKIND: usize = KINDS.len();
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub(crate) enum Kind {
     Movie,
     Show,

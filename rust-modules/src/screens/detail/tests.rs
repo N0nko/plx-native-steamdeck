@@ -3121,3 +3121,18 @@ fn legacy_detail_inventory_has_73_unique_source_names() {
         .iter()
         .all(|(_, destination)| !destination.is_empty()));
 }
+
+#[test]
+fn card_outside_home_supplies_a_still_before_metadata_or_trailer() {
+    let sid = ServerId::from_raw(3);
+    let mut screen = DetailScreen::new(EntryId(7), sid, "outside-home".into(),
+        crate::pms::HubsSnapshot::empty_for_test().view());
+    let item = crate::pms::PmsMovie { sid, rk: "outside-home".into(),
+        title: "Synthetic title".into(), art: "/art/still".into(), ..Default::default() };
+    screen.seed_selected(&crate::pms::PmsMovie { sid: ServerId::from_raw(4), ..item.clone() });
+    assert!(screen.selected().is_none(), "same key on another server is not the selected card");
+    screen.seed_selected(&item);
+    assert_eq!(screen.selected().unwrap().art, "/art/still");
+    screen.seed_selected(&crate::pms::PmsMovie { art: "/later".into(), ..item });
+    assert_eq!(screen.selected().unwrap().art, "/art/still", "retain the mount's image");
+}

@@ -185,6 +185,12 @@ impl<'a> ListingView<'a> {
     pub(crate) fn item(self, index: usize) -> Option<&'a crate::pms::PmsMovie> {
         self.0.data.as_ref()?.items.get(index)
     }
+    /// Look only through loaded pages; opening a card must not walk every missing item slot.
+    pub(crate) fn find(self, sid: ServerId, rk: &str) -> Option<&'a crate::pms::PmsMovie> {
+        self.0.data.as_ref()?.items.pages.iter().flatten()
+            .flat_map(|page| page.iter().flatten())
+            .find(|item| item.sid == sid && item.rk == rk)
+    }
     pub(crate) fn sorts(self) -> &'a [SortEntry] {
         self.0.data.as_ref().map_or(&[], |s| s.sorts.as_slice())
     }

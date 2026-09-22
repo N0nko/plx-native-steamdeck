@@ -155,6 +155,25 @@
       ]
     },
     {
+      "name": "11b-filter-roundtrip",
+      "before": "search",
+      "after": "search",
+      "keys": [
+        "UP",
+        "DOWN",
+        "UP",
+        "RIGHT",
+        "LEFT",
+        "DOWN"
+      ],
+      "settle": 1,
+      "review": "Up returns to filters, Down returns to results; keyboard stays closed, no stuck navigation.",
+      "covers": [
+        "filter-roundtrip",
+        "keyboard-auto-close"
+      ]
+    },
+    {
       "name": "12-catalog-details",
       "before": "search",
       "keys": [

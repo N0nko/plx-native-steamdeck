@@ -157,12 +157,13 @@
         "BACK"
       ],
       "covers": [
-        "library-back"
+        "library-back",
+        "art-cache-return"
       ],
       "before": null,
       "after": "library",
       "settle": 1.4,
-      "review": ""
+      "review": "Repeat the Home/Movies/TV loop and watch for transient distorted frames and repeated image fetches. Settled screenshots alone cannot verify frame timing."
     }
   ],
   "description": "Start on freshly launched Home; verifies Home, Movies and TV shelves, focus and Back to navigation."

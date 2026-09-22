@@ -207,7 +207,7 @@ pub(crate) struct DetailScreen {
     /// `PageGround` does not offer and should not. (Its dither is not a question: every wash
     /// dithers, the photograph sliding over it included — `gfx::draw_ambient`.)
     ground: AmbientWash,
-    /// The catalog row for this item, captured ONCE at [`new`](Self::new) — the same
+    /// The catalog row for this item, captured at mount — the same
     /// construction-time-only snapshot [`ground`](Self::ground)'s blur envelope takes. This is a
     /// fallback used only before/if `metadata::current()` has a `Detail` for this item (see
     /// [`selected`](Self::selected)'s callers); it is never re-read from the catalog afterward, so
@@ -634,6 +634,16 @@ impl DetailScreen {
         meta.current().filter(|d| {
             crate::plex::same_item((d.sid, d.rk.as_str()), (self.sid, self.rk.as_str()))
         })
+    }
+
+    /// Mount-time still image from the page that opened us. Metadata and trailers remain
+    /// asynchronous; an item absent from Home must not wait for them to show its hero.
+    pub(crate) fn seed_selected(&mut self, item: &crate::pms::PmsMovie) {
+        if self.selected.is_some() || item.sid != self.sid || item.rk != self.rk { return; }
+        if item.has_blur {
+            self.ground.jump(AmbientWash::keyed(item.blur, [AmbientWash::GROUND_W; 4]));
+        }
+        self.selected = Some(item.clone());
     }
 
     fn selected(&self) -> Option<&crate::pms::PmsMovie> {
