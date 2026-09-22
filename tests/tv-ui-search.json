@@ -1,0 +1,21 @@
+{
+  "description": "Start on freshly launched Home. Search regression sweep. No account mutation buttons.",
+  "steps": [
+    {"name":"01-home","before":"home","after":"home","review":"Home posters, navigation and normal FPS-hidden appearance"},
+    {"name":"02-search-letters","before":"home","keys":["UP","UP","RIGHT","RIGHT","RIGHT","RIGHT","OK"],"settle":4,"after":"search","review":"Keyboard opens immediately; compact A-Z/1-0 grid and centered filters"},
+    {"name":"03-t9-space","before":"search","keys":["0"],"after":"search","review":"Numeric input switches T9; ABC bottom left, zero centered"},
+    {"name":"04-t9-dash","before":"search","keys":["1","0","0"],"after":"search","review":"1 clears space; two quick zero presses produce one dash"},
+    {"name":"05-t9-backspace","before":"search","keys":["1"],"after":"search","review":"Query is empty; delete removes dash"},
+    {"name":"06-t9-abc-focus","before":"search","keys":["DOWN","DOWN","DOWN","LEFT"],"after":"search","review":"ABC navigation follows bottom-left position"},
+    {"name":"07-letters-return","before":"search","keys":["OK"],"after":"search","review":"ABC returns to full keyboard"},
+    {"name":"08-filter-top","before":"search","keys":["BACK","DOWN"],"after":"search","review":"Top results filter focus"},
+    {"name":"09-filter-movies","before":"search","keys":["RIGHT","OK"],"after":"search","review":"Movies selected; shared glass controls"},
+    {"name":"10-filter-shows","before":"search","keys":["RIGHT","OK"],"after":"search","review":"TV shows selected"},
+    {"name":"11-discovery","before":"search","keys":["LEFT","LEFT","OK","DOWN"],"settle":3,"after":"search","review":"Discovery focus and title identity before details"},
+    {"name":"12-catalog-details","before":"search","keys":["OK"],"settle":5,"after":"search/catalog_details","review":"Poster, left Open in Library only for exact local match, right Watchlist; Back hint contained"},
+    {"name":"13-discovery-return","before":"search/catalog_details","keys":["BACK"],"after":"search","review":"Back restores query, focus and scroll"},
+    {"name":"14-discovery-row-two","before":"search","keys":["DOWN"],"after":"search","review":"Filters scroll away without covering posters"},
+    {"name":"15-context-rows","before":"search","keys":["DOWN","DOWN"],"after":"search","review":"Related/cast rows if supplied; absence is not a pass"},
+    {"name":"16-context-bottom","before":"search","keys":["DOWN","DOWN"],"after":"search","review":"Lower content spacing and no filter overlay"}
+  ]
+}

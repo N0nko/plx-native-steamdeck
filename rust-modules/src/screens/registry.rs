@@ -1927,7 +1927,7 @@ pub(crate) const SCREEN_SHAPES: &[&str] = &[
 /// Owned catalog/discovery/keyboard state changes the shape. Old replay fixtures must be
 /// re-recorded; this pin is measured by the integration's Rust schema regression test.
 #[cfg(test)]
-const SCREEN_SHAPES_PIN: u64 = 0xf73473b0d0f16765;
+const SCREEN_SHAPES_PIN: u64 = 0x6b067c0db80c43b7;
 
 #[cfg(test)]
 mod arg_tests {
