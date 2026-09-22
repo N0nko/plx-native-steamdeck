@@ -522,6 +522,31 @@ fn revealing_the_second_shelf_carries_the_query_field_under_the_track() {
         "a query box carried into the chrome is not something a click can raise the keyboard on");
 }
 
+/// TV capture tv153-context.png reproduced filters covering the second shelf.
+#[test]
+fn filters_scroll_with_search_content_and_return_when_revealed() {
+    let _serial = crate::testlock::serial();
+    let fixture = Fixture::new();
+    let mut screen = fixture.screen();
+    let elem = keypad::FILTER_BASE;
+    let initial = screen.place(&elem, &fixture.cx(None), At::Drawn).unwrap().rect;
+    screen.scroll.jump(420.0);
+    screen.scroll_target = 500.0;
+    let drawn = screen.place(&elem, &fixture.cx(None), At::Drawn).unwrap();
+    let target = screen.place(&elem, &fixture.cx(None), At::SpringTarget).unwrap();
+    assert_eq!(drawn.rect.y, initial.y - 420.0);
+    assert_eq!(target.rect.y, initial.y - 500.0);
+    assert!(drawn.rect.intersect(drawn.clip).h <= 0.0);
+    assert_eq!(hit(&screen, &fixture, &[elem], initial.cx(), initial.cy()), None);
+    let mut groups = Vec::new();
+    screen.groups(&fixture.cx(None), &mut groups);
+    assert_eq!(groups.iter().find(|g| g.id == FILTER_GROUP).unwrap().extent.y, target.rect.y);
+    screen.reveal(screen.key(elem), &fixture.cx(None));
+    assert_eq!(screen.scroll_target, 0.0);
+    screen.scroll.jump(0.0);
+    assert_eq!(hit(&screen, &fixture, &[elem], initial.cx(), initial.cy()), Some(elem));
+}
+
 // ---- motion: every spring this instance owns owes the gate both halves ------------------------
 
 /// Legacy `the_scroll_spring_reports_while_it_runs_and_goes_quiet_at_rest` — `ui/CLAUDE.md`'s

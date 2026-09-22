@@ -3,7 +3,7 @@
 # capture-screen.sh — grab the LG webOS TV screen to an image file on this Mac.
 #
 # Uses the TV's AV-framework capture service:
-#     luna://com.webos.service.tv.capture/executeOneShot
+#     luna://${CAPTURE_SERVICE}/executeOneShot
 # which taps the FINAL panel output. Plane coverage depends on the method:
 #
 #     DISPLAY  (default) : hardware VIDEO overlay plane + GLES/graphics(UI) plane,
@@ -53,6 +53,7 @@ TV_USER="${TV_USER:-root}"
 TV_PASS="${TV_PASS:-alpine}"
 CAP_W="${CAP_W:-1920}"
 CAP_H="${CAP_H:-1080}"
+CAPTURE_SERVICE="${CAPTURE_SERVICE:-com.webos.service.tv.capture}"
 
 OUT="${1:-tv-capture-$(date +%Y%m%d-%H%M%S).png}"
 METHOD="${2:-DISPLAY}"
@@ -72,10 +73,10 @@ REMOTE="/tmp/capture/cap-$$.${DEV_EXT}"
 SSH_OPTS=(-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
           -o LogLevel=ERROR -o ConnectTimeout=10)
 if ssh "${SSH_OPTS[@]}" -o BatchMode=yes "${TV_USER}@${TV_HOST}" true 2>/dev/null; then
-  SSH=(ssh "${SSH_OPTS[@]}"); SCP=(scp "${SSH_OPTS[@]}")
+  SSH=(ssh "${SSH_OPTS[@]}"); SCP=(scp -O "${SSH_OPTS[@]}")
 elif command -v sshpass >/dev/null 2>&1; then
   SSH=(sshpass -p "$TV_PASS" ssh "${SSH_OPTS[@]}")
-  SCP=(sshpass -p "$TV_PASS" scp "${SSH_OPTS[@]}")
+  SCP=(sshpass -p "$TV_PASS" scp -O "${SSH_OPTS[@]}")
 else
   echo "ERROR: cannot auth to ${TV_USER}@${TV_HOST}. Install an SSH key or sshpass." >&2
   exit 1
@@ -85,7 +86,7 @@ fi
 # luna-send only delivers its request reliably under a pseudo-TTY -> ssh -tt.
 PAYLOAD="{\"path\":\"${REMOTE}\",\"method\":\"${METHOD}\",\"width\":${CAP_W},\"height\":${CAP_H},\"format\":\"${DEV_FMT}\"}"
 RESP=$("${SSH[@]}" -tt "${TV_USER}@${TV_HOST}" \
-        "mkdir -p /tmp/capture; luna-send -n 1 'luna://com.webos.service.tv.capture/executeOneShot' '${PAYLOAD}'" \
+        "mkdir -p /tmp/capture; luna-send -n 1 'luna://${CAPTURE_SERVICE}/executeOneShot' '${PAYLOAD}'" \
         2>/dev/null | tr -d '\r')
 
 if ! printf '%s' "$RESP" | grep -q '"returnValue": *true'; then
@@ -110,6 +111,6 @@ fi
 
 # ---- validate & report --------------------------------------------------------
 [ -s "$OUT" ] || { echo "ERROR: output file is empty: $OUT" >&2; exit 1; }
-DIM=$(sips -g pixelWidth -g pixelHeight "$OUT" 2>/dev/null | awk '/pixel/{print $2}' | paste -sd x -)
+DIM=$(sips -g pixelWidth -g pixelHeight "$OUT" 2>/dev/null | awk '/pixel/{print $2}' | paste -sd x -) || DIM=""
 ABS="$(cd "$(dirname "$OUT")" && pwd)/$(basename "$OUT")"
 echo "Captured [method=${METHOD}, ${DIM:-unknown} px] -> ${ABS}"

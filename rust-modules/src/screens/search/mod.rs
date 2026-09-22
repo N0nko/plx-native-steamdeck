@@ -575,6 +575,11 @@ impl SearchScreen {
     fn clear_rect(&self,scroll:f32,measure:&dyn crate::ui::machine::Measure)->Rect {let mut r=layout::clear(self.recents.len(),scroll,measure);r.x+=self.inset();r.y-=self.system_shift();r}
     fn system_shift(&self)->f32 {if self.editing {layout::SYSTEM_SHIFT}else{0.0}}
     fn inset(&self)->f32 {if self.keypad_open {464.0}else{0.0}}
+    fn filter_rect(&self, index: usize, at: At) -> Rect {
+        let mut rect = keypad::filter_rect(index);
+        rect.y -= if at == At::Drawn { self.scroll.pos } else { self.scroll_target };
+        rect
+    }
     fn row_rect(&self, row: usize, col: usize, at: At) -> Rect {
         let (kinds, n) = self.kinds();
         let shelf = &self.rows[row];
@@ -660,7 +665,7 @@ fn group(id: GroupId, kind: GroupKind, len: usize, extent: Rect, elem: ElemKind,
 impl<H: SearchLike> Focusable<H> for SearchScreen {
     fn groups(&self, cx: &Cx<'_, H>, out: &mut Vec<GroupSpec>) {
         if self.keypad_open {out.push(group(KEYPAD_GROUP,GroupKind::Row{wrap:false},keypad::len(self.numeric),keypad::extent(self.numeric),ElemKind::Bare,Seat::First));}
-        if !self.editing {out.push(group(FILTER_GROUP,GroupKind::Row{wrap:false},3,Rect::new(keypad::filter_rect(0).x,278.0,592.0,48.0),ElemKind::Bare,Seat::Remembered));}
+        if !self.editing {out.push(group(FILTER_GROUP,GroupKind::Row{wrap:false},3,Rect::new(keypad::filter_rect(0).x,278.0-self.scroll_target,592.0,48.0),ElemKind::Bare,Seat::Remembered));}
         let field = Rect::new(layout::FIELD.x, layout::FIELD.y - self.scroll_target, layout::FIELD.w, layout::FIELD.h);
         out.push(group(FIELD_GROUP, GroupKind::Row { wrap: false }, 1, field, ElemKind::Bare, Seat::First));
         if !self.recents.is_empty() {
@@ -694,7 +699,7 @@ impl<H: SearchLike> Focusable<H> for SearchScreen {
         let (group, index) = self.index(*elem)?;
         let scroll = if at == At::Drawn { self.scroll.pos } else { self.scroll_target };
         let rect = if group==KEYPAD_GROUP {keypad::rect(index,self.numeric)}
-        else if group==FILTER_GROUP {keypad::filter_rect(index)}
+        else if group==FILTER_GROUP {self.filter_rect(index,at)}
         else if group == FIELD_GROUP { Rect::new(layout::FIELD.x, layout::FIELD.y - scroll, layout::FIELD.w, layout::FIELD.h) }
         else if group == CLEAR_GROUP { self.clear_rect(scroll, cx.measure) }
         else if group == RECENTS_GROUP { self.recent_rect(index, scroll) }

@@ -15,7 +15,7 @@ The uploaded recovered integration is supporting evidence, never a replacement s
 | Discovery | Empty-query trending/recommendation shelves; focused-title similar movies/shows and cast; actor filmography; repeated exploration and Back | `discovery.rs`, `screens/search/discovery.rs`; code retained; contextual cards now open details on the first activation |
 | Catalog | Explicit Watchlist add/remove with readback; existing acquisition pipeline consumes Watchlist | `catalog_action.rs`, `app/adapters/catalog.rs`, `screens/catalog_details.rs` |
 | Local navigation | Every card opens information first; explicit Play starts playback; catalog titles can open exact local library match | Search/library use Detail; Continue Watching now uses Detail; catalog matching resolves exact GUIDs from the server |
-| Search layout | Centered Top Results / Movies / TV Shows; large posters; contextual actors separated from primary title rows | `screens/search/`; shared Glass controls |
+| Search layout | Centered Top Results / Movies / TV Shows; large posters; contextual actors separated from primary title rows | `screens/search/`; shared Glass controls; filters scroll with the query instead of covering posters |
 | Keyboard | Compact A–Z then 1–0 grid; Space/Backspace above; no More/Done footer or backing panel; Search opens keyboard | `screens/search/keypad.rs`; entry opens letters; Back and return-memory regressions covered |
 | T9 latest correction | 1 deletes; first 0 inserts space, second quick 0 changes it to dash; bottom right ABC returns to letters; remove unused punctuation buttons | Supersedes the earlier punctuation row and repeated-space behavior |
 | Seeking | Nearest preview follows seek cursor; no stale unrelated image; smooth holds and stable seek bar; actual transport latency improvements | `ui/seek_preview.rs`, `ui/seek_presentation.rs`, `ff.rs`; device latency must be measured, not inferred |
@@ -29,7 +29,7 @@ The uploaded recovered integration is supporting evidence, never a replacement s
 | Artwork | Preserve poster/thumbnail improvements and gradient/transition fixes | `posters.rs`, shaders and page ground; inspect TV output before claiming visual parity |
 | TV show expansion | Browse all catalog seasons/episodes, distinguish owned/missing, request an exact season/episode | New extension, not present in the old catalog detail implementation; request backend choice pending |
 | Backend | Ready Store bandwidth/progress, bounded stuck-grab recovery, cold streaming/eviction, companion after restart | Separate Rust/NzbDAV systems; app rebase must not reset their config or restart shared services |
-| Deployment | Release stable, backup, verified installed bytes, preserve sign-in/private HTTPS pairing | .199 default; .153 explicitly authorized for this session; latest deployment still pending |
+| Deployment | Release stable, backup, verified installed bytes, preserve sign-in/private HTTPS pairing | .199 default; .153 explicitly authorized for this session; release deployed and tested on .153; artifact TV-TESTS.md records exact build evidence |
 
 ## Unfinished or exploratory work
 
