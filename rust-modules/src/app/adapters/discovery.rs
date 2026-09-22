@@ -5,7 +5,7 @@ use std::sync::mpsc::{self, Receiver, TryRecvError};
 #[derive(Default)]
 pub(crate) struct Controller {
     pending: Vec<(InstanceId, Request, Receiver<Reply>)>,
-    home: Option<(u32, std::time::Instant, crate::discovery::Page)>,
+    home: Option<(u32, u32, crate::discovery::Page)>,
 }
 impl Controller {
     pub(crate) fn request(&mut self, who: InstanceId, req: Request, live: bool) -> Option<Reply> {
@@ -19,7 +19,7 @@ impl Controller {
         }
         let cached=req.seed.is_none().then(||self.home.as_ref()).flatten();
         let fallback=cached.map(|(_,_,page)|Reply{request:req.clone(),page:Some(page.clone())});
-        if cached.is_some_and(|(_,at,_)|at.elapsed()<std::time::Duration::from_secs(15*60)) {return fallback;}
+        if cached.is_some_and(|(_,at,_)|crate::app::clock::now().wrapping_sub(*at)<15*60*1000) {return fallback;}
         if self.pending.len()>=4 {return Some(fallback.unwrap_or(Reply{request:req,page:None}));}
         let (tx, rx) = mpsc::channel();
         let worker = req.clone();
@@ -55,7 +55,7 @@ impl Controller {
                             page: None,
                         });
                     if reply.request.seed.is_none(){
-                        if let Some(page)=&reply.page {self.home=Some((reply.request.profile,std::time::Instant::now(),page.clone()));}
+                        if let Some(page)=&reply.page {self.home=Some((reply.request.profile,crate::app::clock::now(),page.clone()));}
                         else if let Some((_,_,page))=self.home.as_ref().filter(|h|h.0==reply.request.profile){reply.page=Some(page.clone());}
                     }
                     return Some((who,reply));
@@ -74,7 +74,7 @@ mod tests {
         let _serial=crate::testlock::serial();
         let profile=crate::plex::session::current_gen();
         let req=Request{profile,serial:1,seed:None,name:"Discover".into(),sid:crate::plex::ServerId::UNSET};
-        let mut controller=Controller{home:Some((profile,std::time::Instant::now(),crate::discovery::Page{label:"Cached live feed".into(),..Default::default()})),..Default::default()};
+        let mut controller=Controller{home:Some((profile,crate::app::clock::now(),crate::discovery::Page{label:"Cached live feed".into(),..Default::default()})),..Default::default()};
         let(tx,rx)=mpsc::channel();tx.send(Reply{request:req.clone(),page:None}).unwrap();
         controller.pending.push((InstanceId(1),req.clone(),rx));
         assert_eq!(controller.poll().unwrap().1.page.unwrap().label,"Cached live feed");
