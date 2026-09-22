@@ -1,0 +1,105 @@
+{
+  "playback": true,
+  "description": "Begin on confirmed local movie detail, Play focused. Authorized playback; stop on route mismatch.",
+  "steps": [
+    {
+      "name": "01-play-start",
+      "before": "(?:search/)?detail",
+      "keys": [
+        "OK"
+      ],
+      "settle": 15,
+      "after": "player/none",
+      "review": "First decoded video and normal playback",
+      "covers": [
+        "playback-start"
+      ]
+    },
+    {
+      "name": "02-playing",
+      "before": "player/none",
+      "settle": 8,
+      "after": "player/none",
+      "review": "Position advances; inspect heartbeat timing and video",
+      "covers": [
+        "playback-start"
+      ]
+    },
+    {
+      "name": "03-paused",
+      "before": "player/none",
+      "keys": [
+        "OK"
+      ],
+      "settle": 2,
+      "after": "player/none",
+      "review": "Pause HUD, upper clock and finish HH:MM",
+      "covers": [
+        "pause-resume",
+        "clocks"
+      ]
+    },
+    {
+      "name": "04-seek-burst",
+      "before": "player/none",
+      "keys": [
+        "RIGHT",
+        "RIGHT",
+        "RIGHT"
+      ],
+      "settle": 1.5,
+      "after": "player/none",
+      "review": "Tap burst auto-commits after debounce; preview requires separate held capture",
+      "covers": [
+        "seek-short"
+      ]
+    },
+    {
+      "name": "05-seek-committed",
+      "before": "player/none",
+      "settle": 6,
+      "after": "player/none",
+      "review": "Seek commits without reloading bar; paused state retained",
+      "covers": [
+        "seek-short"
+      ]
+    },
+    {
+      "name": "06-resumed",
+      "before": "player/none",
+      "keys": [
+        "OK"
+      ],
+      "settle": 8,
+      "after": "player/none",
+      "review": "Video advances after seek",
+      "covers": [
+        "pause-resume"
+      ]
+    },
+    {
+      "name": "07-short-backward-seek",
+      "before": "player/none",
+      "keys": [
+        "UP",
+        "LEFT"
+      ],
+      "settle": 4,
+      "after": "player/none",
+      "review": "Reveal hidden HUD, then short backward seek landing",
+      "covers": []
+    },
+    {
+      "name": "08-exit-to-detail",
+      "before": "player/none",
+      "keys": [
+        "BACK"
+      ],
+      "settle": 3,
+      "after": "(?:search/)?detail",
+      "review": "Clean exit and retained resume position",
+      "covers": []
+    }
+  ],
+  "group": "3-playback-details-watchlist"
+}

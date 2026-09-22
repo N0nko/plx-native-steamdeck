@@ -321,6 +321,7 @@ pub(crate) fn watch_names_show(d: &Detail) -> bool {
 /// A disc's slot (`[restart, trailer, watch]`) and the verb it unfurls to — `None` for the two PILLS.
 pub(crate) fn disc_verb(ctl: HeroCtl, name_show: bool) -> Option<(usize, &'static CStr)> {
     match (ctl, name_show) {
+        (HeroCtl::Versions,_)=>Some((5,VERSIONS_LABEL)),
         (HeroCtl::Repair,_)=>Some((3,c"Repair")),
         (HeroCtl::Prepare,_)=>Some((4,c"Get Ready")),
         (HeroCtl::Restart, _) => Some((0, PLAY_FROM_START_LABEL)),
@@ -389,7 +390,7 @@ pub(crate) struct HeroWidths {
     pub(crate) pill: f32,
     pub(crate) alt: f32,
     /// the five disc slots, in [`disc_verb`]'s slot order, each already unfurled
-    pub(crate) disc: [f32; 5],
+    pub(crate) disc: [f32; 6],
 }
 
 /// The accumulation itself, PURE: the drawn frame of control `i` in `set`, given both pills'
@@ -402,7 +403,8 @@ pub(crate) fn hero_btn_rect_at(set: HeroSet, i: usize, y: f32, cw: HeroWidths) -
         w = match c {
             HeroCtl::Play => cw.pill,
             HeroCtl::Repair=>cw.disc[3],HeroCtl::Prepare=>cw.disc[4],
-            HeroCtl::Alt | HeroCtl::Versions => cw.alt,
+            HeroCtl::Alt => cw.alt,
+            HeroCtl::Versions => cw.disc[5],
             HeroCtl::Restart => cw.disc[0],
             HeroCtl::Trailer => cw.disc[1],
             HeroCtl::MarkWatched | HeroCtl::MarkUnwatched => cw.disc[2],
@@ -425,11 +427,11 @@ pub(crate) fn hero_btn_rect_at(set: HeroSet, i: usize, y: f32, cw: HeroWidths) -
 pub(crate) fn disc_caps(
     measure: &dyn Measure,
     set: HeroSet,
-    unfurl: [f32; 5],
+    unfurl: [f32; 6],
     named_show: bool,
-) -> [f32; 5] {
+) -> [f32; 6] {
     let (v, n) = hero_ctls(set);
-    let mut label_w = [0.0f32; 5];
+    let mut label_w = [0.0f32; 6];
     for &c in &v[..n] {
         if let Some((slot, label)) = disc_verb(c, named_show) {
             label_w[slot] = measure.width(label, theme::size::BODY, true);
@@ -448,25 +450,25 @@ pub(super) fn disc_caps_at(
     set: HeroSet,
     pill: f32,
     alt: f32,
-    unfurl: [f32; 5],
-    label_w: [f32; 5],
-) -> [f32; 5] {
+    unfurl: [f32; 6],
+    label_w: [f32; 6],
+) -> [f32; 6] {
     let (_, n) = hero_ctls(set);
     let closed = HeroWidths {
         pill,
         alt,
-        disc: [CD; 5],
+        disc: [CD; 6],
     };
     let last = hero_btn_rect_at(set, n.saturating_sub(1), 0.0, closed);
     let budget = CircleButton::label_budget(CD, FACTS_R - (last.x + last.w));
     if label_w.iter().copied().fold(0.0f32, f32::max) > budget {
-        return [CD; 5];
+        return [CD; 6];
     }
     let open = [
         CircleButton::cap_w(CD, unfurl[0], label_w[0]),
         CircleButton::cap_w(CD, unfurl[1], label_w[1]),
         CircleButton::cap_w(CD, unfurl[2], label_w[2]),
-        CircleButton::cap_w(CD,unfurl[3],label_w[3]),CircleButton::cap_w(CD,unfurl[4],label_w[4]),
+        CircleButton::cap_w(CD,unfurl[3],label_w[3]),CircleButton::cap_w(CD,unfurl[4],label_w[4]),CircleButton::cap_w(CD,unfurl[5],label_w[5]),
     ];
     let last_open = hero_btn_rect_at(
         set,
@@ -479,7 +481,7 @@ pub(super) fn disc_caps_at(
         },
     );
     if last_open.x + last_open.w > FACTS_R + 0.01 {
-        return [CD; 5];
+        return [CD; 6];
     }
     open
 }
@@ -491,7 +493,7 @@ pub(crate) fn hero_widths(
     measure: &dyn Measure,
     set: HeroSet,
     has_restart: bool,
-    unfurl: [f32; 5],
+    unfurl: [f32; 6],
     named_show: bool,
 ) -> HeroWidths {
     HeroWidths {
@@ -792,16 +794,18 @@ fn facts_flow(
     dx
 }
 
-pub(crate) fn draw_facts(p: Painter, d: &Detail, y: f32, measure: &dyn crate::ui::machine::Measure) {
+pub(crate) fn draw_facts(p: Painter, d: &Detail, y: f32, status: &str, measure: &dyn crate::ui::machine::Measure) {
     let (date, extent) = hero_facts(d);
     let extent = extent.as_deref().unwrap_or("");
     let credit = crate::ui::fmt::shared_by(&d.source()).unwrap_or_default();
+    let status=crate::text::elide_by(status,320.0,false,|t|measure.width_str(t,theme::size::CAPTION,false));
+    let status_w=if status.is_empty(){0.0}else{2.0*FACTS_SEP_PAD+measure.width(c"·",theme::size::CAPTION,false)+measure.width_str(&status,theme::size::CAPTION,false)};
     let width = |fit: FactsFit| {
         facts_flow(
             &[date.as_str(), if fit.extent { extent } else { "" }],
             if fit.credit { &credit } else { "" },
             |text, _, size, _| measure.width_str(text, size, false),
-            |_, after| play_mode_w(d, after, measure),
+            |_, after| play_mode_w(d, after, measure)+status_w,
         )
     };
     let fit = facts_fit(
@@ -811,7 +815,7 @@ pub(crate) fn draw_facts(p: Painter, d: &Detail, y: f32, measure: &dyn crate::ui
     );
     let elided;
     let date = if fit.elide {
-        let budget = (FACTS_R - crate::ui::consts::MARGIN_X - play_mode_w(d, true, measure)).max(0.0);
+        let budget = (FACTS_R - crate::ui::consts::MARGIN_X - play_mode_w(d, true, measure)-status_w).max(0.0);
         elided = crate::text::elide_by(&date, budget, false, |t| {
             measure.width_str(t, theme::size::CAPTION, false)
         });
@@ -838,13 +842,34 @@ pub(crate) fn draw_facts(p: Painter, d: &Detail, y: f32, measure: &dyn crate::ui
                 })
                 .unwrap_or(0.0)
         },
-        |dx, after| draw_play_mode(p, d, crate::ui::consts::MARGIN_X + dx, y, after, measure),
+        |dx, after| {
+            let mode=draw_play_mode(p, d, crate::ui::consts::MARGIN_X + dx, y, after, measure);
+            if !status.is_empty(){
+                let x=crate::ui::consts::MARGIN_X+dx+mode+FACTS_SEP_PAD;
+                let sep=p.text(c"·".as_ptr(),x,y,theme::size::CAPTION,theme::TEXT_SEPARATOR,0,0);
+                if let Ok(text)=CString::new(status.as_str()){p.text(text.as_ptr(),x+sep+FACTS_SEP_PAD,y,theme::size::CAPTION,crate::ui::detail_layout::FACTS_INK,0,0);}
+            }
+            mode+status_w
+        },
     );
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn play_version_is_a_disc_until_focused_and_uses_the_same_hit_geometry() {
+        let measure=crate::ui::fixture::FixtureMeasure;
+        let set=HeroSet{versions:true,prepare:true,repair:true,..Default::default()};
+        let closed=hero_widths(&measure,set,false,[0.0;6],false);
+        let open=hero_widths(&measure,set,false,[0.0,0.0,0.0,0.0,0.0,1.0],false);
+        assert_eq!(disc_verb(HeroCtl::Versions,false),Some((5,VERSIONS_LABEL)));
+        assert_eq!(hero_btn_rect_at(set,1,0.0,closed).w,CD);
+        assert!(hero_btn_rect_at(set,1,0.0,open).w>CD);
+        let(_,n)=hero_ctls(set);let last=hero_btn_rect_at(set,n-1,0.0,open);
+        assert!(last.x+last.w<=FACTS_R);
+    }
 
     // TEST ONLY: this module's few call sites still read/write metadata as free functions, a
     // shape written for the old crate-global statics. A thread-confined store (same pattern as
@@ -1051,7 +1076,7 @@ mod tests {
         let cw = HeroWidths {
             pill: 200.0,
             alt: 260.0,
-            disc: [CD;5],
+            disc: [CD;6],
         };
         for restart in [false, true] {
             for alt in [false, true] {
@@ -1462,7 +1487,7 @@ mod tests {
         let widths = HeroWidths {
             pill: 210.0,
             alt: 300.0,
-            disc: [90.0,120.0,120.0,CD,CD],
+            disc: [90.0,120.0,120.0,CD,CD,CD],
         };
         let (controls, n) = hero_ctls(set);
         for i in 1..n {
@@ -1491,17 +1516,17 @@ mod tests {
                         let set = set_full(restart, alt, mark, trailer);
                         let (_, n) = hero_ctls(set);
                         for labels in [
-                            [10.0, 12.0, 12.0, 0.0, 0.0],
-                            [201.0, 80.0, 316.0, 0.0, 0.0],
-                            [400.0, 400.0, 400.0, 0.0, 0.0],
-                            [900.0, 40.0, 40.0, 0.0, 0.0],
+                            [10.0, 12.0, 12.0, 0.0, 0.0, 0.0],
+                            [201.0, 80.0, 316.0, 0.0, 0.0, 0.0],
+                            [400.0, 400.0, 400.0, 0.0, 0.0, 0.0],
+                            [900.0, 40.0, 40.0, 0.0, 0.0, 0.0],
                         ] {
                             for e in [0.0_f32, 0.25, 0.5, 0.75, 1.0] {
                                 for unfurl in [
-                                    [e, 0.0, 1.0 - e, 0.0, 0.0],
-                                    [1.0 - e, 0.0, e, 0.0, 0.0],
-                                    [e, e, 0.0, 0.0, 0.0],
-                                    [0.0, e, e, 0.0, 0.0],
+                                    [e, 0.0, 1.0 - e, 0.0, 0.0, 0.0],
+                                    [1.0 - e, 0.0, e, 0.0, 0.0, 0.0],
+                                    [e, e, 0.0, 0.0, 0.0, 0.0],
+                                    [0.0, e, e, 0.0, 0.0, 0.0],
                                 ] {
                                     let disc = disc_caps_at(set, PW + 62.0, 340.0, unfurl, labels);
                                     let last = hero_btn_rect_at(
@@ -1536,7 +1561,7 @@ mod tests {
             alt: true,
             mark: PosterMark::Watched,
         };
-        let caps = disc_caps(&measure, wide, [1.0, 1.0, 1.0, 0.0, 0.0], true);
+        let caps = disc_caps(&measure, wide, [1.0, 1.0, 1.0, 0.0, 0.0, 0.0], true);
         let (_, n) = hero_ctls(wide);
         let last = hero_btn_rect_at(
             wide,
@@ -1560,7 +1585,7 @@ mod tests {
             alt: false,
             mark: PosterMark::Watched,
         };
-        let caps = disc_caps(&measure, roomy, [1.0, 1.0, 1.0, 0.0, 0.0], false);
+        let caps = disc_caps(&measure, roomy, [1.0, 1.0, 1.0, 0.0, 0.0, 0.0], false);
         assert!(caps[1] > CD, "Trailer unfurls when the row has room");
         assert!(caps[2] > CD, "Watch unfurls when the row has room");
     }
@@ -1587,7 +1612,7 @@ mod tests {
             alt: true,
             mark: PosterMark::Watched,
         };
-        assert_eq!(disc_caps(&HugeMeasure, set, [1.0, 1.0, 1.0, 0.0, 0.0], true), [CD; 5]);
+        assert_eq!(disc_caps(&HugeMeasure, set, [1.0, 1.0, 1.0, 0.0, 0.0, 0.0], true), [CD; 6]);
     }
 
     #[test]
@@ -1635,7 +1660,7 @@ mod tests {
             HeroWidths {
                 pill: PW + 62.0,
                 alt: 340.0,
-                disc: [CD; 5],
+                disc: [CD; 6],
             },
         );
         assert!(last.x + last.w < FACTS_R);

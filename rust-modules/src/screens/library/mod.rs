@@ -833,14 +833,8 @@ impl<H: LibraryLike> Machine<H> for LibraryScreen {
                 if let InputKind::Key { key: Key::Back, edge: Edge::Down, .. } = input.kind {
                     let cancelled = self.page_fade.cancel() | self.grid_fade.cancel();
                     if cancelled { self.pending.cancel(); return Handled::Yes; }
-                    if cx.focus.current.is_some_and(|key| key.entry == self.entry && region_of_elem(key.elem) == Some(KeyRegion::Rail)) {
-                        self.reseat(FocusTarget::ContainerGroup(self.pair.groups_config().detail), fx);
-                        return Handled::Yes;
-                    }
-                    if self.scroll_target > 0.5 {
-                        self.scroll_target = 0.0;
-                        self.reseat(FocusTarget::ContainerGroup(self.first_group()), fx);
-                    } else { fx.push(Fx::App(AppFx::Library(LibraryReq::BackToHome { kind: self.kind }))); }
+                    self.scroll_target = 0.0;
+                    fx.push(Fx::App(AppFx::Library(LibraryReq::BackToHome { kind: self.kind })));
                     return Handled::Yes;
                 }
             }

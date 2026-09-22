@@ -18,6 +18,8 @@ pub(crate) enum DiscoverySeed {
     Title { id: String },
     /// Provider Role.id, confirmed by its /library/people/<id> key; not a numeric PMS tag.
     Person { id: String },
+    /// A validated, provider-supplied browse key, confined to the Discover origin.
+    Hub { key:String },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -259,6 +261,7 @@ fn discover_with(
     mut get: impl FnMut(&str) -> Option<Vec<u8>>,
 ) -> Option<DiscoveryPage> {
     match seed {
+        DiscoverySeed::Hub{..}=>None, // Hub pages use discovery_home's indexed-feed protocol.
         DiscoverySeed::Title { id } => {
             if !valid_id(id) {
                 return None;
@@ -369,7 +372,7 @@ fn parse_search(bytes: &[u8]) -> Option<Vec<Metadata>> {
                     && valid_id(&m.rating_key)
                     && m.guid == format!("plex://{}/{}", m.kind, m.rating_key)
             })
-            .take(24)
+            .take(60)
             .collect(),
     )
 }
@@ -436,7 +439,7 @@ impl AccountClient {
     }
     pub(crate) fn catalog_search(&self, query: &str) -> Option<Vec<Metadata>> {
         let q = crate::pms::urlenc_str(query);
-        let r = self.catalog_request(&format!("{DISCOVER}/library/search?query={q}&limit=12&searchTypes=movies%2Ctv&searchProviders=discover&includeMetadata=1"), "GET")?;
+        let r = self.catalog_request(&format!("{DISCOVER}/library/search?query={q}&limit=60&searchTypes=movies%2Ctv&searchProviders=discover&includeMetadata=1"), "GET")?;
         parse_search(&r.body)
     }
     pub(crate) fn watchlisted(&self, id: &str) -> Option<bool> {

@@ -1,15 +1,16 @@
 //! Bounded, profile-scoped discovery home feeds.
 const DISCOVER: &str = "https://discover.provider.plex.tv";
-pub(crate) const HOME_ROWS: usize = 3;
-const HOME_ITEMS: usize = 12;
+pub(crate) const HOME_ROWS: usize = 64;
+const HOME_ITEMS: usize = 60;
+const HOME_HUBS: usize = 32;
 const HOME_BYTES: usize = 2 * 1024 * 1024;
-const HOME_INDEX: &str = "https://discover.provider.plex.tv/hubs/sections/home?count=12";
+const HOME_INDEX: &str = "https://discover.provider.plex.tv/hubs/sections/home?count=60";
 const HOME_DEADLINE: std::time::Duration = std::time::Duration::from_secs(20);
 
-fn safe_home_key(key: &str) -> bool {
+pub(crate) fn safe_home_key(key: &str) -> bool {
     key.len() <= 512
-        && key
-            .strip_prefix("/hubs/sections/home/")
+        && ["/hubs/sections/home/","/library/categories/","/library/awards/","/library/decades/"]
+            .iter().find_map(|prefix|key.strip_prefix(prefix))
             .is_some_and(|tail| {
                 tail.split('/').all(|part| {
                     !part.is_empty()
@@ -26,26 +27,9 @@ fn home_timeout(elapsed: std::time::Duration) -> Option<u64> {
     (seconds > 0).then_some(seconds)
 }
 
-fn home_hub_rank(hub: &serde_json::Value) -> u8 {
-    // These public feeds do not depend on friends or configured streaming services.
-    match hub.get("key").and_then(serde_json::Value::as_str) {
-        Some("/hubs/sections/home/top_watchlisted") => 0,
-        Some("/hubs/sections/home/coming-soon") => 1,
-        Some("/hubs/sections/home/highly-anticipated-movies") => 2,
-        _ if hub
-            .get("hubIdentifier")
-            .and_then(serde_json::Value::as_str)
-            .is_some_and(|id| id.contains("trending")) =>
-        {
-            3
-        }
-        _ => 4,
-    }
-}
-
-fn discovery_home_with(mut get: impl FnMut(&str) -> Option<Vec<u8>>) -> Option<Vec<DiscoveryHub>> {
+fn discovery_home_with(index_url:&str, mut get: impl FnMut(&str) -> Option<Vec<u8>>) -> Option<Vec<DiscoveryHub>> {
     use serde_json::Value;
-    let index = get(HOME_INDEX)?;
+    let index = get(index_url)?;
     let initial = parse_discovery_home(&index)?;
     if initial.len() == HOME_ROWS {
         return Some(initial);
@@ -55,16 +39,15 @@ fn discovery_home_with(mut get: impl FnMut(&str) -> Option<Vec<u8>>) -> Option<V
         return Some(initial);
     };
     let hubs = hubs.as_array_mut()?;
-    hubs.sort_by_key(home_hub_rank);
     let mut seen = std::collections::HashSet::new();
     let mut fetched = 0;
     let mut failed = 0;
     for hub in hubs.iter_mut() {
-        if fetched == HOME_ROWS {
+        if fetched == HOME_HUBS {
             break;
         }
         if hub
-            .get("Metadata")
+            .get("Metadata").or_else(|| hub.get("Directory"))
             .and_then(Value::as_array)
             .is_some_and(|rows| !rows.is_empty())
         {
@@ -72,7 +55,7 @@ fn discovery_home_with(mut get: impl FnMut(&str) -> Option<Vec<u8>>) -> Option<V
         }
         if !matches!(
             hub.get("type").and_then(Value::as_str),
-            Some("movie" | "show" | "mixed")
+            Some("movie" | "show" | "mixed" | "clip" | "directory")
         ) {
             continue;
         }
@@ -99,8 +82,8 @@ fn discovery_home_with(mut get: impl FnMut(&str) -> Option<Vec<u8>>) -> Option<V
         .and_then(|body| serde_json::from_slice::<Value>(&body).ok())
         .and_then(|page| {
             let container = page.get("MediaContainer")?.as_object()?;
-            if let Some(rows) = container.get("Metadata") {
-                return rows.as_array().cloned();
+            if let Some(rows) = container.get("Metadata").or_else(||container.get("Directory")) {
+                return rows.as_array().cloned().map(|rows|(container.contains_key("Directory"),rows));
             }
             // A leaf may wrap its items in Hub; never recurse into another index.
             let nested = container.get("Hub")?.as_array()?;
@@ -108,15 +91,15 @@ fn discovery_home_with(mut get: impl FnMut(&str) -> Option<Vec<u8>>) -> Option<V
                 .iter()
                 .filter_map(|h| h.get("Metadata")?.as_array())
                 .collect();
-            (!arrays.is_empty()).then(|| arrays.into_iter().flatten().cloned().collect())
+            (!arrays.is_empty()).then(|| (false,arrays.into_iter().flatten().cloned().collect()))
         });
-        if let Some(metadata) = metadata {
-            hub["Metadata"] = Value::Array(metadata);
+        if let Some((directory,metadata)) = metadata {
+            hub[if directory {"Directory"}else{"Metadata"}] = Value::Array(metadata);
         } else {
             failed += 1;
         }
     }
-    let rows = parse_discovery_home(&serde_json::to_vec(&wire).ok()?)?;
+    let rows = parse_discovery_home_value(&wire)?;
     crate::log(&format!(
         "discovery-home: hydrated fetched={fetched} failed={failed} rows={} items={}",
         rows.len(),
@@ -134,6 +117,23 @@ pub(crate) struct DiscoveryHub {
     pub title: String,
     pub kind: String,
     pub items: Vec<super::Metadata>,
+    pub directories: Vec<DiscoveryDirectory>,
+}
+pub(crate) struct DiscoveryDirectory {pub title:String,pub key:String,pub thumb:String}
+
+fn title_metadata(row:&serde_json::Value)->Option<super::Metadata>{
+    let mut row=row.clone();
+    if row.get("type")?.as_str()?=="clip" {
+        // Provider trailers explicitly identify their parent title; never use the clip's ID
+        // as a movie identity. The rail opens that title's catalog information.
+        let guid=row.get("primaryGuid")?.as_str()?.to_owned();
+        let (kind,id)=guid.strip_prefix("plex://")?.split_once('/')?;
+        if !matches!(kind,"movie"|"show") || !super::catalog::valid_id(id){return None;}
+        row["type"]=kind.into();row["ratingKey"]=id.into();row["guid"]=guid.clone().into();
+    }
+    let item:super::Metadata=serde_json::from_value(row).ok()?;
+    (matches!(item.kind.as_str(),"movie"|"show") && super::catalog::valid_id(&item.rating_key)
+        && item.guid==format!("plex://{}/{}",item.kind,item.rating_key) && !item.title.trim().is_empty()).then_some(item)
 }
 
 fn parse_discovery_home(bytes: &[u8]) -> Option<Vec<DiscoveryHub>> {
@@ -142,12 +142,15 @@ fn parse_discovery_home(bytes: &[u8]) -> Option<Vec<DiscoveryHub>> {
         return None;
     }
     let wire: Value = serde_json::from_slice(bytes).ok()?;
+    parse_discovery_home_value(&wire)
+}
+fn parse_discovery_home_value(wire:&serde_json::Value)->Option<Vec<DiscoveryHub>>{
+    use serde_json::Value;
     let container = wire.get("MediaContainer")?.as_object()?;
     let Some(hubs) = container.get("Hub") else {
         return Some(Vec::new());
     };
-    let mut hubs: Vec<_> = hubs.as_array()?.iter().collect();
-    hubs.sort_by_key(|h| home_hub_rank(h));
+    let hubs = hubs.as_array()?;
     let mut rows = Vec::new();
     let mut seen_hubs = std::collections::HashSet::new();
     for hub in hubs {
@@ -157,9 +160,6 @@ fn parse_discovery_home(bytes: &[u8]) -> Option<Vec<DiscoveryHub>> {
         if title.trim().is_empty() || title.len() > 256 || title.chars().any(char::is_control) {
             continue;
         }
-        let Some(metadata) = hub.get("Metadata").and_then(Value::as_array) else {
-            continue;
-        };
         let id = hub
             .get("hubIdentifier")
             .and_then(Value::as_str)
@@ -167,27 +167,25 @@ fn parse_discovery_home(bytes: &[u8]) -> Option<Vec<DiscoveryHub>> {
         if !seen_hubs.insert(id) {
             continue;
         }
-        let mixed = ["movie", "show"].iter().all(|kind| {
-            metadata
-                .iter()
-                .any(|m| m.get("type").and_then(Value::as_str) == Some(kind))
-        });
-        for (kind, label) in [("movie", "Movies"), ("show", "TV Shows")] {
+        if let Some(dirs)=hub.get("Directory").and_then(Value::as_array){
+            let mut seen=std::collections::HashSet::new();
+            let directories=dirs.iter().filter_map(|d|{
+                let key=d.get("key")?.as_str()?;let title=d.get("title")?.as_str()?;
+                if !safe_home_key(key) || title.trim().is_empty() || title.len()>256 || title.chars().any(char::is_control) || !seen.insert(key){return None;}
+                Some(DiscoveryDirectory{title:title.into(),key:key.into(),thumb:d.get("thumb").and_then(Value::as_str).unwrap_or("").into()})
+            }).take(HOME_ITEMS).collect::<Vec<_>>();
+            if !directories.is_empty(){rows.push(DiscoveryHub{title:title.into(),kind:"directory".into(),items:Vec::new(),directories});}
+            if rows.len()>=HOME_ROWS{return Some(rows);}
+            continue;
+        }
+        let Some(metadata)=hub.get("Metadata").and_then(Value::as_array) else {continue;};
+        let (movies,shows):(Vec<_>,Vec<_>)=metadata.iter().filter_map(title_metadata).partition(|m|m.kind=="movie");
+        let mixed = !movies.is_empty() && !shows.is_empty();
+        for (kind, label, metadata) in [("movie", "Movies",movies), ("show", "TV Shows",shows)] {
             let mut seen = std::collections::HashSet::new();
             let items: Vec<super::Metadata> = metadata
-                .iter()
-                .filter_map(|row| {
-                    let id = row.get("ratingKey")?.as_str()?;
-                    if row.get("type")?.as_str()? != kind
-                        || !super::catalog::valid_id(id)
-                        || row.get("guid")?.as_str()? != format!("plex://{kind}/{id}")
-                        || !seen.insert(id)
-                    {
-                        return None;
-                    }
-                    let item: super::Metadata = serde_json::from_value(row.clone()).ok()?;
-                    (!item.title.trim().is_empty()).then_some(item)
-                })
+                .into_iter()
+                .filter(|m|seen.insert(m.rating_key.clone()))
                 .take(HOME_ITEMS)
                 .collect();
             if items.is_empty() {
@@ -201,6 +199,7 @@ fn parse_discovery_home(bytes: &[u8]) -> Option<Vec<DiscoveryHub>> {
                 },
                 kind: kind.into(),
                 items,
+                directories:Vec::new(),
             });
             if rows.len() == HOME_ROWS {
                 return Some(rows);
@@ -361,9 +360,10 @@ fn discovery_home_container_diagnostic(body: &[u8]) -> String {
     )
 }
 
-/// Index plus at most three advertised hub GETs, 2 MiB each and one 20-second deadline.
+/// Index plus at most 32 advertised hub GETs, 2 MiB each and one 20-second deadline.
 /// One active-profile credential, fixed provider, no redirects, retries or recursive hydration.
-pub(crate) fn discovery_home(generation: u32) -> Option<Vec<DiscoveryHub>> {
+pub(crate) fn discovery_at(generation:u32,key:Option<&str>)->Option<Vec<DiscoveryHub>>{
+    let url=match key {Some(key) if safe_home_key(key)=>format!("{DISCOVER}{key}?count={HOME_ITEMS}&X-Plex-Container-Size={HOME_ITEMS}"),Some(_)=>return None,None=>HOME_INDEX.into()};
     if generation != super::session::current_gen() {
         crate::log("discovery-home: cancelled stage=before-auth stale=true");
         return None;
@@ -374,7 +374,7 @@ pub(crate) fn discovery_home(generation: u32) -> Option<Vec<DiscoveryHub>> {
     };
     let headers = account.headers();
     let start = std::time::Instant::now();
-    let rows = discovery_home_with(|url| {
+    let rows = discovery_home_with(&url,|url| {
         if generation != super::session::current_gen() {
             crate::log("discovery-home: cancelled stage=before-request stale=true");
             return None;
@@ -426,5 +426,45 @@ pub(crate) fn discovery_home(generation: u32) -> Option<Vec<DiscoveryHub>> {
         }
         (response.status == 200 && !stale).then_some(response.body)
     })?;
-    (generation == super::session::current_gen() && start.elapsed() < HOME_DEADLINE).then_some(rows)
+    (generation == super::session::current_gen()).then_some(rows)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    #[test]
+    fn provider_order_and_more_than_twelve_items_are_preserved(){
+        let items=(0..40).map(|i|json!({"type":"movie","ratingKey":format!("{i:024x}"),"guid":format!("plex://movie/{i:024x}"),"title":format!("Title {i}")})).collect::<Vec<_>>();
+        let wire=json!({"MediaContainer":{"Hub":[{"title":"New live seasonal shelf","Metadata":items},{"title":"Most Watchlisted","Metadata":[{"type":"show","ratingKey":"0123456789abcdef01234567","guid":"plex://show/0123456789abcdef01234567","title":"Show"}]}]}});
+        let rows=parse_discovery_home(&serde_json::to_vec(&wire).unwrap()).unwrap();
+        assert_eq!(rows[0].title,"New live seasonal shelf");assert_eq!(rows[0].items.len(),40);assert_eq!(rows.len(),2);
+    }
+    #[test]
+    fn dynamic_index_hydrates_directories_and_trailer_parent_identity(){
+        let rows=discovery_home_with(HOME_INDEX,|url|Some(serde_json::to_vec(&if url==HOME_INDEX {
+            json!({"MediaContainer":{"Hub":[{"type":"directory","title":"Browse by Genre","key":"/hubs/sections/home/genres"},{"type":"clip","title":"New trailers","key":"/hubs/sections/home/new-trailers"}]}})
+        }else if url.contains("/genres?") {
+            json!({"MediaContainer":{"Directory":[{"title":"Action","key":"/library/categories/action"},{"title":"Bad","key":"https://evil.test"}]}})
+        }else {
+            json!({"MediaContainer":{"Metadata":[{"type":"clip","title":"Title","ratingKey":"clip","primaryGuid":"plex://movie/0123456789abcdef01234567"}]}})
+        }).unwrap())).unwrap();
+        assert_eq!(rows[0].directories.len(),1);assert_eq!(rows[1].items[0].rating_key,"0123456789abcdef01234567");
+    }
+    #[test]
+    fn provider_keys_cannot_escape_discovery_origin_or_read_arbitrary_routes(){
+        for key in ["https://evil.test/x","//evil.test/x","/library/metadata/42","/library/categories/../x","/library/categories/x?token=a","/library/categories/%2e%2e/x"]{assert!(!safe_home_key(key),"{key}");}
+        for key in ["/library/categories/action/trending-action","/library/awards/academy-awards/award_winners","/library/decades/2020"]{assert!(safe_home_key(key));}
+    }
+    #[test]
+    fn hydration_is_bounded_and_retains_success_before_a_failed_leaf(){
+        let mut calls=0;
+        let rows=discovery_home_with(HOME_INDEX,|url|{
+            if url==HOME_INDEX{return Some(serde_json::to_vec(&json!({"MediaContainer":{"Hub":(0..40).map(|i|json!({"title":format!("Feed {i}"),"type":"movie","key":format!("/hubs/sections/home/feed-{i}")})).collect::<Vec<_>>()}})).unwrap());}
+            calls+=1;
+            if calls>1{return None;}
+            Some(serde_json::to_vec(&json!({"MediaContainer":{"Metadata":(0..75).map(|i|json!({"title":format!("Film {i}"),"type":"movie","ratingKey":format!("{i:024x}"),"guid":format!("plex://movie/{i:024x}")})).collect::<Vec<_>>()}})).unwrap())
+        }).unwrap();
+        assert_eq!(calls,32);assert_eq!(rows.len(),1);assert_eq!(rows[0].items.len(),60);
+    }
 }

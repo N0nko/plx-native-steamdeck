@@ -35,6 +35,9 @@ pub(crate) fn seed(item: &Item) -> Option<DiscoverySeed> {
         Item::Media(m) | Item::Catalog(m) => &m.guid,
         Item::Tag(t) => &t.tag_key,
     };
+    if let Some(key)=guid.strip_prefix("plex-discovery:") {
+        return crate::plex::discovery_home::safe_home_key(key).then(||DiscoverySeed::Hub{key:key.into()});
+    }
     let (kind, id) = guid.strip_prefix("plex://")?.split_once('/')?;
     if !crate::plex::catalog::valid_id(id) {
         return None;
@@ -107,7 +110,7 @@ pub(crate) fn fetch(req: &Request) -> Option<Page> {
         label: req.name.clone(),
         ..Default::default()
     };
-    if let Some(seed) = &req.seed {
+    if let Some(seed) = req.seed.as_ref().filter(|s|!matches!(s,DiscoverySeed::Hub{..})) {
         let raw = crate::plex::catalog::active_client()?.discover_related(seed)?;
         for kind in ["movie", "show"] {
             let items = raw
@@ -133,6 +136,7 @@ pub(crate) fn fetch(req: &Request) -> Option<Page> {
                 page.headings.push(match seed {
                     DiscoverySeed::Title { .. } => format!("More like {} · {}", req.name, kind),
                     DiscoverySeed::Person { .. } => format!("With {} · {}", req.name, kind),
+                    DiscoverySeed::Hub {..} => req.name.clone(),
                 });
             }
         }
@@ -159,20 +163,21 @@ pub(crate) fn fetch(req: &Request) -> Option<Page> {
             page.headings.push(format!("Cast of {}", req.name));
         }
     } else {
-        page.label = "Discover".into();
-        for hub in crate::plex::discovery_home::discovery_home(req.profile)? {
+        let key=match &req.seed {Some(DiscoverySeed::Hub{key})=>Some(key.as_str()),_=>None};
+        page.label = if key.is_some(){req.name.clone()}else{"Discover".into()};
+        for hub in crate::plex::discovery_home::discovery_at(req.profile,key)? {
             page.headings.push(hub.title);
             page.rows.push(Shelf {
-                kind: if hub.kind == "show" {
+                kind: if hub.kind=="directory" {Kind::Directory} else if hub.kind == "show" {
                     Kind::Show
                 } else {
                     Kind::Movie
                 },
-                items: hub
+                items: if hub.kind=="directory" {hub.directories.into_iter().map(|d|Item::Tag(TagHit{sid:req.sid,name:d.title,tag_key:format!("plex-discovery:{}",d.key),thumb:d.thumb,..Default::default()})).collect()}else{hub
                     .items
                     .iter()
                     .map(|m| Item::Catalog(crate::pms::parse_item(m, req.sid)))
-                    .collect(),
+                    .collect()},
             });
         }
     }

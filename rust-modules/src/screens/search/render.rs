@@ -27,9 +27,9 @@ pub(super) struct Resources {
     scope_line: Option<CString>,
     recents: Option<crate::search::recents::RecentsSnapshot>,
     recent_runs: Vec<CString>,
-    titles: [CString; 10],
-    count_keys: [Option<(Kind, usize)>; 10],
-    counts: [CString; 10],
+    titles: Vec<CString>,
+    count_keys: Vec<Option<(Kind, usize)>>,
+    counts: Vec<CString>,
     owner: CString,
 }
 
@@ -102,7 +102,10 @@ impl Resources {
                 .collect();
             self.recents = Some(recents.clone());
         }
-        for i in 0..10 {
+        self.titles.resize_with(shown.rows.len(),CString::default);
+        self.count_keys.resize(shown.rows.len(),None);
+        self.counts.resize_with(shown.rows.len(),CString::default);
+        for i in 0..shown.rows.len() {
             let title=shown.headings.get(i).map_or("",String::as_str);
             if self.titles[i].to_bytes()!=title.as_bytes(){self.titles[i]=cstring(title);}
             let key=shown.rows.get(i).map(|s|(s.kind,s.items.len()));
@@ -408,6 +411,13 @@ pub(super) fn tile<H: SearchLike>(
     let scale = pop * press;
     let rect = rest.scaled(scale);
     if !crate::ui::on_axis(rect.x, rect.w, SCR_W, 32.0) {
+        return;
+    }
+    if model.kind == Kind::Directory {
+        let title = cstring(&elide(item.title(), rect.w - 48.0, theme::size::LABEL, false, f.measure));
+        Button::new(title.as_ptr(), theme::size::LABEL, rect)
+            .style(crate::ui::widgets::ControlStyle::Glass).focused(focused).draw(&Env::inert(), p);
+        stop(screen, model.elems[col], ElemKind::Bare, f, p);
         return;
     }
     let art = match (model.kind, item) {

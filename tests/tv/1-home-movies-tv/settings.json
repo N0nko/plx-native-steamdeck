@@ -1,0 +1,92 @@
+{
+  "description": "Start from Home; inspect settings without changing preferences.",
+  "steps": [
+    {
+      "name": "01-account-menu",
+      "before": "home",
+      "keys": [
+        "UP",
+        "UP",
+        "LEFT",
+        "LEFT",
+        "LEFT",
+        "LEFT",
+        "LEFT",
+        "OK"
+      ],
+      "after": "home/account",
+      "covers": []
+    },
+    {
+      "name": "02-settings",
+      "before": "home/account",
+      "keys": [
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "OK"
+      ],
+      "after": "home/settings",
+      "covers": []
+    },
+    {
+      "name": "03-favorite-libraries",
+      "before": "home/settings",
+      "keys": [
+        "OK"
+      ],
+      "after": "home/onboard",
+      "covers": []
+    },
+    {
+      "name": "04-privacy",
+      "before": "home/onboard",
+      "keys": [
+        "BACK",
+        "DOWN",
+        "OK"
+      ],
+      "after": "home/privacy",
+      "covers": []
+    },
+    {
+      "name": "05-legal",
+      "before": "home/privacy",
+      "keys": [
+        "BACK",
+        "DOWN",
+        "OK"
+      ],
+      "after": "home/legal",
+      "covers": []
+    },
+    {
+      "name": "06-about",
+      "before": "home/legal",
+      "keys": [
+        "BACK",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "OK"
+      ],
+      "after": "home/legal",
+      "covers": []
+    },
+    {
+      "name": "07-home-return",
+      "keys": [
+        "BACK",
+        "BACK",
+        "BACK"
+      ],
+      "after": "home",
+      "covers": []
+    }
+  ],
+  "group": "1-home-movies-tv"
+}

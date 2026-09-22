@@ -1,0 +1,105 @@
+{
+  "playback": true,
+  "steps": [
+    {
+      "name": "01-pause-hud",
+      "before": "player/none",
+      "keys": [
+        "OK"
+      ],
+      "after": "player/none",
+      "covers": [
+        "pause-resume"
+      ]
+    },
+    {
+      "name": "02-subtitle-panel",
+      "before": "player/none",
+      "keys": [
+        "UP",
+        "OK"
+      ],
+      "after": "player/menu",
+      "covers": [
+        "subtitle-panel"
+      ]
+    },
+    {
+      "name": "03-audio-panel",
+      "before": "player/menu",
+      "keys": [
+        "LEFT"
+      ],
+      "after": "player/menu",
+      "covers": [
+        "audio-panel"
+      ]
+    },
+    {
+      "name": "04-subtitle-options",
+      "before": "player/menu",
+      "keys": [
+        "RIGHT",
+        "DOWN",
+        "DOWN"
+      ],
+      "after": "player/menu",
+      "covers": [
+        "subtitle-panel"
+      ]
+    },
+    {
+      "name": "05-more-quality",
+      "before": "player/menu",
+      "keys": [
+        "BACK",
+        "RIGHT",
+        "RIGHT",
+        "OK"
+      ],
+      "after": "player/more",
+      "covers": [
+        "quality"
+      ]
+    },
+    {
+      "name": "06-more-lower",
+      "before": "player/more",
+      "keys": [
+        "DOWN",
+        "DOWN",
+        "DOWN"
+      ],
+      "after": "player/more",
+      "covers": [
+        "quality"
+      ]
+    },
+    {
+      "name": "07-playing-info",
+      "before": "player/more",
+      "keys": [
+        "BACK",
+        "DOWN",
+        "DOWN",
+        "OK"
+      ],
+      "after": "player/info",
+      "covers": [
+        "player-info"
+      ]
+    },
+    {
+      "name": "08-return-to-detail",
+      "before": "player/info",
+      "keys": [
+        "BACK",
+        "BACK"
+      ],
+      "after": "search/detail",
+      "covers": []
+    }
+  ],
+  "group": "3-playback-details-watchlist",
+  "description": ""
+}

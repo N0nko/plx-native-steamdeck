@@ -17,6 +17,8 @@ import struct
 import subprocess
 import tempfile
 import time
+import threading
+from contextlib import contextmanager
 
 KEYS = {"UP": 103, "DOWN": 108, "LEFT": 105, "RIGHT": 106,
         "OK": 28, "BACK": 1, **{str(i): i + 1 for i in range(1, 10)}, "0": 11}
@@ -97,6 +99,50 @@ def main():
                     proc.kill()
                     proc.wait()
 
+        @contextmanager
+        def holding(key):
+            if not key:
+                yield
+                return
+            if key not in ('LEFT', 'RIGHT') or not args.allow_playback or state()[0] != 'player/none':
+                raise RuntimeError('Held seek requires authorized active playback with no overlay')
+            proc = subprocess.Popen(ssh + ['/bin/cat > /dev/input/event1'], stdin=subprocess.PIPE,
+                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            stop = threading.Event()
+            errors = []
+            def edge(value):
+                proc.stdin.write(struct.pack(fmt, 0, 0, 1, KEYS[key], value) + struct.pack(fmt, 0, 0, 0, 0, 0))
+                proc.stdin.flush()
+            def repeat():
+                try:
+                    edge(1)
+                    stop.wait(.35)
+                    while not stop.is_set():
+                        edge(2)
+                        stop.wait(.1)
+                except Exception as error:
+                    errors.append(error)
+                finally:
+                    try:
+                        edge(0)
+                    except (BrokenPipeError, OSError) as error:
+                        errors.append(error)
+            thread = threading.Thread(target=repeat)
+            thread.start()
+            try:
+                yield
+            finally:
+                stop.set()
+                thread.join(timeout=3)
+                proc.stdin.close()
+                try:
+                    proc.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait()
+                if errors or proc.returncode:
+                    raise RuntimeError('Held seek input failed; release was attempted')
+
         subprocess.run(['tools/tv-lock.sh', 'acquire', '--why', 'authorized batch UI/playback captures'],
                        cwd=root, env=env, check=True)
         try:
@@ -117,16 +163,17 @@ def main():
                 if step.get('before') and not re.fullmatch(step['before'], before):
                     raise RuntimeError(f'{name}: expected {step["before"]}, found {before}; stopped before input')
                 keys(step.get('keys', []), step.get('gap', .18))
-                time.sleep(step.get('settle', 1.3))
-                observed, beats = state()
-                path = '/tmp/plx-suite-' + name + '.png'
-                payload = json.dumps(dict(path=path, method='DISPLAY', width=1920, height=1080, format='PNG'))
-                response = remote('luna-send -n 1 luna://' + args.capture_service + '/executeOneShot ' + shlex.quote(payload), tty=True)
-                assert b'"returnValue":true' in response.replace(b' ', b''), 'Capture failed'
-                data = remote('cat ' + path)
-                assert data.startswith(b'\x89PNG'), 'Invalid screenshot'
-                (output / (name + '.png')).write_bytes(data)
-                remote('rm -f ' + path)
+                with holding(step.get('hold')):
+                    time.sleep(step.get('settle', 1.3))
+                    observed, beats = state()
+                    path = '/tmp/plx-suite-' + name + '.png'
+                    payload = json.dumps(dict(path=path, method='DISPLAY', width=1920, height=1080, format='PNG'))
+                    response = remote('luna-send -n 1 luna://' + args.capture_service + '/executeOneShot ' + shlex.quote(payload), tty=True)
+                    assert b'"returnValue":true' in response.replace(b' ', b''), 'Capture failed'
+                    data = remote('cat ' + path)
+                    assert data.startswith(b'\x89PNG'), 'Invalid screenshot'
+                    (output / (name + '.png')).write_bytes(data)
+                    remote('rm -f ' + path)
                 matched = not step.get('after') or re.fullmatch(step['after'], observed)
                 row = dict(step, observed=observed, status='route checked; visual review needed' if matched else 'ROUTE MISMATCH',
                            timestamp=time.time(), sha256=hashlib.sha256(data).hexdigest())

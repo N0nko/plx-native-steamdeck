@@ -32,6 +32,7 @@ pub(super) fn ordinal(kind: Kind) -> u32 {
         Kind::Episode => 2,
         Kind::Person => 3,
         Kind::Collection => 4,
+        Kind::Directory => 5,
     }
 }
 pub(super) fn group(kind: Kind) -> GroupId {
@@ -41,6 +42,7 @@ pub(super) fn style(kind: Kind) -> RowStyle {
     let (w, h, circular) = match kind {
         Kind::Episode => (420.0, 236.0, false),
         Kind::Person => (250.0, 250.0, true),
+        Kind::Directory => (380.0, 100.0, false),
         _ => (CARD_W, CARD_H, false),
     };
     RowStyle {

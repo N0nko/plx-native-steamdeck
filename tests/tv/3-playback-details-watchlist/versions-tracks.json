@@ -1,0 +1,47 @@
+{
+  "steps": [
+    {
+      "name": "01-versions",
+      "before": "search/detail",
+      "keys": [
+        "RIGHT",
+        "OK"
+      ],
+      "settle": 2,
+      "after": "search/versions",
+      "covers": []
+    },
+    {
+      "name": "02-version-audio",
+      "before": "search/versions",
+      "keys": [
+        "DOWN",
+        "DOWN"
+      ],
+      "after": "search/versions",
+      "covers": []
+    },
+    {
+      "name": "03-version-subtitles",
+      "before": "search/versions",
+      "keys": [
+        "DOWN",
+        "DOWN"
+      ],
+      "after": "search/versions",
+      "covers": []
+    },
+    {
+      "name": "04-detail-play-focus",
+      "before": "search/versions",
+      "keys": [
+        "BACK",
+        "LEFT"
+      ],
+      "after": "search/detail",
+      "covers": []
+    }
+  ],
+  "group": "3-playback-details-watchlist",
+  "description": ""
+}

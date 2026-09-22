@@ -1,0 +1,117 @@
+{
+  "description": "Start from Home. Capture library shelves, poster grids and TV series destination.",
+  "steps": [
+    {
+      "name": "01-movies-library",
+      "before": "home",
+      "keys": [
+        "UP",
+        "UP",
+        "LEFT",
+        "LEFT",
+        "LEFT",
+        "LEFT",
+        "LEFT",
+        "RIGHT",
+        "RIGHT",
+        "OK"
+      ],
+      "settle": 4,
+      "after": "library",
+      "covers": []
+    },
+    {
+      "name": "02-movie-shelf",
+      "before": "library",
+      "keys": [
+        "DOWN"
+      ],
+      "after": "library",
+      "covers": []
+    },
+    {
+      "name": "03-movie-grid",
+      "before": "library",
+      "keys": [
+        "DOWN",
+        "DOWN",
+        "DOWN"
+      ],
+      "after": "library",
+      "covers": []
+    },
+    {
+      "name": "04-movie-lower-grid",
+      "before": "library",
+      "keys": [
+        "DOWN",
+        "DOWN",
+        "DOWN"
+      ],
+      "after": "library",
+      "covers": []
+    },
+    {
+      "name": "05-shows-library",
+      "before": "library",
+      "keys": [
+        "UP",
+        "UP",
+        "UP",
+        "UP",
+        "UP",
+        "UP",
+        "UP",
+        "UP",
+        "UP",
+        "UP",
+        "UP",
+        "UP",
+        "LEFT",
+        "LEFT",
+        "LEFT",
+        "LEFT",
+        "LEFT",
+        "RIGHT",
+        "RIGHT",
+        "RIGHT",
+        "OK"
+      ],
+      "settle": 4,
+      "after": "library",
+      "covers": []
+    },
+    {
+      "name": "06-show-shelf",
+      "before": "library",
+      "keys": [
+        "DOWN"
+      ],
+      "after": "library",
+      "covers": []
+    },
+    {
+      "name": "07-show-grid",
+      "before": "library",
+      "keys": [
+        "DOWN",
+        "DOWN",
+        "DOWN"
+      ],
+      "after": "library",
+      "covers": []
+    },
+    {
+      "name": "08-show-lower-grid",
+      "before": "library",
+      "keys": [
+        "DOWN",
+        "DOWN",
+        "DOWN"
+      ],
+      "after": "library",
+      "covers": []
+    }
+  ],
+  "group": "1-home-movies-tv"
+}

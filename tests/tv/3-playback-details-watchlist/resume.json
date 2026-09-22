@@ -1,0 +1,20 @@
+{
+  "playback": true,
+  "steps": [
+    {
+      "name": "01-resume",
+      "before": "search/detail",
+      "keys": [
+        "RIGHT",
+        "LEFT",
+        "OK"
+      ],
+      "settle": 12,
+      "after": "player/none",
+      "review": "Confirm resumed position using playback telemetry",
+      "covers": []
+    }
+  ],
+  "group": "3-playback-details-watchlist",
+  "description": ""
+}

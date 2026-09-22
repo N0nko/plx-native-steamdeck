@@ -1888,13 +1888,10 @@ impl<H: HomeLike> Machine<H> for HomeScreen {
                 if self.snap_target >= 0.5
                     || self.snap.pos >= 0.5
                     || self.focused_grid(cx.focus.current).is_some()
+                    || cx.focus.current.is_some_and(|key|key.entry==self.entry && key.elem<crate::ui::dispatch::STRIP_BASE)
                 {
                     self.snap_target = 0.0;
-                    self.visible_activation = cx
-                        .focus
-                        .current
-                        .filter(|key| key.entry == self.entry)
-                        .map(|_| HERO_PLAY_ELEM);
+                    self.visible_activation = None;
                     fx.push(Fx::App(AppFx::Home(HomeReq::FoldToHero)));
                     fx.invalidate(Provenance::Input);
                 } else {

@@ -123,7 +123,7 @@ fn bare(_guard: &crate::testlock::Serial, sid: ServerId, rk: &str) -> DetailScre
         tabs: TabStrip::new(),
         season_pop: CtlPop::new(),
         companion:None,companion_at:None,companion_confirm:None,companion_profile:0,ctl_pop: CtlPop::new(),
-        disc_unfurl: [Spring::at(0.0); 5],
+        disc_unfurl: [Spring::at(0.0); 6],
         season_metrics: season::Metrics::new(),
         about_rows: about::Rows::new(),
         ground: AmbientWash::flat(theme::SURFACE_APP),
@@ -1059,7 +1059,7 @@ fn a_pointer_lands_on_the_capsule_the_unfurl_drew() {
     let index = hero::watch_index(set).unwrap();
     assert_eq!(hero::ctl_at(set, index - 1), Some(hero::HeroCtl::Restart));
     for unfurl in [0.2, 0.6, 1.0] {
-        let disc = hero::disc_caps_at(set, 230.0, 0.0, [0.0,0.0,unfurl,0.0,0.0],[201.0,0.0,267.0,0.0,0.0]);
+        let disc = hero::disc_caps_at(set, 230.0, 0.0, [0.0,0.0,unfurl,0.0,0.0,0.0],[201.0,0.0,267.0,0.0,0.0, 0.0]);
         let widths = hero::HeroWidths {
             pill: 230.0,
             alt: 0.0,
@@ -1130,12 +1130,12 @@ fn hero_action_row_hit_matches_the_drawn_controls_at_every_set_size() {
                     assert_eq!(n, 2 + usize::from(restart) + usize::from(alt));
                     sizes.insert(n);
                     for unfurl in [
-                        [0.0,0.0,0.0,0.0,0.0],
-                        [0.0,0.0,1.0,0.0,0.0],
-                        [0.0,1.0,0.0,0.0,0.0],
-                        [0.3,0.0,0.7,0.0,0.0],
-                        [1.0,0.0,0.0,0.0,0.0],
-                        [0.0,1.0,1.0,0.0,0.0],
+                        [0.0,0.0,0.0,0.0,0.0, 0.0],
+                        [0.0,0.0,1.0,0.0,0.0, 0.0],
+                        [0.0,1.0,0.0,0.0,0.0, 0.0],
+                        [0.3,0.0,0.7,0.0,0.0, 0.0],
+                        [1.0,0.0,0.0,0.0,0.0, 0.0],
+                        [0.0,1.0,1.0,0.0,0.0, 0.0],
                     ] {
                         screen.disc_unfurl = unfurl.map(Spring::at);
                         for scroll in [0.0, 48.0] {

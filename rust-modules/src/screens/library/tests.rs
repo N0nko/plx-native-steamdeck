@@ -41,6 +41,23 @@ const ENTRY: EntryId = EntryId(81);
 const OWNER: InputOwner = InputOwner::Entry(ENTRY);
 
 #[test]
+fn back_from_scrolled_library_requests_top_navigation_without_an_extra_scroll_only_step() {
+    let _guard = crate::testlock::serial();
+    let fixture = Fixture::new();
+    let mut page = fixture.screen();
+    page.scroll_target = 1800.0;
+    let mut output = Vec::new();
+    let mut present = crate::ui::present::Present::new();
+    let event = ScreenEvent::Input(crate::ui::machine::InputEvent {
+        at: Tick::default(), source: crate::ui::machine::Source::Script,
+        kind: InputKind::Key { key:Key::Back, sym:0, wcode:0, edge:Edge::Down, at_edge:false },
+    });
+    page.step(&event, &fixture.cx(None), &mut Effects::new(&mut output, MachineId::Instance(InstanceId(19)), &mut present));
+    assert_eq!(page.scroll_target, 0.0);
+    assert!(output.iter().any(|e|matches!(e.fx,Fx::App(AppFx::Library(LibraryReq::BackToHome{kind:SecKind::Movie})))));
+}
+
+#[test]
 fn grid_paint_window_keeps_cards_above_the_centered_tab_track() {
     let _guard = crate::testlock::serial();
     let fixture = Fixture::new();

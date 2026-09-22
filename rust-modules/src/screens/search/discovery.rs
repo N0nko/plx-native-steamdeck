@@ -36,6 +36,7 @@ impl Browse {
                 crate::plex::catalog::DiscoverySeed::Person { id } => {
                     c.u32(1).str(id);
                 }
+                crate::plex::catalog::DiscoverySeed::Hub { key } => {c.u32(2).str(key);}
             }
             page.write(c);
         }
@@ -62,6 +63,7 @@ impl Browse {
                     crate::plex::catalog::DiscoverySeed::Person { id } => {
                         c.u32(1).str(id);
                     }
+                    crate::plex::catalog::DiscoverySeed::Hub { key } => {c.u32(2).str(key);}
                 });
             });
         }
@@ -193,7 +195,7 @@ impl SearchScreen {
         }
         if reply.request.seed.is_none() {
             self.discovery.home_failed = page.is_none();
-            self.discovery.home = page;
+            if page.is_some(){self.discovery.home = page;}
         } else if self.discovery.request.as_ref() == Some(&reply.request) {
             if let Some(p) = &page {
                 if self.discovery.cache.len() == 8 {
@@ -211,6 +213,7 @@ impl SearchScreen {
         self.content_dirty = true;
         self.sync(cx, false, fx);
         fx.invalidate(Provenance::Input);
+        if reply.request.seed.is_none(){return;}
         if let Some(elem) = self.discovery.pending_down.take() {
             if cx.focus.current == Some(self.key(elem)) {
                 self.discover_enter(0, 0, elem, fx);

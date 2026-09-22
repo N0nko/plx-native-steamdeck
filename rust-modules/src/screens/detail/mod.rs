@@ -197,7 +197,7 @@ pub(crate) struct DetailScreen {
     season_pop: CtlPop<1>,
     companion:Option<crate::media_companion::Snapshot>,companion_at:Option<u32>,companion_confirm:Option<crate::media_companion::Action>,companion_profile:u32,
     ctl_pop: CtlPop<8>,
-    disc_unfurl: [Spring; 5],
+    disc_unfurl: [Spring; 6],
     season_metrics: season::Metrics,
     about_rows: about::Rows,
     /// The page's own keyed ground. Deliberately a bare [`AmbientWash`] and not the shared
@@ -381,7 +381,7 @@ impl DetailScreen {
             season_pop: CtlPop::new(),
             companion:None,companion_at:None,companion_confirm:None,companion_profile:0,
             ctl_pop: CtlPop::new(),
-            disc_unfurl: [Spring::at(0.0); 5],
+            disc_unfurl: [Spring::at(0.0); 6],
             season_metrics: season::Metrics::new(),
             about_rows: about::Rows::new(),
             ground,
@@ -2220,7 +2220,8 @@ impl DetailScreen {
             );
         }
         if let Some(d) = d {
-            hero::draw_facts(chrome, d, chain.facts_y, cx.measure);
+            let status=self.companion.as_ref().filter(|s|s.configured && self.companion_target(meta).as_ref()==Some(&s.key)).map_or("",|s|s.label.as_str());
+            hero::draw_facts(chrome, d, chain.facts_y, status, cx.measure);
             hero::draw_people(chrome, d, chain.btn_y, measure);
         }
         // Full-trailer mode takes the action row with the rest of the page: the viewer asked for
@@ -2353,11 +2354,9 @@ impl DetailScreen {
         // fades every button through `chrome`'s `preview_chrome` alpha (`draw_hero`), and cutting
         // four of the five pills here a frame early defeats that fade before it can be seen.
         let (controls, n) = hero::hero_ctls(set);
-        if let Some(state)=&self.companion {
-            if state.configured && self.companion_target(meta).as_ref()==Some(&state.key) {
-                let status=match self.companion_confirm {Some(crate::media_companion::Action::Prepare)=>"Press Get Ready again to confirm",Some(crate::media_companion::Action::Repair)=>"Press Repair again to confirm",_=>state.label.as_str()};
-                crate::ui::text_view::TextView::new(status,theme::size::CAPTION,theme::TEXT_SECONDARY).with_measure(cx.measure).max_lines(1).draw(p,Rect::new(crate::ui::consts::MARGIN_X,y-self.scroll.pos+hero::CD+8.0,900.0,0.0));
-            }
+        if let Some(action)=self.companion_confirm {
+            let status=match action {crate::media_companion::Action::Prepare=>"Press Get Ready again to confirm",crate::media_companion::Action::Repair=>"Press Repair again to confirm",crate::media_companion::Action::Observe=>""};
+            crate::ui::text_view::TextView::new(status,theme::size::CAPTION,theme::TEXT_SECONDARY).with_measure(cx.measure).max_lines(1).draw(p,Rect::new(crate::ui::consts::MARGIN_X,y-self.scroll.pos+hero::CD+24.0,900.0,0.0));
         }
         let last = hero::hero_btn_rect_at(set, n.saturating_sub(1), y, widths);
         let row = [
@@ -2402,8 +2401,8 @@ impl DetailScreen {
                 .ground(ground)
                 .scale(scale)
                 .draw(&Env::inert(), p),
-                hero::HeroCtl::Alt | hero::HeroCtl::Versions => {
-                    let label = if ctl == hero::HeroCtl::Versions { hero::VERSIONS_LABEL } else { hero::ALT_LABEL };
+                hero::HeroCtl::Alt => {
+                    let label = hero::ALT_LABEL;
                     Button::new(label.as_ptr(), theme::size::BODY, rect)
                         .trailing_icon(crate::ui::icons::Icon::ChevronDown)
                         .focused(focused)
@@ -2414,6 +2413,7 @@ impl DetailScreen {
                 }
                 ctl => {
                     let icon = match ctl {
+                        hero::HeroCtl::Versions=>crate::ui::icons::Icon::ChevronDown,
                         hero::HeroCtl::Repair=>crate::ui::icons::Icon::Restart,
                         hero::HeroCtl::Prepare=>crate::ui::icons::Icon::PopcornAudience,
                         hero::HeroCtl::Restart => crate::ui::icons::Icon::Restart,

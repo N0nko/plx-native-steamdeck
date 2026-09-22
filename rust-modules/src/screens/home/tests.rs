@@ -1762,7 +1762,7 @@ fn quick_down_then_ok_activates_the_hero_still_visible_before_the_snap_midpoint(
 }
 
 #[test]
-fn back_from_grid_folds_to_hero_before_root_back() {
+fn back_from_grid_or_hero_returns_to_navigation_before_root_back() {
     let _guard = crate::testlock::serial();
     let mut state = crate::pms::PmsState::default();
     let adapter = std::sync::Arc::new(crate::pms::PmsAdapter::default());
@@ -1796,6 +1796,9 @@ fn back_from_grid_folds_to_hero_before_root_back() {
         elem: HERO_PLAY_ELEM,
     };
     let (_, root, _) = step(&mut s, snapshot.view(), Some(hero), &back);
+    assert!(has_home(&root, |req|matches!(req,HomeReq::FoldToHero)));
+    let strip = FocusKey{entry:s.entry,elem:STRIP_HOME_ELEM};
+    let (_, root, _) = step(&mut s, snapshot.view(), Some(strip), &back);
     assert!(root
         .iter()
         .any(|stamped| matches!(&stamped.fx, Fx::App(AppFx::Loop(LoopReq::BackAtRoot)))));

@@ -996,3 +996,24 @@ fn contextual_back_restores_the_previous_page_and_rejects_late_preview(){
  let stale=crate::discovery::Reply{request:crate::discovery::Request{profile:screen.draft.profile(),serial:screen.discovery.serial.wrapping_sub(1),seed:Some(crate::plex::catalog::DiscoverySeed::Title{id:"0123456789abcdef01234567".into()}),name:"stale".into(),sid:crate::plex::ServerId::UNSET},page:Some(crate::discovery::Page{label:"late".into(),..Default::default()})};
  screen.discover_land(&stale,&fixture.cx(None),&mut fx);assert!(screen.discovery.preview.is_none());assert_eq!(screen.shown.label,"Search results");drop(session);
 }
+
+#[test]
+fn live_discovery_projects_all_shelves_and_directory_click_rejects_previous_preview(){
+ let _serial=crate::testlock::serial();let session=remembering("dynamic-discovery",&[]);let fixture=Fixture::new();let mut screen=fixture.screen();
+ let mut rows=(0..64).map(|i|shelf(Kind::Movie,&format!("feed-{i}"),60)).collect::<Vec<_>>();
+ rows[63]=Shelf{kind:Kind::Directory,items:vec![Item::Tag(crate::search::TagHit{name:"Action".into(),tag_key:"plex-discovery:/library/categories/action".into(),..Default::default()})]};
+ let page=crate::discovery::Page{label:"Discover".into(),rows,headings:(0..64).map(|i|format!("Live feed {i}")).collect()};
+ let request=crate::discovery::Request{profile:screen.draft.profile(),serial:1,seed:None,name:"Discover".into(),sid:crate::plex::ServerId::UNSET};
+ deliver(&mut screen,&fixture,None,ScreenEvent::App(AppMsg::Discovery(crate::discovery::Reply{request,page:Some(page)})));
+ assert_eq!(screen.rows.len(),64);assert_eq!(screen.rows[0].elems.len(),60);assert_eq!(screen.kinds().1,64);
+ screen.discovery.preview=Some(crate::discovery::Page{label:"Wrong title".into(),rows:vec![shelf(Kind::Movie,"wrong",1)],headings:vec!["Wrong".into()]});
+ let elem=screen.rows[63].elems[0];let focus=Some(screen.key(elem));
+ let(_,effects,_)=deliver(&mut screen,&fixture,focus,ScreenEvent::Activate(elem));
+ assert!(screen.discovery.page.is_none());assert!(screen.discovery.preview.is_none());
+ let request=effects.iter().find_map(|e|match &e.fx{Fx::App(AppFx::Discovery(r))=>Some(r.clone()),_=>None}).unwrap();
+ assert!(matches!(&request.seed,Some(crate::plex::catalog::DiscoverySeed::Hub{key}) if key=="/library/categories/action"));
+ let page=crate::discovery::Page{label:"Action".into(),rows:vec![shelf(Kind::Movie,"action",30)],headings:vec!["Trending Action".into()]};
+ deliver(&mut screen,&fixture,focus,ScreenEvent::App(AppMsg::Discovery(crate::discovery::Reply{request,page:Some(page)})));
+ assert_eq!(screen.shown.label,"Action");assert_eq!(screen.rows[0].elems.len(),30);
+ drop(session);
+}

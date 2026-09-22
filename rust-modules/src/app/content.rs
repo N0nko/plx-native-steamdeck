@@ -493,13 +493,9 @@ fn home_requests(app: &mut App, now: u32) {
             || !matches!(app.route(), AppArg::Home) { continue; }
         match request {
             HomeReq::FoldToHero => {
-                // The screen owns the fold; the input engine owns the hero group's last
-                // control. Restore that cursor without introducing a Home-local focus copy.
-                let remembered = app.pages.input.engine.remembered_for(entry).into_iter()
-                    .find(|(group, _)| *group == crate::ui::machine::GroupId(0)).map(|(_, elem)| elem);
-                let focus = remembered.map(|elem| crate::ui::screen::FocusTarget::Elem(
-                    crate::ui::machine::FocusKey { entry, elem }))
-                    .unwrap_or(crate::ui::screen::FocusTarget::ContainerGroup(crate::ui::machine::GroupId(0)));
+                // One Back from content returns to the active top tab, including from the hero.
+                let focus = crate::ui::screen::FocusTarget::Elem(
+                    crate::ui::machine::FocusKey { entry, elem:crate::screens::home::STRIP_HOME_ELEM });
                 app.pages.emit(MachineId::Nav, Fx::Deliver(source,
                     Delivery::Screen(ScreenEvent::Enter(crate::ui::screen::Enter::Fresh { focus }))));
             }
@@ -655,8 +651,14 @@ fn library_requests(app: &mut App, now: u32) {
             }
             LibraryReq::Account => chip_activate(&mut app.pages),
             LibraryReq::BackToHome { kind } => {
-                bridge::nav_tab(&mut app.pages, &mut app.bridge, HomeTab::Home,
-                    Some(crate::app::chrome::Pill::Section(kind)), Some(ret));
+                let elem=crate::ui::dispatch::STRIP_BASE+if kind==crate::stores::browse::SecKind::Show{2}else{1};
+                if ret.focus.is_some_and(|key|key.elem>=crate::ui::dispatch::STRIP_BASE) {
+                    bridge::nav_tab(&mut app.pages, &mut app.bridge, HomeTab::Home,
+                        Some(crate::app::chrome::Pill::Section(kind)), Some(ret));
+                } else {
+                    app.pages.emit(MachineId::Nav,Fx::Deliver(source,Delivery::Screen(ScreenEvent::Enter(
+                        crate::ui::screen::Enter::Fresh{focus:crate::ui::screen::FocusTarget::Elem(crate::ui::machine::FocusKey{entry,elem})}))));
+                }
             }
             LibraryReq::Tab(tab) => {
                 bridge::nav_tab(&mut app.pages, &mut app.bridge, tab,

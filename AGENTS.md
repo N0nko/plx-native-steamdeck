@@ -106,6 +106,12 @@ the macOS simulator are valuable, but they cannot prove every device behavior.
 
 ## Television and release safety
 
+- Maintain the three TV regression paths in `tests/tv/`: Home/Movies/TV, Search/Discover, and
+  Playback/Details/Watchlist. For a new or changed UI feature, update `coverage.json` and its
+  navigation/playback fixture together. Generate current galleries with `tools/tv-suite-report.py`;
+  archive superseded sweeps and keep missing fixture coverage explicit. Route checks alone are
+  not visual or playback verification.
+
 - There is one physical television. Before any command that deploys, runs, drives, captures, or
   tests it, use the `tv-lock` skill and acquire the repository TV lock. Prefer `ui-sim` when the
   device is unnecessary or busy. Read-only status/log collection is the documented exception.

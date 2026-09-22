@@ -1,0 +1,332 @@
+[
+  {
+    "group": "1-home-movies-tv",
+    "id": "home-hero",
+    "title": "Hero artwork, soft transitions, title, metadata and controls"
+  },
+  {
+    "group": "1-home-movies-tv",
+    "id": "home-shelves",
+    "title": "Continue Watching and recommendation shelves"
+  },
+  {
+    "group": "1-home-movies-tv",
+    "id": "home-back",
+    "title": "Back from hero/grid focuses top navigation"
+  },
+  {
+    "group": "1-home-movies-tv",
+    "id": "movies-library",
+    "title": "Movie library shelves, grid, posters and scrolling"
+  },
+  {
+    "group": "1-home-movies-tv",
+    "id": "shows-library",
+    "title": "TV library shelves, grid and artwork"
+  },
+  {
+    "group": "1-home-movies-tv",
+    "id": "library-back",
+    "title": "Back from scrolled library focuses the active top tab"
+  },
+  {
+    "group": "1-home-movies-tv",
+    "id": "library-filter",
+    "title": "Library filter, sort and view controls"
+  },
+  {
+    "group": "1-home-movies-tv",
+    "id": "library-source",
+    "title": "Library/source selection and favorites"
+  },
+  {
+    "group": "1-home-movies-tv",
+    "id": "item-menu",
+    "title": "Item context menu and Back"
+  },
+  {
+    "group": "1-home-movies-tv",
+    "id": "account",
+    "title": "Profile/account menu"
+  },
+  {
+    "group": "1-home-movies-tv",
+    "id": "settings",
+    "title": "Settings, favorites, privacy, legal and About"
+  },
+  {
+    "group": "1-home-movies-tv",
+    "id": "sign-in",
+    "title": "Sign-in, PIN, managed profile and sign-out: dedicated test account required"
+  },
+  {
+    "group": "1-home-movies-tv",
+    "id": "local-offline",
+    "title": "Local libraries remain usable when Discover fails"
+  },
+  {
+    "group": "1-home-movies-tv",
+    "id": "hero-focus",
+    "title": "Focus changes cinematic art/title without stale content"
+  },
+  {
+    "group": "2-search-discover",
+    "id": "search-open",
+    "title": "Search opens keyboard immediately"
+  },
+  {
+    "group": "2-search-discover",
+    "id": "letters",
+    "title": "A-Z and 1-0 keyboard; Space/Backspace only"
+  },
+  {
+    "group": "2-search-discover",
+    "id": "t9",
+    "title": "T9 mapping, repeated letters, 1 delete, 0 space/dash, ABC left"
+  },
+  {
+    "group": "2-search-discover",
+    "id": "filters",
+    "title": "Centered glass Top Results/Movies/TV; no navigation overlap"
+  },
+  {
+    "group": "2-search-discover",
+    "id": "query-results",
+    "title": "Catalog/local query, more than 12 results and exact GUID deduplication"
+  },
+  {
+    "group": "2-search-discover",
+    "id": "dynamic-hubs",
+    "title": "Live provider order and hub.title; seasonal changes require no code"
+  },
+  {
+    "group": "2-search-discover",
+    "id": "large-rails",
+    "title": "Horizontal browse beyond result 12"
+  },
+  {
+    "group": "2-search-discover",
+    "id": "genres",
+    "title": "Browse by Genre and nested category results"
+  },
+  {
+    "group": "2-search-discover",
+    "id": "awards",
+    "title": "Browse by Award and nested award results"
+  },
+  {
+    "group": "2-search-discover",
+    "id": "decades",
+    "title": "Browse by Decade and nested decade results"
+  },
+  {
+    "group": "2-search-discover",
+    "id": "trailers",
+    "title": "Trailer rails use explicit parent title details"
+  },
+  {
+    "group": "2-search-discover",
+    "id": "context-title",
+    "title": "Related movie/show shelves"
+  },
+  {
+    "group": "2-search-discover",
+    "id": "context-cast",
+    "title": "Cast and actor filmography exploration"
+  },
+  {
+    "group": "2-search-discover",
+    "id": "context-back",
+    "title": "Repeated exploration and Back restores focus/query/scroll"
+  },
+  {
+    "group": "2-search-discover",
+    "id": "empty-error",
+    "title": "Loading, empty, unavailable and retry states"
+  },
+  {
+    "group": "2-search-discover",
+    "id": "cached-discover",
+    "title": "Failed refresh retains same-profile successful feed"
+  },
+  {
+    "group": "2-search-discover",
+    "id": "scope-recents",
+    "title": "Sources, recent queries and clear recents"
+  },
+  {
+    "group": "2-search-discover",
+    "id": "keyboard-navigation",
+    "title": "Remote directions and numeric echo do not trap focus"
+  },
+  {
+    "group": "3-playback-details-watchlist",
+    "id": "catalog-layout",
+    "title": "Catalog poster, button order and contained Back footer"
+  },
+  {
+    "group": "3-playback-details-watchlist",
+    "id": "library-match",
+    "title": "Open in Library only on exact local identity; opens native details"
+  },
+  {
+    "group": "3-playback-details-watchlist",
+    "id": "watchlist",
+    "title": "Watchlist state, add/remove and acquisition integration: controlled title required"
+  },
+  {
+    "group": "3-playback-details-watchlist",
+    "id": "show-details",
+    "title": "Series hero, Continue, seasons and landscape episodes"
+  },
+  {
+    "group": "3-playback-details-watchlist",
+    "id": "episode-details",
+    "title": "Episode information, selection and episode-specific request coverage"
+  },
+  {
+    "group": "3-playback-details-watchlist",
+    "id": "detail-hero",
+    "title": "Movie artwork, title, metadata, ratings and description"
+  },
+  {
+    "group": "3-playback-details-watchlist",
+    "id": "versions",
+    "title": "Play Version icon expands on focus; source picker"
+  },
+  {
+    "group": "3-playback-details-watchlist",
+    "id": "selected-file",
+    "title": "Selected version identity shared by playback, tracks and preparation"
+  },
+  {
+    "group": "3-playback-details-watchlist",
+    "id": "tracks",
+    "title": "Audio/subtitle information and picker pages"
+  },
+  {
+    "group": "3-playback-details-watchlist",
+    "id": "media-status",
+    "title": "Ready/Local/Streaming/Queued/Preparing/Replacing/Unknown/error near Direct Play"
+  },
+  {
+    "group": "3-playback-details-watchlist",
+    "id": "get-ready",
+    "title": "Popcorn only on Get Ready; selected-file preparation and measured progress"
+  },
+  {
+    "group": "3-playback-details-watchlist",
+    "id": "repair",
+    "title": "Repair icon expands; suitable replacement including ready media"
+  },
+  {
+    "group": "3-playback-details-watchlist",
+    "id": "watched",
+    "title": "Watched/unwatched actions: controlled title required"
+  },
+  {
+    "group": "3-playback-details-watchlist",
+    "id": "about-cast",
+    "title": "Full synopsis, cast, person biography and filmography"
+  },
+  {
+    "group": "3-playback-details-watchlist",
+    "id": "extras",
+    "title": "Trailers/extras preview, full trailer and return"
+  },
+  {
+    "group": "3-playback-details-watchlist",
+    "id": "playback-start",
+    "title": "Decoded frames advance using direct playback when supported"
+  },
+  {
+    "group": "3-playback-details-watchlist",
+    "id": "pause-resume",
+    "title": "Pause, resume and stable HUD"
+  },
+  {
+    "group": "3-playback-details-watchlist",
+    "id": "seek-short",
+    "title": "Short forward/back seek lands and retains transport state"
+  },
+  {
+    "group": "3-playback-details-watchlist",
+    "id": "seek-held",
+    "title": "Held cursor updates nearest preview; release lands without stale image"
+  },
+  {
+    "group": "3-playback-details-watchlist",
+    "id": "resume-position",
+    "title": "Exit and restart from stored position"
+  },
+  {
+    "group": "3-playback-details-watchlist",
+    "id": "audio-panel",
+    "title": "Audio selection panel and actual selected track"
+  },
+  {
+    "group": "3-playback-details-watchlist",
+    "id": "subtitle-panel",
+    "title": "Subtitle panel, options and visible SRT"
+  },
+  {
+    "group": "3-playback-details-watchlist",
+    "id": "audio-change",
+    "title": "Actual alternate audio/language choice survives restart"
+  },
+  {
+    "group": "3-playback-details-watchlist",
+    "id": "subtitle-change",
+    "title": "Actual alternate subtitles/off and no unnecessary burn-in"
+  },
+  {
+    "group": "3-playback-details-watchlist",
+    "id": "quality",
+    "title": "Quality menu; actual rendition changes need dedicated playback fixture"
+  },
+  {
+    "group": "3-playback-details-watchlist",
+    "id": "player-info",
+    "title": "Playing information panel"
+  },
+  {
+    "group": "3-playback-details-watchlist",
+    "id": "clocks",
+    "title": "Upper clock, finish time and normal FPS hidden"
+  },
+  {
+    "group": "3-playback-details-watchlist",
+    "id": "skip-intro",
+    "title": "Intro marker visible with HUD closed; immediate centre activation"
+  },
+  {
+    "group": "3-playback-details-watchlist",
+    "id": "skip-credits",
+    "title": "Credits marker and centre activation"
+  },
+  {
+    "group": "3-playback-details-watchlist",
+    "id": "chapters",
+    "title": "Chapter navigation with chapter-bearing fixture"
+  },
+  {
+    "group": "3-playback-details-watchlist",
+    "id": "next-episode",
+    "title": "Next episode countdown/cancel with series fixture"
+  },
+  {
+    "group": "3-playback-details-watchlist",
+    "id": "playback-recovery",
+    "title": "Network stall/failure and bounded recovery fixture"
+  },
+  {
+    "group": "3-playback-details-watchlist",
+    "id": "premium-audio",
+    "title": "DTS/TrueHD path evidence and audible fidelity require capable device/listening"
+  },
+  {
+    "group": "3-playback-details-watchlist",
+    "id": "companion-errors",
+    "title": "Unavailable companion/TLS/pairing failure remain honest"
+  }
+]

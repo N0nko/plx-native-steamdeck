@@ -46,7 +46,7 @@ pub(super) const OWNER_FLOOR: f32 = 0.02;
 const BLINK_MS: u32 = 530;
 const BLINK_US: u32 = BLINK_MS * 1000;
 
-pub(crate) const SHAPE: &str = "SearchScreen{custom_v1:{keypad_open:bool,numeric:bool,filter:u64,multitap:pending_echo,discovery:owned_pages_trail_v3_return_keys_home_failed,shown:rows,base_rows:u64},entry:u32,instance:u32,draft:{text:str,caret:u64,profile:u32,pending:bool},mounted:bool,editing:bool,blink_us:u32,hot:Spring,scroll:Spring,scroll_target:f32,next_elem:u32,query_gen:u32,recent_clear_pending:bool,content_dirty:bool,fade:Xfade,ground:PageGround,owner_row:Option<u64>,owner:str,owner_alpha:Spring,restored:Option<SearchMemory>,keys:[SearchKey],recents:[u32],rows:[{kind:u32,group:u32,elems:[u32],motion:CardRow}]}";
+pub(crate) const SHAPE: &str = "SearchScreen{custom_v1:{keypad_open:bool,numeric:bool,filter:u64,multitap:pending_echo,discovery:owned_pages_trail_v4_provider_hub_seed_directory,shown:rows,base_rows:u64},entry:u32,instance:u32,draft:{text:str,caret:u64,profile:u32,pending:bool},mounted:bool,editing:bool,blink_us:u32,hot:Spring,scroll:Spring,scroll_target:f32,next_elem:u32,query_gen:u32,recent_clear_pending:bool,content_dirty:bool,fade:Xfade,ground:PageGround,owner_row:Option<u64>,owner:str,owner_alpha:Spring,restored:Option<SearchMemory>,keys:[SearchKey],recents:[u32],rows:[{kind:u32,group:u32,elems:[u32],motion:CardRow}]}";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum Identity {
@@ -335,6 +335,18 @@ impl SearchScreen {
             let Some(shelf) = self.shown.rows.get(row_index) else { return Handled::No };
             let Some(item) = shelf.items.get(col) else { return Handled::No };
             match item {
+                Item::Tag(tag) if tag.tag_key.starts_with("plex-discovery:") => {
+                    let seed=crate::discovery::seed(item);
+                    if seed.is_none(){return Handled::Yes;}
+                    if self.discovery.pending.as_ref().and_then(|r|r.seed.as_ref())!=seed.as_ref(){
+                        self.discovery.serial=self.discovery.serial.wrapping_add(1);
+                        let request=crate::discovery::Request{profile:self.draft.profile(),serial:self.discovery.serial,seed,name:item.title().into(),sid:item.sid()};
+                        self.discovery.preview=None;self.discovery.failed=false;
+                        self.discovery.pending=Some(request.clone());self.discovery.request=Some(request.clone());
+                        fx.push(Fx::App(AppFx::Discovery(request)));
+                    }
+                    if self.discover_enter(0,0,elem,fx){self.sync(cx,false,fx);}else{self.discovery.pending_down=Some(elem);}
+                }
                 Item::Catalog(media) => {
                     fx.push(Fx::App(AppFx::Content(crate::screens::registry::ContentReq::Panel(crate::screens::registry::ContentPanel::CatalogDetails(
                         crate::screens::registry::CatalogDetailsArg { catalog_id:media.rk.clone(),title:media.title.clone(),
@@ -468,8 +480,8 @@ impl<H: SearchLike> Machine<H> for SearchScreen {
 }
 
 impl SearchScreen {
-    fn kinds(&self) -> ([Kind; 10], usize) {
-        let mut kinds = [Kind::Movie; 10];
+    fn kinds(&self) -> ([Kind; 128], usize) {
+        let mut kinds = [Kind::Movie; 128];
         for (i, row) in self.rows.iter().enumerate() { kinds[i] = row.kind; }
         (kinds, self.rows.len())
     }

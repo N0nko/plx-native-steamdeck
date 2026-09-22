@@ -123,6 +123,8 @@ pub(crate) enum Kind {
     /// shelf" a data question.
     Person,
     Collection,
+    /// A live provider browse section, with a provider key rather than a media identity.
+    Directory,
 }
 
 impl Kind {
@@ -134,6 +136,7 @@ impl Kind {
             Kind::Episode => "Episodes",
             Kind::Person => "Cast & Crew",
             Kind::Collection => "Collections",
+            Kind::Directory => "Browse",
         }
     }
     /// The count read-out beside it — how many RESULTS are on this shelf. People are counted as
@@ -154,6 +157,7 @@ impl Kind {
             Kind::Episode => &["episode"],
             Kind::Person => &["actor", "director"],
             Kind::Collection => &["collection"],
+            Kind::Directory => &[],
         }
     }
 }

@@ -6,7 +6,7 @@ and hardware display captures. It does not depend on development triggers. Set `
 if key authentication is unavailable; never put credentials in a plan or committed file.
 
 ```
-python3 tools/tv-ui-suite.py --tv TV_ADDRESS --plan tests/tv-ui-search.json --output /tmp/ui-review-RUN
+python3 tools/tv-ui-suite.py --tv TV_ADDRESS --plan tests/tv/2-search-discover/keyboard-discovery.json --output /tmp/ui-review-RUN
 ```
 
 The output directory must be new. Start the search plan from freshly launched Home. Each step
@@ -21,3 +21,8 @@ activate a Watchlist/Prepare/Repair/Mark Watched button. Playback plans declare 
 and require `--allow-playback` as well as the user's permission for real viewing-state changes.
 Use separate plans for library/detail/versions/tracks/person/settings and playback/seek/resume;
 record unvisited screens explicitly instead of claiming complete coverage from a smoke sweep.
+
+The [live discovery and playback map](live-discovery-playback.md) lists the reusable playback,
+resume, panel and held-seek plans. A playback step may specify `"hold":"RIGHT"` or `"hold":"LEFT"`
+to capture the seek preview while repeat events are still being sent. Release is guaranteed on
+normal completion or a capture error; later input stops on any error.

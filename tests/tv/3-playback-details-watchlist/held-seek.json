@@ -1,0 +1,29 @@
+{
+  "playback": true,
+  "steps": [
+    {
+      "name": "01-held-preview",
+      "before": "player/none",
+      "hold": "RIGHT",
+      "settle": 0.8,
+      "after": "player/none",
+      "review": "Nearest cursor preview, moving cursor, plain local finish clock; image captured before key release.",
+      "covers": [
+        "seek-held",
+        "clocks"
+      ]
+    },
+    {
+      "name": "02-seek-landed",
+      "before": "player/none",
+      "settle": 6,
+      "after": "player/none",
+      "review": "Decoded video resumes at new position; no stale preview or seekbar rebuild.",
+      "covers": [
+        "seek-held"
+      ]
+    }
+  ],
+  "group": "3-playback-details-watchlist",
+  "description": ""
+}
