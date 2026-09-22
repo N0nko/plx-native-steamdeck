@@ -1064,7 +1064,7 @@ fn owned_search_content_probe_reports_zone_row_col_pill_and_card_as_focus_moves(
 
 /// Exercise the real custom keyboard controls before grading the native ownership seam.
 fn prepare_system_key(d:&mut Dispatcher<AppHost>,rig:&mut Bridge,at:Tick) {
- for key in [Key::Ok,Key::Up,Key::Right]{super::frame(d,rig,at,script_key(key,at));}
+ for key in [Key::Ok,Key::Down,Key::Down,Key::Down,Key::Down,Key::Down,Key::Down,Key::Right]{super::frame(d,rig,at,script_key(key,at));}
 }
 fn through_filters(at:Tick)->Vec<InputEvent<u32>> {let mut input=script_key(Key::Down,at);input.extend(script_key(Key::Down,at));input}
 
@@ -1073,7 +1073,7 @@ fn custom_system_key_navigation_regression() {
  let _serial=crate::testlock::serial();let session=crate::plex::session::TempSession::new("keypad-navigation");session.watching("synthetic");crate::plex::reset_servers_for_test();
  let mut d=Dispatcher::<AppHost>::new();let mut rig=Bridge::for_test(||0);
  frame(&mut d,&mut rig,AppArg::Search,tick(0),vec![]);
- for (i,(key,want)) in [(Key::Ok,0x7006),(Key::Up,0x7003),(Key::Right,0x7004),(Key::Ok,1)].into_iter().enumerate(){
+ for (i,(key,want)) in [(Key::Ok,0x7005),(Key::Down,0x700b),(Key::Down,0x7011),(Key::Down,0x7017),(Key::Down,0x701d),(Key::Down,0x7023),(Key::Down,0x7000),(Key::Right,0x7003),(Key::Ok,1)].into_iter().enumerate(){
  frame(&mut d,&mut rig,AppArg::Search,tick(i as u32+1),script_key(key,tick(i as u32+1)));
  assert_eq!(d.focus().map(|k|k.elem),Some(want),"step {i}; keyboard={:?}",rig.keyboard_calls);
  }

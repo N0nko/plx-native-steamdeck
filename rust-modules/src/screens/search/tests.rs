@@ -678,7 +678,7 @@ fn the_panels_edit_keys_move_the_caret_clear_the_field_and_type_in_the_middle() 
     // OK on the field arrives as `Activate` — the field is a `Bare` element, so the dispatcher
     // delivers the activation rather than arming a press.
     let (handled, _, _) = deliver(&mut screen, &fixture, field, ScreenEvent::Activate(FIELD));
-    deliver(&mut screen,&fixture,Some(screen_key_for_system()),ScreenEvent::Activate(keypad::BASE+4));
+    deliver(&mut screen,&fixture,Some(screen_key_for_system()),ScreenEvent::Activate(keypad::BASE+3));
     assert_eq!(handled, Handled::Yes);
     assert!(screen.editing, "OK on the field raises the panel");
 
@@ -754,7 +754,7 @@ fn the_shelf_flow_is_frozen_unless_the_shelves_hold_focus_with_the_keyboard_down
     // The keyboard goes up: the flow parks at zero under a user who is still typing, and stays
     // there for as long as the panel is up.
     deliver(&mut screen, &fixture, Some(field), ScreenEvent::Activate(FIELD));
-    deliver(&mut screen,&fixture,Some(screen_key_for_system()),ScreenEvent::Activate(keypad::BASE+4));
+    deliver(&mut screen,&fixture,Some(screen_key_for_system()),ScreenEvent::Activate(keypad::BASE+3));
     assert!(screen.editing);
     assert_eq!(screen.scroll_target, 0.0, "the result set stays still while the panel is up");
     deliver(&mut screen, &fixture, Some(field), ScreenEvent::FocusMoved {
@@ -893,7 +893,7 @@ fn a_settled_annotation_goes_quiet_and_a_moving_one_does_not() {
     crate::plex::reset_servers_for_test();
 }
 
-fn screen_key_for_system()->FocusKey<u32>{FocusKey{entry:ENTRY,elem:keypad::BASE+4}}
+fn screen_key_for_system()->FocusKey<u32>{FocusKey{entry:ENTRY,elem:keypad::BASE+3}}
 
 #[test]
 fn custom_keyboard_multitap_and_back_preserve_the_query(){
@@ -903,6 +903,20 @@ fn custom_keyboard_multitap_and_back_preserve_the_query(){
  deliver(&mut screen,&fixture,field,key_event(Key::Other,50));assert_eq!(screen.draft.query(),"b");
  deliver(&mut screen,&fixture,field,text_event(TextEdit::Commit("2".into())));assert_eq!(screen.draft.query(),"b","SDL digit echo must not duplicate the key");
  let(_,fx,_)=deliver(&mut screen,&fixture,field,key_event(Key::Back,0));assert!(!screen.keypad_open);assert_eq!(screen.draft.query(),"b");assert!(!fx.iter().any(|e|matches!(e.fx,Fx::App(AppFx::Search(SearchReq::Back)))));drop(session);
+}
+#[test]
+fn t9_backspace_removes_pending_character_without_resurrecting_it(){
+ let _serial=crate::testlock::serial();let session=remembering("t9-backspace",&[]);let fixture=Fixture::new();let mut screen=fixture.screen();
+ let field=Some(screen.key(FIELD));
+ deliver(&mut screen,&fixture,field,key_event(Key::Other,50));
+ deliver(&mut screen,&fixture,field,key_event(Key::Other,50));
+ assert!(screen.numeric);assert_eq!(screen.draft.query(),"b");
+ let backspace=Some(screen.key(keypad::BASE+2));
+ deliver(&mut screen,&fixture,backspace,ScreenEvent::Activate(keypad::BASE+2));
+ assert_eq!(screen.draft.query(),"");
+ deliver(&mut screen,&fixture,field,key_event(Key::Other,50));
+ assert_eq!(screen.draft.query(),"a");
+ drop(session);
 }
 #[test]
 fn discovery_feeds_keep_separate_identity_and_reject_retired_profile_landings(){

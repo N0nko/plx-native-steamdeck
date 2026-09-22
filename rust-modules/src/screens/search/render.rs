@@ -1286,7 +1286,7 @@ mod tests {
 fn controls<H:SearchLike>(screen:&SearchScreen,f:&mut DrawFrame<'_, '_, H>){
     use crate::ui::screen::{Stop,Hover,Activate};
     let p=f.painter.alpha(f.page_alpha);
-    if screen.keypad_open {p.rrect(Rect::new(80.0,350.0,636.0,720.0),24.0,24.0,[theme::CLEAR_RGB.0,theme::CLEAR_RGB.1,theme::CLEAR_RGB.2,1.0]);}
+    if screen.keypad_open {p.rrect(Rect::new(80.0,350.0,512.0,540.0),24.0,24.0,[theme::CLEAR_RGB.0,theme::CLEAR_RGB.1,theme::CLEAR_RGB.2,1.0]);}
     let mut draw=|elem:u32,label:&str,rect:Rect,selected:bool|{
         let label=cstring(label);let focused=f.cx.focus.current==Some(screen.key(elem));
         Button::new(label.as_ptr(),theme::size::BODY,rect).focused(focused||selected).draw(&Env::inert(),p);

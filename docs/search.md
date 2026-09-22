@@ -4,9 +4,9 @@ Search is an upstream-owned page with the shared tab strip. It combines server l
 
 ## Input and navigation
 
-OK on the query opens the custom keyboard. ABC shows letters; 123 shows the numeric multitap/T9 layout. Physical remote digits cycle characters using the same timing and suppress duplicate SDL text echoes. Space, Delete and Done are explicit controls. System selects the platform keyboard described below. The query and caret remain owned by the page; profile changes discard stale input and results.
+OK on the query opens the custom keyboard. A single 123/ABC control switches between the letter grid and numeric multitap/T9 layout. Space and Backspace sit above the compact grid; More and Done sit below it. Physical remote digits cycle characters using the same timing and suppress duplicate SDL text echoes. More selects the platform keyboard described below. The query and caret remain owned by the page; profile changes discard stale input and results.
 
-Down from the query reaches Top Results / Movies / TV Shows. Down again reaches the keyboard or results. Context for a focused movie/show/person arrives after a debounce; Down into it creates a bounded browsing level. Back closes an open keyboard, cancels a pending descent, restores a previous contextual page including focus and scroll, or returns from Search. The dispatcher retains the normal tab and child-detail lifecycle.
+Down from the query reaches the centered Top Results / Movies / TV Shows filters. Down again reaches the keyboard or results. Context for a focused movie/show/person arrives after a debounce; Down into it creates a bounded browsing level. Back closes an open keyboard, cancels a pending descent, restores a previous contextual page including focus and scroll, or returns from Search. The dispatcher retains the normal tab and child-detail lifecycle.
 
 ## Bounds and identity
 
@@ -16,7 +16,7 @@ Implementation: `screens/search/` owns draft, keyboard, filter and discovery nav
 
 ## Platform keyboard research retained from upstream
 
-The following research applies specifically to the optional **System** keyboard. It does not describe the custom keyboard's default layout or opening action.
+The following research applies specifically to the optional **More** (system) keyboard. It does not describe the custom keyboard's default layout or opening action.
 
 ## 3. Text entry — the television's own keyboard
 
