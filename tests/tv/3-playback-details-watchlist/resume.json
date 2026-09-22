@@ -3,7 +3,7 @@
   "steps": [
     {
       "name": "01-resume",
-      "before": "search/detail",
+      "before": "(?:search/)?detail",
       "keys": [
         "RIGHT",
         "LEFT",
@@ -12,7 +12,9 @@
       "settle": 12,
       "after": "player/none",
       "review": "Confirm resumed position using playback telemetry",
-      "covers": []
+      "covers": [
+        "resume-position"
+      ]
     }
   ],
   "group": "3-playback-details-watchlist",

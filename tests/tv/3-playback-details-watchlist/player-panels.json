@@ -96,7 +96,7 @@
         "BACK",
         "BACK"
       ],
-      "after": "search/detail",
+      "after": "(?:search/)?detail",
       "covers": []
     }
   ],

@@ -1,117 +1,169 @@
 {
-  "description": "Start from Home. Capture library shelves, poster grids and TV series destination.",
+  "group": "1-home-movies-tv",
+  "playback": false,
   "steps": [
     {
-      "name": "01-movies-library",
+      "name": "01-home-hero",
+      "keys": [],
+      "covers": [
+        "home-hero",
+        "hero-focus"
+      ],
       "before": "home",
-      "keys": [
-        "UP",
-        "UP",
-        "LEFT",
-        "LEFT",
-        "LEFT",
-        "LEFT",
-        "LEFT",
-        "RIGHT",
-        "RIGHT",
-        "OK"
-      ],
-      "settle": 4,
-      "after": "library",
-      "covers": []
+      "after": "home",
+      "settle": 3,
+      "review": ""
     },
     {
-      "name": "02-movie-shelf",
-      "before": "library",
+      "name": "02-home-shelves",
       "keys": [
         "DOWN"
       ],
-      "after": "library",
-      "covers": []
-    },
-    {
-      "name": "03-movie-grid",
-      "before": "library",
-      "keys": [
-        "DOWN",
-        "DOWN",
-        "DOWN"
+      "covers": [
+        "home-shelves"
       ],
-      "after": "library",
-      "covers": []
+      "before": null,
+      "after": "home",
+      "settle": 1.4,
+      "review": ""
     },
     {
-      "name": "04-movie-lower-grid",
-      "before": "library",
+      "name": "03-home-poster-focus",
       "keys": [
-        "DOWN",
-        "DOWN",
-        "DOWN"
+        "RIGHT",
+        "RIGHT"
       ],
-      "after": "library",
-      "covers": []
+      "covers": [
+        "hero-focus"
+      ],
+      "before": null,
+      "after": "home",
+      "settle": 1.4,
+      "review": ""
     },
     {
-      "name": "05-shows-library",
-      "before": "library",
+      "name": "04-home-back-navigation",
       "keys": [
-        "UP",
-        "UP",
-        "UP",
-        "UP",
-        "UP",
-        "UP",
-        "UP",
-        "UP",
-        "UP",
-        "UP",
-        "UP",
-        "UP",
-        "LEFT",
-        "LEFT",
-        "LEFT",
-        "LEFT",
-        "LEFT",
-        "RIGHT",
-        "RIGHT",
+        "BACK"
+      ],
+      "covers": [
+        "home-back"
+      ],
+      "before": null,
+      "after": "home",
+      "settle": 1.4,
+      "review": ""
+    },
+    {
+      "name": "05-movies-library",
+      "keys": [
         "RIGHT",
         "OK"
       ],
+      "covers": [
+        "movies-library"
+      ],
+      "before": null,
+      "after": "library",
       "settle": 4,
-      "after": "library",
-      "covers": []
+      "review": ""
     },
     {
-      "name": "06-show-shelf",
-      "before": "library",
+      "name": "06-movie-shelves",
       "keys": [
         "DOWN"
       ],
-      "after": "library",
-      "covers": []
-    },
-    {
-      "name": "07-show-grid",
-      "before": "library",
-      "keys": [
-        "DOWN",
-        "DOWN",
-        "DOWN"
+      "covers": [
+        "movies-library"
       ],
+      "before": null,
       "after": "library",
-      "covers": []
+      "settle": 1.4,
+      "review": ""
     },
     {
-      "name": "08-show-lower-grid",
-      "before": "library",
+      "name": "07-movie-grid",
       "keys": [
         "DOWN",
         "DOWN",
         "DOWN"
       ],
+      "covers": [
+        "movies-library"
+      ],
+      "before": null,
       "after": "library",
-      "covers": []
+      "settle": 1.4,
+      "review": ""
+    },
+    {
+      "name": "08-library-back-navigation",
+      "keys": [
+        "BACK"
+      ],
+      "covers": [
+        "library-back"
+      ],
+      "before": null,
+      "after": "library",
+      "settle": 1.4,
+      "review": ""
+    },
+    {
+      "name": "09-shows-library",
+      "keys": [
+        "RIGHT",
+        "OK"
+      ],
+      "covers": [
+        "shows-library"
+      ],
+      "before": null,
+      "after": "library",
+      "settle": 4,
+      "review": ""
+    },
+    {
+      "name": "10-show-shelves",
+      "keys": [
+        "DOWN"
+      ],
+      "covers": [
+        "shows-library"
+      ],
+      "before": null,
+      "after": "library",
+      "settle": 1.4,
+      "review": ""
+    },
+    {
+      "name": "11-show-grid",
+      "keys": [
+        "DOWN",
+        "DOWN",
+        "DOWN"
+      ],
+      "covers": [
+        "shows-library"
+      ],
+      "before": null,
+      "after": "library",
+      "settle": 1.4,
+      "review": ""
+    },
+    {
+      "name": "12-shows-back-navigation",
+      "keys": [
+        "BACK"
+      ],
+      "covers": [
+        "library-back"
+      ],
+      "before": null,
+      "after": "library",
+      "settle": 1.4,
+      "review": ""
     }
   ],
-  "group": "1-home-movies-tv"
+  "description": "Start on freshly launched Home; verifies Home, Movies and TV shelves, focus and Back to navigation."
 }

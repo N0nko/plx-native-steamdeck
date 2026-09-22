@@ -1,0 +1,85 @@
+{
+  "group": "3-playback-details-watchlist",
+  "steps": [
+    {
+      "name": "01-local-details",
+      "keys": [],
+      "before": "(?:search/)?detail",
+      "after": "(?:search/)?detail",
+      "covers": [
+        "detail-hero",
+        "media-status",
+        "get-ready",
+        "repair"
+      ],
+      "settle": 6
+    },
+    {
+      "name": "02-play-version-focused",
+      "keys": [
+        "RIGHT"
+      ],
+      "before": "(?:search/)?detail",
+      "after": "(?:search/)?detail",
+      "covers": [
+        "versions"
+      ],
+      "settle": 2
+    },
+    {
+      "name": "03-version-tracks",
+      "keys": [
+        "OK"
+      ],
+      "before": "(?:search/)?detail",
+      "after": "(?:(?:search|detail)/)?versions",
+      "covers": [
+        "versions",
+        "selected-file",
+        "tracks"
+      ],
+      "settle": 2
+    },
+    {
+      "name": "04-version-audio",
+      "keys": [
+        "DOWN",
+        "DOWN"
+      ],
+      "before": "(?:(?:search|detail)/)?versions",
+      "after": "(?:(?:search|detail)/)?versions",
+      "covers": [
+        "tracks"
+      ],
+      "settle": 2
+    },
+    {
+      "name": "05-version-subtitles",
+      "keys": [
+        "DOWN",
+        "DOWN"
+      ],
+      "before": "(?:(?:search|detail)/)?versions",
+      "after": "(?:(?:search|detail)/)?versions",
+      "covers": [
+        "tracks"
+      ],
+      "settle": 2
+    },
+    {
+      "name": "06-play-version-collapsed",
+      "keys": [
+        "BACK",
+        "LEFT"
+      ],
+      "before": "(?:(?:search|detail)/)?versions",
+      "after": "(?:search/)?detail",
+      "covers": [
+        "versions",
+        "media-status"
+      ],
+      "settle": 2
+    }
+  ],
+  "description": "Begin on confirmed local movie detail with Resume/Play focused. Inspect Ready/status placement and version label expansion, then file-specific tracks without selecting them."
+}

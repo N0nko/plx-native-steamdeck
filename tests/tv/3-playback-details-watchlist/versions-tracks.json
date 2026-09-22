@@ -2,44 +2,56 @@
   "steps": [
     {
       "name": "01-versions",
-      "before": "search/detail",
+      "before": "(?:search/)?detail",
       "keys": [
         "RIGHT",
         "OK"
       ],
       "settle": 2,
-      "after": "search/versions",
-      "covers": []
+      "after": "(?:(?:search|detail)/)?versions",
+      "covers": [
+        "versions",
+        "tracks"
+      ]
     },
     {
       "name": "02-version-audio",
-      "before": "search/versions",
+      "before": "(?:(?:search|detail)/)?versions",
       "keys": [
         "DOWN",
         "DOWN"
       ],
-      "after": "search/versions",
-      "covers": []
+      "after": "(?:(?:search|detail)/)?versions",
+      "covers": [
+        "versions",
+        "tracks"
+      ]
     },
     {
       "name": "03-version-subtitles",
-      "before": "search/versions",
+      "before": "(?:(?:search|detail)/)?versions",
       "keys": [
         "DOWN",
         "DOWN"
       ],
-      "after": "search/versions",
-      "covers": []
+      "after": "(?:(?:search|detail)/)?versions",
+      "covers": [
+        "versions",
+        "tracks"
+      ]
     },
     {
       "name": "04-detail-play-focus",
-      "before": "search/versions",
+      "before": "(?:(?:search|detail)/)?versions",
       "keys": [
         "BACK",
         "LEFT"
       ],
-      "after": "search/detail",
-      "covers": []
+      "after": "(?:search/)?detail",
+      "covers": [
+        "versions",
+        "tracks"
+      ]
     }
   ],
   "group": "3-playback-details-watchlist",

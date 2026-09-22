@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Batch real remote keys and collect a review gallery from a stable release.
 
-No developer triggers, account writes, installer operations or hidden app state.
+No developer triggers, installer operations or hidden app state.
+Authorized playback changes resume history; navigation plans avoid account mutation controls.
 Plans are navigation fixtures, not assertions that pictures look correct.
 SSH keys are preferred; SSHPASS optionally enables sshpass without storing a secret.
 """
