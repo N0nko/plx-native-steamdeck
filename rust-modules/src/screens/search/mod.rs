@@ -136,7 +136,7 @@ impl SearchScreen {
     fn keyboard<H: SearchLike>(&mut self, up: bool, commit: bool, fx: &mut Effects<'_, H>) {
         if !up && commit {self.remember(fx);}
         self.keypad_open=up; self.multitap.cancel();self.blink_us=0;
-        if up {self.draft.to_end();self.scroll_target=0.0;
+        if up {self.numeric=false;self.draft.to_end();self.scroll_target=0.0;
             self.reseat(FocusTarget::Elem(self.key(keypad::BASE+keypad::FIRST_KEY as u32)),fx);
         } else if self.editing {
             self.editing=false;fx.push(Fx::Deliver(fx.from(),Delivery::Keyboard{up:false}));
@@ -145,22 +145,27 @@ impl SearchScreen {
     }
     fn digit<H:SearchLike>(&mut self,digit:u8,now:u32,fx:&mut Effects<'_,H>){
         self.keypad_open=true;self.numeric=true;self.draft.to_end();
-        if let Some((replace,ch))=self.multitap.press(digit,now){
+        if digit<=1 {
+            let _=self.multitap.press(digit,now); // retain suppression of the matching SDL digit echo
+            self.multitap.cancel();
+            self.edit(&if digit==1 {TextEdit::Backspace}else{TextEdit::Commit(" ".into())},fx);
+        } else if let Some((replace,ch))=self.multitap.press(digit,now){
             if replace {self.draft.edit(&TextEdit::Backspace);}
             self.edit(&TextEdit::Commit(ch.to_string().into()),fx);
         }
-        self.reseat(FocusTarget::Elem(self.key(keypad::BASE+if digit==0 {14}else{digit as u32+4})),fx);
+        self.reseat(FocusTarget::Elem(self.key(keypad::BASE+if digit==0 {10}else{digit as u32-1})),fx);
     }
     fn keypad_action<H:SearchLike>(&mut self,i:usize,now:u32,fx:&mut Effects<'_,H>){
-        match i {
-            0=>{self.numeric=!self.numeric;self.multitap.cancel();},
-            1=>{self.multitap.cancel();self.edit(&TextEdit::Commit(" ".into()),fx);},
-            2=>{self.multitap.cancel();self.edit(&TextEdit::Backspace,fx);},
-            3=>{self.keypad_open=false;self.reseat(FocusTarget::Elem(self.key(FIELD)),fx);self.editing=true;fx.push(Fx::Deliver(fx.from(),Delivery::Keyboard{up:true}));},
-            4=>{self.keyboard(false,true,fx);self.reseat(FocusTarget::Elem(self.key(FIELD)),fx);},
-            _ if self.numeric=>self.digit(if i==14{0}else{(i-4) as u8},now,fx),
+        if self.numeric {
+            match i {
+                9 | 11=>{self.multitap.cancel();self.edit(&TextEdit::Commit(if i==9 {"-"}else{"'"}.into()),fx);},
+                _=>self.digit(if i==10 {0}else{(i+1) as u8},now,fx),
+            }
+        } else {match i {
+            0=>{self.multitap.cancel();self.edit(&TextEdit::Commit(" ".into()),fx);},
+            1=>{self.multitap.cancel();self.edit(&TextEdit::Backspace,fx);},
             _=>{self.multitap.cancel();self.edit(&TextEdit::Commit(keypad::input(i).to_string().into()),fx);},
-        }
+        }}
         fx.invalidate(Provenance::Input);
     }
 
@@ -403,7 +408,12 @@ impl<H: SearchLike> Machine<H> for SearchScreen {
                         fx.invalidate(Provenance::Input);
                     }
                 }
-                InputKind::Key { key, sym, edge, .. } if *edge != Edge::Up => {
+                InputKind::Key { key, sym, wcode, edge, .. } if *edge != Edge::Up => {
+                    // Keep optional platform input off the visual keyboard: Blue on LG, F2 on desktop.
+                    if *sym == (1 << 30 | 59) || *wcode == 489 {
+                        self.keypad_open=false;self.multitap.cancel();self.reseat(FocusTarget::Elem(self.key(FIELD)),fx);
+                        self.editing=true;fx.push(Fx::Deliver(fx.from(),Delivery::Keyboard{up:true}));return Handled::Yes;
+                    }
                     if (48..=57).contains(sym) {self.digit((*sym-48) as u8,input.at.ms,fx);return Handled::Yes;}
                     if self.keypad_open && *key==Key::Back {self.keyboard(false,false,fx);self.reseat(FocusTarget::Elem(self.key(FIELD)),fx);return Handled::Yes;}
 
@@ -563,7 +573,7 @@ impl SearchScreen {
     fn recent_rect(&self,index:usize,scroll:f32)->Rect {let mut r=layout::recent(index,scroll);r.x+=self.inset();r.y-=self.system_shift();r}
     fn clear_rect(&self,scroll:f32,measure:&dyn crate::ui::machine::Measure)->Rect {let mut r=layout::clear(self.recents.len(),scroll,measure);r.x+=self.inset();r.y-=self.system_shift();r}
     fn system_shift(&self)->f32 {if self.editing {layout::SYSTEM_SHIFT}else{0.0}}
-    fn inset(&self)->f32 {if self.keypad_open {560.0}else{0.0}}
+    fn inset(&self)->f32 {if self.keypad_open {464.0}else{0.0}}
     fn row_rect(&self, row: usize, col: usize, at: At) -> Rect {
         let (kinds, n) = self.kinds();
         let shelf = &self.rows[row];
@@ -649,7 +659,7 @@ fn group(id: GroupId, kind: GroupKind, len: usize, extent: Rect, elem: ElemKind,
 impl<H: SearchLike> Focusable<H> for SearchScreen {
     fn groups(&self, cx: &Cx<'_, H>, out: &mut Vec<GroupSpec>) {
         if self.keypad_open {out.push(group(KEYPAD_GROUP,GroupKind::Row{wrap:false},keypad::len(self.numeric),keypad::extent(self.numeric),ElemKind::Bare,Seat::First));}
-        if !self.editing {out.push(group(FILTER_GROUP,GroupKind::Row{wrap:false},3,Rect::new(keypad::filter_rect(0).x,278.0,764.0,60.0),ElemKind::Bare,Seat::Remembered));}
+        if !self.editing {out.push(group(FILTER_GROUP,GroupKind::Row{wrap:false},3,Rect::new(keypad::filter_rect(0).x,278.0,592.0,48.0),ElemKind::Bare,Seat::Remembered));}
         let field = Rect::new(layout::FIELD.x, layout::FIELD.y - self.scroll_target, layout::FIELD.w, layout::FIELD.h);
         out.push(group(FIELD_GROUP, GroupKind::Row { wrap: false }, 1, field, ElemKind::Bare, Seat::First));
         if !self.recents.is_empty() {

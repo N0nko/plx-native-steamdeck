@@ -4,7 +4,7 @@ Search is an upstream-owned page with the shared tab strip. It combines server l
 
 ## Input and navigation
 
-OK on the query opens the custom keyboard. A single 123/ABC control switches between the letter grid and numeric multitap/T9 layout. Space and Backspace sit above the compact grid; More and Done sit below it. Physical remote digits cycle characters using the same timing and suppress duplicate SDL text echoes. More selects the platform keyboard described below. The query and caret remain owned by the page; profile changes discard stale input and results.
+OK on the query opens the compact A–Z / 1–0 grid. Space and Backspace sit above the letter grid. T9 is a symmetrical 3×4 grid: 1 deletes, 2–9 compose letters, and dash / 0 Space / apostrophe form the bottom row. It has no separate action row. Neither layout has a surrounding panel or footer. Physical remote digits open numeric multitap/T9, cycle characters and suppress duplicate SDL text echoes. Back closes either keyboard; opening the query again returns to letters. The optional platform keyboard remains available with the LG Blue key or desktop F2. Keys and the centered filters share the same translucent glass control style. The query and caret remain owned by the page; profile changes discard stale input and results.
 
 Down from the query reaches the centered Top Results / Movies / TV Shows filters. Down again reaches the keyboard or results. Context for a focused movie/show/person arrives after a debounce; Down into it creates a bounded browsing level. Back closes an open keyboard, cancels a pending descent, restores a previous contextual page including focus and scroll, or returns from Search. The dispatcher retains the normal tab and child-detail lifecycle.
 
@@ -16,7 +16,7 @@ Implementation: `screens/search/` owns draft, keyboard, filter and discovery nav
 
 ## Platform keyboard research retained from upstream
 
-The following research applies specifically to the optional **More** (system) keyboard. It does not describe the custom keyboard's default layout or opening action.
+The following research applies specifically to the optional platform keyboard. It does not describe the custom keyboard's default layout or opening action.
 
 ## 3. Text entry — the television's own keyboard
 

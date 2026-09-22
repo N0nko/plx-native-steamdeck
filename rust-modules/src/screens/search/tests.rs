@@ -678,7 +678,7 @@ fn the_panels_edit_keys_move_the_caret_clear_the_field_and_type_in_the_middle() 
     // OK on the field arrives as `Activate` — the field is a `Bare` element, so the dispatcher
     // delivers the activation rather than arming a press.
     let (handled, _, _) = deliver(&mut screen, &fixture, field, ScreenEvent::Activate(FIELD));
-    deliver(&mut screen,&fixture,Some(screen_key_for_system()),ScreenEvent::Activate(keypad::BASE+3));
+    deliver(&mut screen,&fixture,Some(screen_key_for_system()),key_event(Key::Other,1 << 30 | 59));
     assert_eq!(handled, Handled::Yes);
     assert!(screen.editing, "OK on the field raises the panel");
 
@@ -754,7 +754,7 @@ fn the_shelf_flow_is_frozen_unless_the_shelves_hold_focus_with_the_keyboard_down
     // The keyboard goes up: the flow parks at zero under a user who is still typing, and stays
     // there for as long as the panel is up.
     deliver(&mut screen, &fixture, Some(field), ScreenEvent::Activate(FIELD));
-    deliver(&mut screen,&fixture,Some(screen_key_for_system()),ScreenEvent::Activate(keypad::BASE+3));
+    deliver(&mut screen,&fixture,Some(screen_key_for_system()),key_event(Key::Other,1 << 30 | 59));
     assert!(screen.editing);
     assert_eq!(screen.scroll_target, 0.0, "the result set stays still while the panel is up");
     deliver(&mut screen, &fixture, Some(field), ScreenEvent::FocusMoved {
@@ -911,11 +911,21 @@ fn t9_backspace_removes_pending_character_without_resurrecting_it(){
  deliver(&mut screen,&fixture,field,key_event(Key::Other,50));
  deliver(&mut screen,&fixture,field,key_event(Key::Other,50));
  assert!(screen.numeric);assert_eq!(screen.draft.query(),"b");
- let backspace=Some(screen.key(keypad::BASE+2));
- deliver(&mut screen,&fixture,backspace,ScreenEvent::Activate(keypad::BASE+2));
+ let backspace=Some(screen.key(keypad::BASE));
+ deliver(&mut screen,&fixture,backspace,ScreenEvent::Activate(keypad::BASE));
  assert_eq!(screen.draft.query(),"");
  deliver(&mut screen,&fixture,field,key_event(Key::Other,50));
  assert_eq!(screen.draft.query(),"a");
+ deliver(&mut screen,&fixture,field,key_event(Key::Other,49));
+ deliver(&mut screen,&fixture,field,text_event(TextEdit::Commit("1".into())));
+ assert_eq!(screen.draft.query(),"");
+ deliver(&mut screen,&fixture,field,key_event(Key::Other,48));
+ deliver(&mut screen,&fixture,field,text_event(TextEdit::Commit("0".into())));
+ deliver(&mut screen,&fixture,field,key_event(Key::Other,48));
+ assert_eq!(screen.draft.query(),"  ","zero inserts a space each time, never cycles to a digit");
+ deliver(&mut screen,&fixture,field,ScreenEvent::Activate(keypad::BASE+9));
+ deliver(&mut screen,&fixture,field,ScreenEvent::Activate(keypad::BASE+11));
+ assert_eq!(screen.draft.query(),"  -'");
  drop(session);
 }
 #[test]

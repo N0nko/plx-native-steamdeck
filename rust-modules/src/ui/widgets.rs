@@ -6112,6 +6112,9 @@ impl StripRender {
 /// by then; the hero Play pill has been `Accent` for months.
 #[derive(Clone, Copy)]
 pub enum ControlStyle {
+    /// Compact glass controls: shared translucent chrome stops and the standard control rim.
+    /// Uses the page already beneath the face, without one blur capture per keyboard key.
+    Glass,
     /// Focus-driven: on a keyed page both states take the local [`ControlPalette`] hue (a bright
     /// two-stop focused face and a dark idle face); over video focus is flat ACCENT and idle is a
     /// white film. Dark ink on focus, white ink at rest in both cases.
@@ -6511,6 +6514,14 @@ impl ControlStyle {
                 spent: palette.spent,
             },
             ControlStyle::Accent => flat(palette.idle, theme::CONTROL_IDLE_INK, palette.spent),
+            ControlStyle::Glass if focused => ControlFace {
+                top: palette.focus_top, body: palette.focus_body,
+                ink: theme::ACCENT_INK, spent: palette.spent,
+            },
+            ControlStyle::Glass => ControlFace {
+                top: theme::TAB_GLASS_TOP, body: theme::TAB_GLASS_BOT,
+                ink: theme::TEXT_PRIMARY, spent: palette.spent,
+            },
             ControlStyle::Custom { fill, ink } => flat(fill, ink, theme::CONTROL_SPENT_FILL),
             ControlStyle::Keyline if focused && ground == ControlGround::Keyed => ControlFace {
                 top: palette.focus_top,
