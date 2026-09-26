@@ -352,8 +352,8 @@ const BTN_N: i32 = 3;
 /// **One array for all three slot occupants**, not one per module. The transport discs, the Skip
 /// pill and the Up Next pair are the same row at the same right edge, only ever one at a time, and
 /// the cursor walking them is `hud_nav.btn` for all three ([`ControlSlot::items`]) — so the pop is a
-/// property of that row and not of whichever module happens to draw it this frame. `BTN_N` 3 is the
-/// widest occupant. `up_next` and `skip_pill` read theirs through [`row_pop`].
+/// property of that row and not of whichever module happens to draw it this frame. The four-disc
+/// episode row is the widest occupant. `up_next` and `skip_pill` read theirs through [`row_pop`].
 ///
 /// A field of [`TransportRow`], which the player's instance owns: the HUD keeps no view struct
 /// — it is drawn entirely from the caller's arguments — so this and the resume clock beside it are

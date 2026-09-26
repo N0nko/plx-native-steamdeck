@@ -1952,7 +1952,7 @@ pub(crate) const SCREEN_SHAPES: &[&str] = &[
 /// re-recorded; this pin is measured by the integration's Rust schema regression test.
 #[cfg(test)]
 // Discovery now hashes retained context branches and their two-second dwell state.
-const SCREEN_SHAPES_PIN: u64 = 0xb0ceacfa12b9a719;
+const SCREEN_SHAPES_PIN: u64 = 0xb73741e06a1fc78b;
 
 #[cfg(test)]
 mod arg_tests {
