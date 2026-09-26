@@ -48,6 +48,8 @@ rust-modules/target-macapp/
 # the reason every other feature set does (cargo does not hash its output; see the Makefile).
 rust-modules/target-lab/
 rust-modules/target-sim-lab/
+# `make screenshots-sim` — the documentation-screenshot simulator (hostsim + devtriggers).
+rust-modules/target-sim-shots/
 # pkg/plxnative-storage's own target dir, deliberately separate from $(RUST_TDIR) — see the
 # Makefile's STORAGE_TDIR comment. One glob for every RELEASE/LAB/SYMBOLS combination.
 rust-modules/target*-storage/
@@ -73,6 +75,7 @@ pkg/logmprobe
 .tv-tunnel.log
 .tv-remote-url
 pkg/.build-config
+pkg/.config-local-stamp
 # The derived per-flavour descriptor (ci/mkipk.py --emit-appinfo). Generated from the tracked
 # pkg/appinfo.json by ci/flavor.py on every deploy/package, so committing it would put the version
 # in a fifth file. NB `pkg/dev/` is the opposite — tracked artwork, cut by tools/mkicons.py.
@@ -141,6 +144,9 @@ tests/fixtures/**/*.mkv
 tests/fixtures/**/*.mp4
 tests/fixtures/**/*.sup
 tests/fixtures/fixtures.json
+# ...except one deliberate 13 KB regression fixture, which is not generated media but the input of
+# `ff_image_subtitle_tests.rs` (`make check-ffmpeg`): mkvmerge's zlib-compressed subtitle tracks.
+!tests/fixtures/mkv_zlib_subs.mkv
 
 # Python bytecode from the host-side test/tooling scripts.
 __pycache__/

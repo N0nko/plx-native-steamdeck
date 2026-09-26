@@ -97,12 +97,33 @@ impl ProfilePublisher {
         }
     }
     pub(crate) fn publish(&mut self, user: Option<UserRef>, generation: u32) {
+        #[cfg(test)]
+        self.publish_with(user, generation, |_, _| {});
+        #[cfg(not(test))]
+        self.publish_with(user, generation, |user, generation| {
+            super::account::publish_audio_preferences_profile(user.as_ref(), generation);
+            let Some(user) = user else { return; };
+            let client_id = peek().client_id.clone();
+            let Some(credential) = plex_tv_credential(&user) else { return; };
+            super::account::warm_audio_preferences(client_id, credential, user, generation);
+        });
+    }
+    fn publish_with<W>(&mut self, user: Option<UserRef>, generation: u32, warm: W)
+    where W: FnOnce(Option<UserRef>, u32) {
         if let Some(scoped) = &mut self.scoped {
             *scoped = std::sync::Arc::new(CurrentProfile { user, generation });
             return;
         }
-        *CURRENT.lock().unwrap_or_else(|e| e.into_inner()) =
-            Some(std::sync::Arc::new(CurrentProfile { user, generation }));
+        {
+            *CURRENT.lock().unwrap_or_else(|e| e.into_inner()) = Some(std::sync::Arc::new(
+                CurrentProfile { user: user.clone(), generation }));
+        }
+        warm(user, generation);
+    }
+    #[cfg(test)]
+    fn publish_with_warmer_for_test<W>(&mut self, user: Option<UserRef>, generation: u32, warm: W)
+    where W: FnOnce(Option<UserRef>, u32) {
+        self.publish_with(user, generation, warm);
     }
 }
 
@@ -121,6 +142,29 @@ pub fn current() -> Option<UserRef> {
 /// The generation assigned by the Session owner and published with this profile.
 pub fn current_gen() -> u32 {
     current_snapshot().generation
+}
+
+/// Credential for a plex.tv call made on behalf of one captured active-profile snapshot.
+///
+/// New sessions carry the profile's own account-service token explicitly. The only fallback is
+/// for legacy owner sessions written before that field existed: the stored and captured profile
+/// must be the same identity, and the persisted roster must prove owner scope. A managed or
+/// unknown legacy profile therefore skips the optional call instead of borrowing either the
+/// owner's account token or its own unrelated PMS token.
+pub(crate) fn plex_tv_credential(snapshot_user: &UserRef) -> Option<String> {
+    if let Some(token) = snapshot_user.plex_tv_token.as_ref()
+        .filter(|token| !token.trim().is_empty())
+    {
+        return Some(token.clone());
+    }
+    let stored = peek();
+    let same_profile = if snapshot_user.uuid.is_empty() {
+        stored.user.uuid.is_empty() && snapshot_user.id == stored.user.id
+    } else {
+        snapshot_user.uuid == stored.user.uuid
+    };
+    (same_profile && stored.active_profile_is_admin())
+        .then(|| stored.account_token.clone()).filter(|token| !token.is_empty())
 }
 
 /// Session file locations, best first — see [`crate::paths::session_candidates`] for why this is a
@@ -1441,8 +1485,9 @@ impl HomePins {
     }
 }
 
-/// The last-selected Plex Home user. `token` is the per-user token PMS scopes watch state by — it
-/// keeps working against the LAN server offline once cached here.
+/// The last-selected Plex Home user. `token` is strictly the per-user PMS token that scopes
+/// server access and watch state; `plex_tv_token` is the distinct credential returned by the
+/// profile switch for account-service calls. Both keep their authority when cached offline.
 #[derive(Serialize, Deserialize, Default, Clone)]
 #[serde(default)] // a missing field costs that field, never the session — see [`HomeUserRef`]
 pub struct UserRef {
@@ -1450,7 +1495,12 @@ pub struct UserRef {
     pub uuid: String,
     pub title: String,
     pub thumb: String,
+    /// Per-(profile, server) PMS credential. Never send this to plex.tv.
     pub token: String,
+    /// The switched profile's plex.tv credential. Old, damaged, or empty values simply disable
+    /// optional account-service reads until the next successful online switch.
+    #[serde(default, deserialize_with = "de_soft_nonempty_string", skip_serializing_if = "Option::is_none")]
+    pub plex_tv_token: Option<String>,
     #[serde(flatten, default, skip_serializing_if = "OpaqueExtensions::is_empty")]
     pub(crate) extensions: OpaqueExtensions,
 
@@ -1483,6 +1533,14 @@ where
         // a null, an object, a string: not a list, so there is no list. Not an error.
         _ => Vec::new(),
     })
+}
+
+fn de_soft_nonempty_string<'de, D>(d: D) -> Result<Option<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let Ok(value) = Value::deserialize(d) else { return Ok(None) };
+    Ok(value.as_str().map(str::to_owned).filter(|value| !value.trim().is_empty()))
 }
 
 /// A persisted tier is diagnostic/policy metadata, not a credential gate. Missing, null,
@@ -1723,9 +1781,9 @@ impl Session {
     /// **Is the profile currently watching the one [`Session::account_token`] belongs to?**
     ///
     /// That token is the account OWNER's (the Plex Home admin's). It is written once, by the QR
-    /// sign-in, and a profile switch never replaces it — the switched user's own account token is
-    /// fetched, used for one `/api/v2/resources`, and dropped. So anything asked of plex.tv with it
-    /// is answered ABOUT THE OWNER: every `accessToken` that comes back is the owner's
+    /// sign-in, and a profile switch never replaces it. The switched user's plex.tv credential is
+    /// retained separately on [`UserRef::plex_tv_token`]. Anything asked of plex.tv with the
+    /// session account token is answered ABOUT THE OWNER: every `accessToken` that comes back is the owner's
     /// per-(user, server) grant, and a restricted profile's answer would have been a shorter list.
     /// A caller that installs those tokens while somebody else is watching has swapped identities
     /// under them, which is why this exists as a gate rather than as a display fact.
@@ -3285,17 +3343,28 @@ fn save_locked_with_authority(
         install_or_drop_after_write(s, legacy, authority, cache_generation);
         return async_persistence::LiveWrite::legacy(legacy);
     }
+    crate::storage::wire::failure::clear();
+    CANDIDATE_ERRNOS.with(|slot| slot.set([None; 8]));
     let protected_before = has_protected_authority();
     let commit = persistence::write_session(s, authority);
+    // Uncertain helper replies already own their evidence in CanonicalCommit. Only the older
+    // StoreError-only failure variants still need this immediate thread-local snapshot.
+    let helper_failure = match &commit {
+        persistence::CanonicalCommit::Failed(crate::storage::StoreError::HelperUnavailable
+            | crate::storage::StoreError::HelperAuthentication | crate::storage::StoreError::HelperProtocol) =>
+            Some(crate::storage::wire::failure::last().unwrap_or_else(||
+                crate::storage::wire::failure::HelperFailure::new(crate::storage::wire::failure::Stage::Unknown, None))),
+        _ => None,
+    };
     let durable = matches!(commit, persistence::CanonicalCommit::Durable { .. });
     if !durable {
         match &commit {
             persistence::CanonicalCommit::Durable { .. } => unreachable!(),
-            persistence::CanonicalCommit::Uncertain { stage, errno } => {
-                crate::log(&format!("session: canonical write is uncertain stage={stage:?} errno={errno}"));
+            persistence::CanonicalCommit::Uncertain { stage, errno, helper } => {
+                crate::log(&format!("session: canonical write is uncertain stage={stage:?} errno={errno} helper={helper:?}"));
             }
             persistence::CanonicalCommit::Failed(error) => {
-                crate::log(&format!("session: canonical write failed: {error:?}"));
+                crate::log(&format!("session: canonical write failed: {error:?} helper={helper_failure:?}"));
             }
             persistence::CanonicalCommit::ProtectionFailed(failure) => {
                 crate::log(&format!(
@@ -3334,7 +3403,7 @@ fn save_locked_with_authority(
     // next read serves the fallback as Transient, never as settled canonical state. Read installs
     // preserve local Revoked even when this fallback write succeeded.
     drop_cache_locked();
-    async_persistence::LiveWrite::canonical(commit, legacy)
+    async_persistence::LiveWrite::canonical(commit, legacy).with_helper_failure(helper_failure)
 }
 
 /// The `#[cfg(test)]` `TEST_FILE` path's write outcome, where the legacy file IS the only record
@@ -3641,12 +3710,23 @@ fn parent_stat(path: &std::path::Path) -> Option<ParentStat> {
     Some(ParentStat { uid: meta.uid(), gid: meta.gid(), mode: meta.mode() & 0o7777 })
 }
 
-/// [`write_atomic`], plus the [`CandidateDiagnostic`] a failure is worth keeping.
+thread_local! {
+    // This write's bounded errno projection only: paths, identities and modes stay local.
+    static CANDIDATE_ERRNOS: std::cell::Cell<[Option<i32>; 8]> = const { std::cell::Cell::new([None; 8]) };
+}
+pub(crate) fn candidate_errnos() -> [Option<i32>; 8] { CANDIDATE_ERRNOS.with(|slot| slot.get()) }
+
+/// [`write_atomic`], plus the local diagnostic and its numeric-only report projection.
 fn write_atomic_diagnosed(path: &std::path::Path, json: &[u8]) -> Result<(), CandidateDiagnostic> {
-    write_atomic(path, json).map_err(|failure| CandidateDiagnostic {
-        path: path.to_path_buf(),
-        parent: parent_stat(path),
-        failure,
+    write_atomic(path, json).map_err(|failure| {
+        if let Some(errno) = failure.errno() {
+            CANDIDATE_ERRNOS.with(|slot| {
+                let mut values = slot.get();
+                if let Some(empty) = values.iter_mut().find(|n| n.is_none()) { *empty = Some(errno); }
+                slot.set(values);
+            });
+        }
+        CandidateDiagnostic { path: path.to_path_buf(), parent: parent_stat(path), failure }
     })
 }
 
@@ -3716,19 +3796,34 @@ fn random_tmp_path(path: &std::path::Path, attempt: u64) -> Option<std::path::Pa
     Some(path.with_file_name(name))
 }
 
+/// Open `path` for reading without following a symlink at its name, and only if it is a regular
+/// file this process owns. The metadata comes from the SAME descriptor the bytes will be read
+/// from, so a caller that records the file's identity describes what it read. A missing file is
+/// `NotFound`; anything else refused is `PermissionDenied`.
+pub(crate) fn open_owned_regular(
+    path: &std::path::Path,
+) -> std::io::Result<(std::fs::File, std::fs::Metadata)> {
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+    // O_NONBLOCK: a FIFO planted at the name must not block the open (it is refused just below);
+    // it changes nothing for a regular file.
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK)
+        .open(path)?;
+    let meta = file.metadata()?;
+    if !meta.file_type().is_file() || meta.uid() != unsafe { libc::geteuid() } {
+        return Err(std::io::ErrorKind::PermissionDenied.into());
+    }
+    Ok((file, meta))
+}
+
+/// The most [`read_owned_regular`] allocates for one file.
+pub(crate) const MAX_OWNED_FILE: u64 = 4 * 1024 * 1024;
+
 pub(crate) fn read_owned_regular(path: &std::path::Path) -> Option<Vec<u8>> {
     use std::io::Read;
-    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
-    let mut file = std::fs::OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
-        .open(path)
-        .ok()?;
-    let meta = file.metadata().ok()?;
-    if !meta.file_type().is_file() || meta.uid() != unsafe { libc::geteuid() } {
-        return None;
-    }
-    const MAX_FILE: u64 = 4 * 1024 * 1024;
+    let (mut file, _) = open_owned_regular(path).ok()?;
+    const MAX_FILE: u64 = MAX_OWNED_FILE;
     let mut bytes = Vec::new();
     file.by_ref()
         .take(MAX_FILE + 1)
@@ -3913,9 +4008,9 @@ pub fn clear() -> ClearOutcome {
             }
             outcome
         }
-        persistence::CanonicalCommit::Uncertain { stage, errno } => {
+        persistence::CanonicalCommit::Uncertain { stage, errno, helper } => {
             crate::log(&format!(
-                "session: canonical clear is uncertain stage={stage:?} errno={errno} — the \
+                "session: canonical clear is uncertain stage={stage:?} errno={errno} helper={helper:?} — the \
                  account token may still be readable from the canonical authority"
             ));
             ClearOutcome::NotDurable
@@ -4054,14 +4149,18 @@ fn retry_pending_revocation_removals_locked() -> bool {
             // Discard obsolete permission without touching the marker for a newer sign-out.
             true
         } else {
-            match std::fs::remove_file(&marker) {
+            match crate::storage::unlink(&marker) {
                 Ok(()) => sync_retired_candidate_parent(&marker),
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => sync_retired_candidate_parent(&marker),
-                Err(error) => {
-                    crate::log(&format!("session: revocation retirement failed errno={}",
-                        error.raw_os_error().unwrap_or(0)));
-                    false
-                }
+                // The same rule as `retire_session_candidate`: absence proven behind a refusal.
+                Err(error) => match crate::storage::prove_absent_after_refused_unlink(&marker, error) {
+                    Ok(()) => true,
+                    Err(error) => {
+                        crate::log(&format!("session: revocation retirement failed errno={}",
+                            error.raw_os_error().unwrap_or(0)));
+                        false
+                    }
+                },
             }
         };
         if retired {
@@ -4174,21 +4273,34 @@ fn sync_retired_candidate_parent(path: &std::path::Path) -> bool {
 
 /// Shared by both sign-out sweeps. Successful retirement includes a synced tombstone;
 /// failures remain visible, especially when no reachable canonical Cleared record protects us.
+///
+/// Retired means no credential remains at `path`: removed (parent synced), neutralized, or
+/// PROVEN absent. A refused unlink is not evidence of presence — Linux answers EROFS from the
+/// parent's mount before it looks the child up, which is how every legacy candidate on a mount
+/// the jail sees read-only answered on webOS 4.10.2. So a refusal is followed by a no-follow
+/// lookup, and a neutralize open (no O_CREAT) answering ENOENT is the same proof. Only a name
+/// that exists, or cannot be looked at, stays a failure for the caller to retry.
 fn retire_session_candidate(path: &std::path::Path) -> bool {
-    match std::fs::remove_file(path) {
-        Ok(()) => sync_retired_candidate_parent(path),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => sync_retired_candidate_parent(path),
-        Err(unlink) => match neutralize_session_candidate(path) {
-            Ok(()) => true,
-            Err(overwrite) => {
-                crate::log(&format!(
-                    "session: sign-out candidate retirement failed path={} unlink_errno={} neutralize_errno={}",
-                    path.display(), unlink.raw_os_error().unwrap_or(0),
-                    overwrite.raw_os_error().unwrap_or(0)
-                ));
-                false
-            }
-        },
+    let unlink = match crate::storage::unlink(path) {
+        Ok(()) => return sync_retired_candidate_parent(path),
+        // May be the retry of our own unlink whose parent sync failed, so it syncs too.
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return sync_retired_candidate_parent(path),
+        Err(error) => error,
+    };
+    // A refusal changed nothing on disk, so absence proven behind it has nothing to flush.
+    let Err(unlink) = crate::storage::prove_absent_after_refused_unlink(path, unlink) else { return true };
+    match neutralize_session_candidate(path) {
+        Ok(()) => true,
+        // Opened without O_CREAT: the name vanished after the lookup above.
+        Err(overwrite) if overwrite.kind() == std::io::ErrorKind::NotFound => true,
+        Err(overwrite) => {
+            crate::log(&format!(
+                "session: sign-out candidate retirement failed path={} unlink_errno={} neutralize_errno={}",
+                path.display(), unlink.raw_os_error().unwrap_or(0),
+                overwrite.raw_os_error().unwrap_or(0)
+            ));
+            false
+        }
     }
 }
 
@@ -4244,11 +4356,15 @@ impl Session {
     /// and therefore never got a profile written at all.
     ///
     /// **`home_users` being empty means "unknown", not "none".** It is only ever filled by a
-    /// sign-in or a "Change profile", and a *failed* fetch persists an empty vec
-    /// (`auth.rs`'s `home_users().unwrap_or_default()`), so "never fetched", "fetch failed" and
-    /// "genuinely empty" are one value. Anything deciding on it must treat empty as "ask" — which
-    /// is why [`Account::can_switch`] keeps the switch row: that row is what re-fetches the roster,
-    /// and hiding it on an empty one would be a one-way door out of a Plex Home created later.
+    /// sign-in or a "Change profile", and a *failed* fetch at sign-in persists an empty vec
+    /// (`auth.rs`'s `finish_sign_in`, which logs the failure's grade), so "never fetched", "fetch
+    /// failed" and "genuinely empty" are one value. Anything deciding on it must treat empty as
+    /// "ask" — which is why [`Account::can_switch`] keeps the switch row: that row is what
+    /// re-fetches the roster, and hiding it on an empty one would be a one-way door out of a Plex
+    /// Home created later. When the re-fetch fails too, the picker reads out why and BACK leaves
+    /// it (#132); a REFUSAL over nothing cached is then remembered for that identity
+    /// (`auth::owner::SessionSnapshot::switch_refused`), and it is `screens::account_menu`, not
+    /// this, that hides the row on it.
     pub fn account(&self, active: Option<&UserRef>) -> Account {
         let named = |t: &str| Some(t.to_string()).filter(|t| !t.is_empty());
         // the roster hop searches for a NAMED admin, then any named entry — a `find(admin)` whose

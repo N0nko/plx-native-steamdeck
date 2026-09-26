@@ -39,6 +39,7 @@ use crate::ui::machine::{Key, Tick};
 use std::os::raw::c_int;
 
 pub(crate) mod bench;
+pub(crate) mod screenshot;
 
 /// The dev triggers read ONCE at boot and consulted by the loop every frame after (each is
 /// documented where it is READ, below). Formerly `App::dev: DevFlags`; unchanged in shape.
@@ -98,6 +99,8 @@ pub(crate) struct Scenarios {
     pub(crate) press_release_at: u32,
     pub(crate) itemmenu_tried: bool,
     pub(crate) acct_tried: bool,
+    /// `/tmp/plxnative-acct`'s value, once read (see `acct_arm`).
+    pub(crate) acct_rest: Option<Option<u32>>,
     pub(crate) auto_tried: bool,
     pub(crate) replay_left: u32,
     pub(crate) grid_tried: bool,
@@ -126,7 +129,8 @@ pub(crate) struct Scenarios {
     /// the surface it names exists.
     pub(crate) menupick_row: Option<c_int>,
     pub(crate) pause_tried: bool,
-    pub(crate) pause_script: Option<(u32, Option<u32>)>,
+    /// An armed Pause edge: (due at, hold ms, the media position it also waits for).
+    pub(crate) pause_script: Option<(u32, Option<u32>, Option<u32>)>,
     pub(crate) pause_resume_at: Option<u32>,
     /// `/tmp/plxnative-pushbench` — see [`bench`]'s module doc. `None` unarmed; cleared to `None`
     /// once its `n` cycles are done, the same shape `content_boot` uses to stop being ticked.
@@ -137,6 +141,8 @@ pub(crate) struct Scenarios {
     pub(crate) deep_bench: Option<bench::DeepBench>,
     /// The boot-time trigger flags the loop consults every frame after.
     pub(crate) dev: DevFlags,
+    /// The screenshot pipeline's arms (`plxnative-libgrid`, `-libshelf`, `-libmenu`, `-clockstop`) — see [`screenshot`].
+    pub(crate) shots: screenshot::ScreenshotArms,
 }
 
 // =================================================================================================
@@ -173,6 +179,7 @@ pub(crate) fn login_forced() -> bool {
 pub(crate) fn dev_token() -> String {
     match crate::dev::read("token") {
         Some(s) if !s.is_empty() => {
+            #[cfg(feature = "devtriggers")]
             crate::log("token: using /tmp/plxnative-token (test identity)");
             s
         }
@@ -192,16 +199,22 @@ pub(crate) fn arm_logintest() {
             let sess = crate::plex::session::load();
             let ac = crate::plex::account::AccountClient::new(&sess.client_id, None);
             match ac.create_pin() {
-                Some(p) => crate::log(&format!(
+                Ok(p) => crate::log(&format!(
                     "logintest: create_pin ok id={} code_len={} authToken_null={}",
                     p.id,
                     p.code.len(),
                     p.auth_token.is_none()
                 )),
-                None => crate::log("logintest: create_pin FAILED (transport/TLS/link/deser)"),
+                Err(evidence) => crate::log(&format!("logintest: create_pin FAILED ({})",
+                    crate::plex::account::describe_evidence(&evidence))),
             }
         });
     }
+}
+
+/// `/tmp/plxnative-stillclock=<ms>` — see [`screenshot::arm_stillclock`].
+pub(crate) fn arm_stillclock() {
+    screenshot::arm_stillclock();
 }
 
 /// `/tmp/plxnative-anim` — the animation-diagnostic overlay (off by default).
@@ -243,6 +256,7 @@ pub(crate) fn arm_drawmask() {
 pub(crate) fn arm_heroground() {
     if crate::dev::flag("heroground") {
         crate::ui::widgets::set_hero_ground(true);
+        #[cfg(feature = "devtriggers")]
         crate::log("hero: one-pass ground ENABLED by /tmp/plxnative-heroground");
     }
 }
@@ -281,6 +295,7 @@ pub(crate) fn arm_cpuprof() {
 pub(crate) fn arm_noidle() {
     if crate::dev::flag("noidle") {
         crate::ui::idle::set_enabled(false);
+        #[cfg(feature = "devtriggers")]
         crate::log("idle: present gate DISABLED by /tmp/plxnative-noidle");
     }
 }
@@ -423,9 +438,11 @@ pub(crate) fn framedrop_value() -> Option<String> {
 pub(crate) fn firstrun_armed() -> bool {
     crate::dev::flag("firstrun")
 }
-/// `/tmp/plxnative-acct` — auto-open the profile menu (headless capture of the popover).
-pub(crate) fn acct_armed() -> bool {
-    crate::dev::flag("acct")
+/// `/tmp/plxnative-acct[=<ms>]` — auto-open the profile menu (headless capture of the popover).
+/// `None` when unarmed; `Some(None)` opens it as soon as Home is up; `Some(Some(ms))` waits until
+/// the screen has been at rest for `ms` first (simulator only — see `acct_arm`).
+pub(crate) fn acct_armed() -> Option<Option<u32>> {
+    crate::dev::read("acct").map(|v| v.parse().ok())
 }
 /// `/tmp/plxnative-replay[=N]`'s raw content, for [`crate::app::boot::replay_budget`].
 pub(crate) fn replay_trigger_value() -> Option<String> {
@@ -703,8 +720,41 @@ pub(crate) fn apply_search_boot_trigger(
 
 /// `now - at >= gap_ms`, read as SIGNED so a future `at` (a `delay=` in force) correctly does not
 /// fire yet. See the tests below for the wrap and delay traps this predicate has to survive.
+/// A trigger's value, read until it is first found armed and held from then on, so a per-frame
+/// arm costs one read rather than one per frame. An unarmed trigger is looked for again next call.
+fn latched<T: Copy>(slot: &mut Option<T>, read: impl FnOnce() -> Option<T>) -> Option<T> {
+    if slot.is_none() {
+        *slot = read();
+    }
+    *slot
+}
+
 fn script_step_due(now: u32, at: u32, gap_ms: u32) -> bool {
     (now.wrapping_sub(at) as i32) >= gap_ms as i32
+}
+
+#[cfg(test)]
+mod trigger_latch_tests {
+    use super::latched;
+
+    #[test]
+    fn an_armed_trigger_is_read_once_and_then_held() {
+        let (mut slot, mut reads) = (None, 0);
+        for _ in 0..5 {
+            assert_eq!(latched(&mut slot, || { reads += 1; Some(Some(800u32)) }), Some(Some(800)));
+        }
+        assert_eq!(reads, 1, "an armed trigger's file was read on every frame");
+    }
+
+    #[test]
+    fn an_unarmed_trigger_is_looked_for_until_it_appears() {
+        let (mut slot, mut reads) = (None::<Option<u32>>, 0);
+        assert_eq!(latched(&mut slot, || { reads += 1; None }), None);
+        assert_eq!(latched(&mut slot, || { reads += 1; None }), None);
+        assert_eq!(latched(&mut slot, || { reads += 1; Some(None) }), Some(None));
+        assert_eq!(latched(&mut slot, || { reads += 1; Some(Some(1)) }), Some(None), "re-read once latched");
+        assert_eq!(reads, 3);
+    }
 }
 
 #[cfg(test)]
@@ -797,8 +847,10 @@ fn autoplay_arm(app: &mut App, fr: &mut Frame) {
 fn grid_library_search_heroidx_arm(app: &mut App, _fr: &mut Frame) {
     if !app.scenarios.grid_tried && _fr.now.wrapping_sub(app.t0) > 400 {
         app.scenarios.grid_tried = true;
-        if crate::dev::flag("grid") || crate::dev::flag("itemmenu") {
-            app.bridge.home_command(HomeCmd::FocusGrid { row: 0, col: 0 });
+        // `grid` alone (or `itemmenu`) seats the first card; `grid=<row>,<col>` any other.
+        if let Some(v) = crate::dev::read("grid").or_else(|| crate::dev::flag("itemmenu").then(String::new)) {
+            let (row, col) = screenshot::parse_cell(&v).unwrap_or((0, 0));
+            app.bridge.home_command(HomeCmd::FocusGrid { row, col });
         }
         if let Some(s) = crate::dev::read("library") {
             let kind = match s.parse::<usize>().unwrap_or(0) {
@@ -818,6 +870,13 @@ fn grid_library_search_heroidx_arm(app: &mut App, _fr: &mut Frame) {
                 app.bridge.home_command(HomeCmd::SelectHero(n));
             }
         }
+        // `/tmp/plxnative-heropin=<n>` — `heroidx`, then HOLD that billboard (no auto-advance):
+        // the screenshot pipeline's pin, so a settled capture shows the slot its scene named.
+        if let Some(s) = crate::dev::read("heropin") {
+            if let Ok(n) = s.parse::<c_int>() {
+                app.bridge.home_command(HomeCmd::PinHero(n));
+            }
+        }
     }
 }
 
@@ -830,8 +889,9 @@ fn settings_boot_arm(app: &mut App, fr: &mut Frame) {
                 "home" => crate::screens::family::SettingsPage::Favourites,
                 "privacy" => crate::screens::family::SettingsPage::Privacy,
                 "legal" => crate::screens::family::SettingsPage::Legal,
-                other => {
-                    crate::log(&format!("BADTRIGGER settings-boot target {other:?} unknown; opened root instead"));
+                _other => {
+                    #[cfg(feature = "devtriggers")]
+                    crate::log(&format!("BADTRIGGER settings-boot target {_other:?} unknown; opened root instead"));
                     crate::screens::family::SettingsPage::Root
                 }
             };
@@ -869,11 +929,22 @@ fn press_arm(app: &mut App, fr: &mut Frame) {
 /// used to be a route the boot could simply name (`route = Route::Account { over: BarHost::Home }`
 /// beside `account_menu::open()`), and it is now presented on the container's `ModalStack`, which
 /// exists only once the loop is running. Same shape as `itemmenu_arm` beside it.
+///
+/// `acct=<ms>` holds the menu back until the screen has been at rest for `<ms>`
+/// ([`screenshot::at_rest`]): a menu opened on the first Home frame freezes a page whose hero
+/// backdrop has not arrived yet, and the documentation figure wants the menu over a LANDED Home.
+///
+/// The trigger's value is read once and held ([`latched`]): `acct` carries a value, so arming it
+/// is an open+read rather than a stat, and a debug build on the television must not pay that on
+/// every frame. Once the menu is open or the arm gives up, `acct_tried` ends it before any read.
 fn acct_arm(app: &mut App, fr: &mut Frame) {
-    if app.scenarios.acct_tried || !crate::dev::scenarios::acct_armed() {
+    if app.scenarios.acct_tried {
         return;
     }
-    if matches!(app.route(), AppArg::Home) && app.pages.top_page().is_some() {
+    let Some(rest) = latched(&mut app.scenarios.acct_rest, crate::dev::scenarios::acct_armed) else {
+        return;
+    };
+    if screenshot::at_rest(fr.now, rest) && matches!(app.route(), AppArg::Home) && app.pages.top_page().is_some() {
         app.scenarios.acct_tried = true;
         crate::app::bridge::open_account_menu(&mut app.pages);
     } else if fr.now.wrapping_sub(app.t0) > 12_000 {
@@ -931,12 +1002,14 @@ fn detail_arm(app: &mut App, fr: &mut Frame) -> bool {
             if !rk.is_empty() {
                 let sid = match crate::app::boot::direct_trigger_server() {
                     Ok(sid) => sid,
-                    Err(e) => {
-                        crate::log(&format!("plxnative-detail: refused: {e}"));
+                    Err(_e) => {
+                        #[cfg(feature = "devtriggers")]
+                        crate::log(&format!("plxnative-detail: refused: {_e}"));
                         return false;
                     }
                 };
                 app.bridge.metadata_mut().run(crate::stores::metadata::MetadataCmd::RequestDetail { sid, rk: rk.to_string() });
+                #[cfg(feature = "devtriggers")]
                 crate::log(&format!("plxnative-detail: rk={rk} server={} start", sid.raw()));
                 // A HARD CUT onto the page: at boot there is no outgoing screen to replace, so a
                 // dip would fade the page up out of nothing and read as a slow app rather than a
@@ -981,12 +1054,14 @@ fn play_arm(app: &mut App, fr: &mut Frame) -> bool {
             if !rk.is_empty() {
                 let sid = match crate::app::boot::direct_trigger_server() {
                     Ok(sid) => sid,
-                    Err(e) => {
-                        crate::log(&format!("plxnative-play: refused: {e}"));
+                    Err(_e) => {
+                        #[cfg(feature = "devtriggers")]
+                        crate::log(&format!("plxnative-play: refused: {_e}"));
                         return false;
                     }
                 };
                 app.bridge.metadata_mut().run(crate::stores::metadata::MetadataCmd::RequestDetail { sid, rk: rk.to_string() });
+                #[cfg(feature = "devtriggers")]
                 crate::log(&format!("plxnative-play: rk={rk} server={} request", sid.raw()));
                 app.scenarios.play_await = Some((sid, rk.to_string(), fr.now.wrapping_add(12_000)));
             }
@@ -1022,6 +1097,7 @@ fn play_await_tick(app: &mut App, fr: &mut Frame) {
         let expired = fr.now.wrapping_sub(deadline) < u32::MAX / 2;
         if settled || expired {
             app.scenarios.play_await = None;
+            #[cfg(feature = "devtriggers")]
             crate::log(&format!(
                 "plxnative-play: rk={rk} server={} — no detail landed ({})",
                 sid.raw(),
@@ -1032,9 +1108,11 @@ fn play_await_tick(app: &mut App, fr: &mut Frame) {
     };
     app.scenarios.play_await = None;
     if part.is_empty() {
+        #[cfg(feature = "devtriggers")]
         crate::log(&format!("plxnative-play: rk={rk} server={} — nothing playable on it", sid.raw()));
         return;
     }
+    #[cfg(feature = "devtriggers")]
     crate::log(&format!("plxnative-play: rk={rk} server={} start", sid.raw()));
     if crate::route::request_play(&mut app.player.session, app.bridge.metadata_mut(), sid, &rk, &part, &vc, &ac, &title, "") {
         let resume = crate::metadata::resume_ns(resume_ms, dur_ms);
@@ -1133,11 +1211,22 @@ fn autopause_arm(app: &mut App, fr: &mut Frame) {
     if !app.scenarios.pause_tried && matches!(app.route(), AppArg::Player) && fr.now.wrapping_sub(app.t0) > 6000 {
         app.scenarios.pause_tried = true;
         if let Some(script) = super::pause_script() {
-            app.scenarios.pause_script = Some((fr.now.wrapping_add(script.delay_ms), script.hold_ms));
+            app.scenarios.pause_script =
+                Some((fr.now.wrapping_add(script.delay_ms), script.hold_ms, script.at_ms));
         }
     }
-    if let Some((pause_at, hold_ms)) = app.scenarios.pause_script {
-        if matches!(app.route(), AppArg::Player) && script_step_due(fr.now, pause_at, 0) {
+    if let Some((pause_at, hold_ms, at_ms)) = app.scenarios.pause_script {
+        // In the simulator the clock sink is also told to stop on `at` exactly, so the pause
+        // (accepted a little after the gate opens) freezes that position rather than wherever
+        // scheduling had got to: the same frame and clock every run (`ffi_host.rs::stop_clock_at`).
+        // Re-armed every frame until accepted: a Load in between rebases the fed timeline, and
+        // the stop is kept in movie time, so re-arming is idempotent.
+        #[cfg(feature = "hostsim")]
+        if let Some(ms) = at_ms {
+            crate::player::stop_sim_clock_at(Some(i64::from(ms) * 1_000_000));
+        }
+        let reached = at_ms.is_none_or(|ms| crate::app::playback::playpos() >= i64::from(ms) * 1_000_000);
+        if matches!(app.route(), AppArg::Player) && script_step_due(fr.now, pause_at, 0) && reached {
             if crate::app::lifecycle::set_transport_paused(&mut app.adapters.player, true) {
                 crate::log(&format!(
                     "autopause: Pause accepted hold={}ms",
@@ -1145,6 +1234,8 @@ fn autopause_arm(app: &mut App, fr: &mut Frame) {
                 ));
                 app.scenarios.pause_script = None;
                 app.scenarios.pause_resume_at = hold_ms.map(|hold| fr.now.wrapping_add(hold));
+                #[cfg(feature = "hostsim")]
+                crate::player::stop_sim_clock_at(None);
                 pin_headless_hud(app, fr.now, None);
             }
         }
@@ -1196,8 +1287,13 @@ fn menupick_arm(app: &mut App, fr: &mut Frame) {
         let meta = app.bridge.metadata_view();
         match crate::app::bridge::player_overlay_mut(&mut app.pages) {
             Some(surface) => {
-                if let Some(commit) = surface.pick_track_row(&app.player.session, meta, row) {
-                    crate::app::playback::commit_track(&mut app.player.session, commit);
+                match surface.pick_track_row(&app.player.session, meta, row) {
+                    Some(commit) => crate::app::playback::commit_track(&mut app.player.session, commit),
+                    // The menu's own on_ok treats picking the already-active row as a no-op: no
+                    // commit, no route transition line. Without this, a manifest case whose row
+                    // no longer differs from the start pick (e.g. #210's file-default rule) fails
+                    // downstream as "no route transition" with nothing pointing back at menupick.
+                    None => crate::log(&format!("menupick: row {row} already active — no commit")),
                 }
             }
             None => app.scenarios.menupick_row = Some(row),
@@ -1232,23 +1328,46 @@ fn marker_arm(app: &mut App, _fr: &mut Frame) {
     }
 }
 
+/// Whether the replay-after-EOS arm should re-arm the next boot iteration. `handed_off_to_up_next`
+/// is `finish_playback`'s own return — the only live signal that this EOS was a real exit rather
+/// than an Up Next handoff, since the exit's `PopTo` only PARKS the navigation (applied at the
+/// next commit) and `app.route()` still reads `Player` for the rest of the frame either way.
+fn should_replay_after_eos(handed_off_to_up_next: bool, replay_left: u32, playurl_flag: bool) -> bool {
+    !handed_off_to_up_next && replay_left > 0 && playurl_flag
+}
+
 /// `/tmp/plxnative-replay[=N]` — REPLAY AFTER COMPLETION (LG App Self Checklist #46). Called from
-/// `app::run::playback_tick` right after `finish_playback` has left the player on a real EOS (an
-/// Up Next handoff would have RETURNED there instead, which the caller's `matches!` on `Route`
-/// already told apart). Re-arming `auto_tried` sends the next frame back through the `playurl`
-/// entry, which calls `route::clear_url()` and lets `start_bufferfeed` read the trigger again.
-/// The trigger is read once at boot (`replay_left`), so this cannot become an endless loop from a
-/// file appearing mid-run, and `dev::flag` is `false` at COMPILE time in a release build.
-pub(crate) fn maybe_replay_after_eos(app: &mut App) {
-    if app.scenarios.replay_left > 0
-        && !matches!(app.route(), AppArg::Player)
-        && crate::dev::flag("playurl")
-    {
+/// `app::run::playback_tick` right after `finish_playback` has left the player on a real EOS;
+/// `handed_off_to_up_next` is that call's own return value, telling an Up Next handoff apart from
+/// a real exit (see [`should_replay_after_eos`]). Re-arming `auto_tried` sends the next frame back
+/// through the `playurl` entry, which calls `route::clear_url()` and lets `start_bufferfeed` read
+/// the trigger again. The trigger is read once at boot (`replay_left`), so this cannot become an
+/// endless loop from a file appearing mid-run, and `dev::flag` is `false` at COMPILE time in a
+/// release build.
+pub(crate) fn maybe_replay_after_eos(app: &mut App, handed_off_to_up_next: bool) {
+    if should_replay_after_eos(handed_off_to_up_next, app.scenarios.replay_left, crate::dev::flag("playurl")) {
         app.scenarios.replay_left -= 1;
         app.scenarios.auto_tried = false;
         crate::log(&format!(
             "replay: starting the finished stream again ({} left)", app.scenarios.replay_left
         ));
+    }
+}
+
+#[cfg(test)]
+mod replay_after_eos_tests {
+    use super::should_replay_after_eos;
+
+    #[test]
+    fn an_up_next_handoff_never_rearms_the_replay_even_with_budget_and_flag() {
+        assert!(!should_replay_after_eos(true, 3, true));
+    }
+
+    #[test]
+    fn a_real_exit_rearms_only_with_budget_left_and_the_flag_set() {
+        assert!(should_replay_after_eos(false, 1, true));
+        assert!(!should_replay_after_eos(false, 0, true), "no budget left");
+        assert!(!should_replay_after_eos(false, 1, false), "trigger not armed");
     }
 }
 
@@ -1272,6 +1391,10 @@ pub(crate) unsafe fn each_frame(app: &mut App, fr: &mut Frame) -> bool {
     press_arm(app, fr);
     itemmenu_arm(app, fr);
     acct_arm(app, fr);
+    screenshot::libgrid_arm(app, fr);
+    screenshot::libshelf_arm(app, fr);
+    screenshot::libmenu_arm(app, fr);
+    screenshot::clockstop_arm(app, fr);
     if !detail_arm(app, fr) {
         return false;
     }

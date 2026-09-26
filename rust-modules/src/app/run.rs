@@ -395,6 +395,12 @@ unsafe fn prepare_window(app: &mut App, fr: &mut Frame) {
     // A third term goes FIRST and short-circuits the other two: a page capture still in flight on
     // the GPU (`gfx::SNAPSHOT_THIS_FRAME`'s doc). Presenting now would only wait a whole vsync for
     // a buffer; not asking `should_present` leaves its damage and motion for the frame that does.
+    // The simulator's settled capture (`PLXNATIVE_SHOT_SETTLE`): once nothing has changed for the
+    // asked-for quiet, invalidate so the NEXT present is the settled frame and `maybe_capture`
+    // takes it. Before the decision below, so that invalidate selects this very frame.
+    #[cfg(feature = "hostsim")]
+    crate::shot::tick(fr.now, app.pages.budget.has_queued_work() || crate::gfx::snapshot_pending()
+        || app.scenarios.shots.pending());
     fr.present = !crate::gfx::snapshot_pending()
         && app.window_activity.allow_present(
             crate::ui::idle::should_present(fr.now) || app.pages.budget.has_queued_work(),
@@ -489,6 +495,12 @@ unsafe fn present_and_swap(
             crate::capture::tick(fr.now);
         }
         app.instr.mark(crate::diag::heartbeat::Phase::Capture); // capture
+        // `plxnative-simvideo`: the decoded picture goes UNDER the finished UI, as the television's
+        // compositor puts its video plane under ours — before the capture, so shots include it.
+        #[cfg(feature = "hostsim")]
+        if fr.player {
+            crate::player::sim_video::composite_under();
+        }
         // Before the swap, never after: the back buffer is undefined once presented.
         #[cfg(feature = "hostsim")]
         if crate::shot::maybe_capture(_vx, _vy, _vw, _vh) {
@@ -724,11 +736,17 @@ unsafe fn ingest_sdl_event(app: &mut App, fr: &mut Frame) {
         // Revoke our borrowed SDL proxies before another frame can use them while backgrounded.
         // SDL owns their lifetime; foreground must query its current window again.
         crate::system::sys_release_wayland();
+        // A trailer preview is not parked: the OS taking the screen ends it, like any other way
+        // off its page (`content::halt_preview_off_its_page`). A Load that has not returned is
+        // left Abandoning, and a preview session is never parked for the foreground reload —
+        // that reload would bring the trailer back as ordinary playback.
+        super::content::halt_preview_now(&mut app.player.session, &mut app.adapters.player);
         // Playback owns its resolve and Engine before the queued Player page mounts. Page
         // presence only governs the screen-local cleanup below, never resource suspension.
-        if (crate::route::play_pending()
-            || app.adapters.player.is_live()
-            || crate::route::has_url(&app.player.session))
+        if !crate::route::preview_request(&app.player.session)
+            && (crate::route::play_pending()
+                || app.adapters.player.is_live()
+                || crate::route::has_url(&app.player.session))
             && !app.player.lifecycle.awaiting_load()
         {
             // INTENDED, not published: this snapshot is the only thing the foreground
@@ -1342,8 +1360,12 @@ fn playback_may_run(app: &App) -> bool {
 /// poll, the reporter, EOS / Up Next, the hub refresh, the held key, the scrubber and the paused
 /// seek — everything that reads `fr.now` and no `dt`.
 pub(crate) unsafe fn playback_tick(app: &mut App, fr: &mut Frame) {
-        if playback_may_run(app) && is_started() {
-            crate::player::pump(&mut app.player.session, &mut app.adapters.player, fr.now);
+        if playback_may_run(app) {
+            if is_started() {
+                crate::player::pump(&mut app.player.session, &mut app.adapters.player, fr.now);
+            }
+            // Outside `is_started`: a refused preview landing or a stale machine has no engine,
+            // and is exactly what must still be settled back to Idle.
             crate::player::preview::after_pump(
                 &mut app.player.session,
                 &mut app.adapters.player,
@@ -1388,14 +1410,29 @@ pub(crate) unsafe fn playback_tick(app: &mut App, fr: &mut Frame) {
         // show has another episode queued, else leave the player (back to the detail page or
         // home, whichever is behind), instead of freezing on the last frame.
         if playback_may_run(app) && super::bridge::player(&app.pages).is_some() && crate::player::ended() {
-            finish_playback(&mut app.player.session,
+            let handed_off_to_up_next = finish_playback(&mut app.player.session,
                 &mut app.adapters.player,
                 &mut app.refresh_hubs_at,
                 &mut app.pages,
                 &mut app.bridge,
             );
             // dev: REPLAY AFTER COMPLETION (#46) — `crate::dev::scenarios::maybe_replay_after_eos`.
-            crate::dev::scenarios::maybe_replay_after_eos(app);
+            // `finish_playback`'s return, not `app.route()`: `exit_player`'s `PopTo` only PARKS
+            // the navigation (applied at the next commit), so the route still reads `Player` here
+            // even on a real exit — the return value is the only live signal for it this frame.
+            crate::dev::scenarios::maybe_replay_after_eos(app, handed_off_to_up_next);
+        } else if playback_may_run(app)
+            && crate::player::ended()
+            && super::content::off_route_orphan(
+                app.adapters.player.is_live(),
+                crate::route::is_preview(&app.player.session),
+                super::bridge::player(&app.pages).is_some(),
+            )
+        {
+            // The same end with no player page to leave: nothing else would ever stop this
+            // engine, and its reporter would keep posting the final position forever.
+            log("EOS: stopping an off-route engine nothing owns");
+            crate::player::stop_bufferfeed(&mut app.player.session, &mut app.adapters.player);
         }
         // Up Next countdown elapsed → start the queued episode on its own. Beside the EOS
         // handoff so the whole auto-advance chain reads in one place.
@@ -2012,6 +2049,19 @@ pub(crate) unsafe fn update(app: &mut App, fr: &mut Frame) {
                 }
                 if let Some(r) = crate::route::pump_play(&mut app.player.session, app.bridge.metadata_mut()) {
                     crate::ui::idle::invalidate();
+                    // A preview landing nobody is waiting for any more (the page halted it while
+                    // the resolve was in flight) must not start an engine: nothing would track
+                    // it, so nothing would stop it at its end or hand the engine to a later Play.
+                    if crate::route::is_preview(&app.player.session)
+                        && !crate::player::preview::expects_landing()
+                    {
+                        if let Some(transaction) = crate::route::pending_route_start() {
+                            let _ = crate::route::reject_route_start_preparation(transaction);
+                        }
+                        crate::player::stop_bufferfeed(&mut app.player.session, &mut app.adapters.player);
+                        crate::route::clear_preview(&mut app.player.session);
+                        return;
+                    }
                     let resume_prepared = r <= 0
                         || matches!(
                             crate::player::resume_at(&mut app.player.session, r),
@@ -2858,6 +2908,8 @@ mod lifecycle_regression_tests {
                 press_release_at: Default::default(),
                 itemmenu_tried: Default::default(),
                 acct_tried: Default::default(),
+                acct_rest: Default::default(),
+                shots: Default::default(),
                 auto_tried: Default::default(),
                 replay_left: Default::default(),
                 grid_tried: Default::default(),
@@ -3167,6 +3219,12 @@ mod lifecycle_regression_tests {
         /// substitution was reverted before committing; the host's real thread budget was never
         /// actually exhausted, so this is a SIMULATED red, not an observed historical one.
         fn new() -> Option<Rig> {
+            Self::serving(true)
+        }
+
+        /// `successor: false` serves a one-row queue — a film, with no Up Next to hand off to — so
+        /// an end of stream leaves the player instead of starting the next item.
+        fn serving(successor: bool) -> Option<Rig> {
             crate::plex::reset_servers_for_test();
             let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
             listener.set_nonblocking(true).unwrap();
@@ -3180,7 +3238,7 @@ mod lifecycle_regression_tests {
             let worker = match crate::task::spawn_small_keeping("lifecycle-fixture", move || {
                 let mut first = true;
                 while !stopping.load(Ordering::Acquire) {
-                    let (mut socket, _) = match listener.accept() {
+                    let (mut socket, _) = match crate::testnet::accept(&listener) {
                         Ok(v) => v,
                         Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                             std::thread::sleep(Duration::from_millis(1));
@@ -3214,6 +3272,16 @@ mod lifecycle_regression_tests {
                     }
                     let body = if request.contains("/decision?") {
                         r#"{"MediaContainer":{"Metadata":[{"Media":[{"Part":[{"decision":"directplay"}]}]}]}}"#
+                    } else if !successor {
+                        r#"{"MediaContainer":{"machineIdentifier":"lifecycle-fixture","size":1,
+                        "playQueueID":1,"playQueueSelectedItemID":11,"playQueueTotalCount":1,
+                        "Metadata":[
+                        {"ratingKey":"1","playQueueItemID":11,"type":"movie","title":"First",
+                         "duration":60000,
+                         "Media":[{"videoCodec":"h264","audioCodec":"aac","width":1280,"height":720,
+                         "Part":[{"id":1,"key":"/library/parts/1/file.mkv","Stream":[
+                         {"id":1,"streamType":1,"codec":"h264"},
+                         {"id":2,"streamType":2,"codec":"aac","selected":true}]}]}]}]}}"#
                     } else {
                         r#"{"MediaContainer":{"machineIdentifier":"lifecycle-fixture","size":2,
                         "playQueueID":1,"playQueueSelectedItemID":11,"playQueueTotalCount":2,
@@ -3635,5 +3703,160 @@ mod lifecycle_regression_tests {
         assert!(!crate::route::play_pending());
         assert_eq!(rig.app.player.lifecycle.state, ForegroundState::Idle);
         assert!(crate::route::has_url(&rig.app.player.session));
+    }
+
+    /// One loop iteration's navigation-bearing phases, in `run`'s order: the playback tick (EOS),
+    /// the container's frame, the post-player restore, the drained requests and `update` (where a
+    /// resolved plan lands).
+    use crate::ui::screen::ScreenArg;
+
+    fn step(app: &mut App, t: &mut u32, inputs: Vec<crate::ui::machine::InputEvent<u32>>) {
+        *t += 16;
+        app.inputs.extend(inputs);
+        let mut fr = Frame::begin(&app.player.session, app.bridge.metadata_view());
+        fr.now = *t;
+        fr.dt = 0.016;
+        let was_player = super::super::bridge::player(&app.pages).is_some();
+        unsafe { playback_tick(app, &mut fr); }
+        super::super::bridge::frame(&mut app.pages, &mut app.bridge,
+            crate::ui::machine::Tick { ms: *t, dt_us: 16_000 }, std::mem::take(&mut app.inputs));
+        if was_player && super::super::bridge::player(&app.pages).is_none() {
+            restore_played_entry(app);
+        }
+        content_requests(app, &fr);
+        loop_requests(app);
+        unsafe { update(app, &mut fr); }
+    }
+
+    /// The page stack on the transition `boot.rs` builds it with. `app()`'s dispatcher commits
+    /// immediately, and an immediate commit never has a dip-out to prepare a destination in —
+    /// which is the whole window the tests below are about. Returns the frame clock's start.
+    fn product_transition(app: &mut App) -> u32 {
+        app.pages.nav.tabs.stack.transition =
+            Box::new(crate::ui::containers::transition::PageDip::new());
+        0
+    }
+
+    fn settle(app: &mut App, t: &mut u32) {
+        for _ in 0..24 {
+            step(app, t, vec![]);
+        }
+    }
+
+    /// **Press Play, and let the plan land INSIDE the player push's dip-out** — the order the
+    /// television produces whenever the resolve is quicker than the 140 ms fade. `start_playback`
+    /// pushes the player while the plan is still resolving; the next frame's dip-out PREPARES the
+    /// destination (`NavStack::stage_pending_target`), which mounts the player and so consumes its
+    /// origin seed; and when the plan then lands, the committed route still names the page under
+    /// the dip, so `update`'s landing arm asks for the player a second time (`pump_play: engine
+    /// started off-route`). Returns the entry the session was launched from.
+    fn play_with_a_landing_inside_the_dip(rig: &mut Rig, t: &mut u32) -> crate::ui::machine::EntryId {
+        let origin = rig.app.pages.nav.top_page().expect("a page is on top").id;
+        rig.request();
+        rig.accept_start();
+        assert!(crate::route::play_pending(), "the plan is still resolving");
+        step(&mut rig.app, t, vec![]);
+        assert!(super::super::bridge::player(&rig.app.pages).is_none(), "the push has not committed");
+        assert!(
+            rig.app.pages.nav.tabs.stack.pending_target_mut().is_some_and(|e| e.inst.is_some()),
+            "premise: the dip-out has already prepared the player it is pushing",
+        );
+        rig.release.send(()).unwrap();
+        poll_until("the plan did not land through update", || {
+            let mut fr = Frame::begin(&rig.app.player.session, rig.app.bridge.metadata_view());
+            fr.now = *t;
+            unsafe { update(&mut rig.app, &mut fr); }
+            rig.app.adapters.player.is_live()
+        });
+        settle(&mut rig.app, t);
+        assert!(super::super::bridge::player(&rig.app.pages).is_some(), "the player is on top");
+        origin
+    }
+
+    /// BACK as the remote spells it (ESC — the dev remote's own spelling of BACK in the field
+    /// report): the player classifies `sym`/`wcode`, not the fixture's `Key`.
+    fn back_key(ms: u32) -> crate::ui::machine::InputEvent<u32> {
+        let mut event = crate::ui::fixture::key(crate::ui::machine::Key::Back, crate::ui::fixture::tick(ms));
+        if let crate::ui::machine::InputKind::Key { sym, .. } = &mut event.kind {
+            *sym = crate::ui::consts::SDLK_ESCAPE;
+        }
+        event
+    }
+
+    fn detail_arg(sid: crate::plex::ServerId) -> AppArg {
+        AppArg::Content(crate::screens::registry::ContentArg::Detail { sid, rk: "1".into() })
+    }
+
+    /// Field report: Home → a detail page → Play → BACK landed on HOME. BACK must land on the
+    /// detail page the film was started from — the same entry, not a fresh copy of it.
+    #[test]
+    fn back_from_the_player_returns_to_the_detail_page_it_was_started_from() {
+        let _serial = crate::testlock::serial();
+        let Some(mut rig) = Rig::serving(false) else {
+            eprintln!("SKIPPED back_from_the_player_returns_to_the_detail_page_it_was_started_from: \
+                lifecycle fixture worker thread could not be spawned");
+            return;
+        };
+        let mut t = product_transition(&mut rig.app);
+        settle(&mut rig.app, &mut t);
+        super::super::bridge::open_detail(&mut rig.app.pages, &mut rig.app.bridge, rig.sid, "1", None, None);
+        settle(&mut rig.app, &mut t);
+        let origin = play_with_a_landing_inside_the_dip(&mut rig, &mut t);
+        let back = back_key(t + 16);
+        step(&mut rig.app, &mut t, vec![back]);
+        settle(&mut rig.app, &mut t);
+        assert!(
+            rig.app.route().same_instance(&detail_arg(rig.sid)),
+            "BACK from the player landed on {:?}, not the detail page",
+            rig.app.route().id(),
+        );
+        assert_eq!(rig.app.pages.nav.top_page().map(|e| e.id), Some(origin));
+    }
+
+    /// The same session drained to its end with nothing queued after it: `finish_playback` leaves
+    /// through `exit_player`, so an end of stream lands where BACK and Stop do — the page the
+    /// session was launched from (§5.1), not Home.
+    #[test]
+    fn an_end_of_stream_without_up_next_returns_to_the_detail_page() {
+        let _serial = crate::testlock::serial();
+        let Some(mut rig) = Rig::serving(false) else {
+            eprintln!("SKIPPED an_end_of_stream_without_up_next_returns_to_the_detail_page: \
+                lifecycle fixture worker thread could not be spawned");
+            return;
+        };
+        let mut t = product_transition(&mut rig.app);
+        settle(&mut rig.app, &mut t);
+        super::super::bridge::open_detail(&mut rig.app.pages, &mut rig.app.bridge, rig.sid, "1", None, None);
+        settle(&mut rig.app, &mut t);
+        let origin = play_with_a_landing_inside_the_dip(&mut rig, &mut t);
+        assert!(crate::route::up_next(&rig.app.player.session).is_none(), "a film: nothing queued");
+        crate::player::SHARED.ended.store(true, std::sync::atomic::Ordering::Relaxed);
+        settle(&mut rig.app, &mut t);
+        assert!(
+            rig.app.route().same_instance(&detail_arg(rig.sid)),
+            "end of stream landed on {:?}, not the detail page",
+            rig.app.route().id(),
+        );
+        assert_eq!(rig.app.pages.nav.top_page().map(|e| e.id), Some(origin));
+    }
+
+    /// A Continue Watching tile plays straight from Home with no detail page in between, so the
+    /// page the session returns to is Home itself — the same entry, with its memory.
+    #[test]
+    fn back_from_a_session_started_on_home_returns_to_home() {
+        let _serial = crate::testlock::serial();
+        let Some(mut rig) = Rig::serving(false) else {
+            eprintln!("SKIPPED back_from_a_session_started_on_home_returns_to_home: \
+                lifecycle fixture worker thread could not be spawned");
+            return;
+        };
+        let mut t = product_transition(&mut rig.app);
+        settle(&mut rig.app, &mut t);
+        let origin = play_with_a_landing_inside_the_dip(&mut rig, &mut t);
+        let back = back_key(t + 16);
+        step(&mut rig.app, &mut t, vec![back]);
+        settle(&mut rig.app, &mut t);
+        assert!(matches!(rig.app.route(), AppArg::Home));
+        assert_eq!(rig.app.pages.nav.top_page().map(|e| e.id), Some(origin));
     }
 }

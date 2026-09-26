@@ -1,0 +1,9 @@
+{
+  "group": "3-playback-details-watchlist",
+  "playback": true,
+  "description": "Start on confirmed episode playback with a queued successor, HUD scrubber focused, outside intro/credits. Uses existing safe Up Next handoff.",
+  "steps": [
+    {"name":"01-next-episode-focus","before":"player/none","keys":["UP","RIGHT","RIGHT","RIGHT"],"after":"player/none","covers":["next-episode-hud"],"review":"Four compact discs; last is next episode, correctly focused, no overlap."},
+    {"name":"02-next-episode-play","before":"player/none","keys":["OK"],"settle":15,"after":"player/none","covers":["next-episode-handoff"],"review":"Verify outgoing stopped position and successor ratingKey in logs, decoded video and audio."}
+  ]
+}

@@ -24,6 +24,8 @@ mod pump;
 pub(crate) mod report;
 mod shared;
 pub(crate) mod sidecar;
+#[cfg(feature = "hostsim")]
+pub(crate) mod sim_video; // the simulator's decoded picture, for screenshots (see its doc)
 pub(crate) mod threads;
 
 use crate::task::MainThread;
@@ -87,6 +89,7 @@ pub(crate) fn seed_dev_track_names() {
     // subtitle list — a seed is a diagnostic, not a format, and the alternative is quoting rules.
     let (a, sub) = spec.split_once(';').unwrap_or(("", spec));
     let (audio, subs) = (list(a), list(sub));
+    #[cfg(feature = "devtriggers")]
     crate::log(&format!(
         "player: DEV track names seeded (a={} s={}) — /tmp/plxnative-tracknames",
         audio.len(),
@@ -735,10 +738,9 @@ fn runtime_failure(
 /// to..." — never as a certain diagnosis, matching the community-tier evidence it is built on
 /// (see [`crate::webos::jail_blocks_native_video`]'s doc). Caption and readout are kept short for
 /// legibility from a phone photograph, same bar as every other arm here; the remedy's detail goes
-/// in `detail`. Unlike main's version of this screen, this fork's `Player.repair` flow (see
-/// `webos::jail_repair`) can actually attempt the Homebrew Channel service call that patches the
-/// jail profile, so the remedy text points at that confirmed in-app repair rather than at a bare
-/// reinstall.
+/// in `detail`. `Player.repair` (see `webos::jail_repair`) can actually attempt the Homebrew
+/// Channel service call that patches the jail profile, so the remedy text points at that confirmed
+/// in-app repair rather than at a bare reinstall.
 fn jail_error_shape() -> ErrorShape {
     ErrorShape {
         kind: FailureKind::JailMissingRtkmem,
@@ -997,6 +999,8 @@ pub(crate) use engine::aq_caps;
 /// itself.
 pub(crate) use engine::feed_leads_ms;
 pub(crate) use ffi::{VP_ACB, VP_EXPORTED, VP_NONE};
+#[cfg(feature = "hostsim")]
+pub(crate) use ffi::stop_sim_clock_at;
 
 /// One consistent read of everything the on-screen diagnostics overlay shows (`app::diagnostics`).
 ///

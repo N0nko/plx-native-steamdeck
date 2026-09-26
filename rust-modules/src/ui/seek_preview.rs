@@ -82,7 +82,7 @@ pub(crate) fn draw(
         return;
     };
     let pending_path = format!("/library/parts/{part}/indexes/sd/{requested}");
-    if crate::ui::widgets::resolve_tex_on(sid, &pending_path, 288, 162, 0) != 0 {
+    if crate::ui::widgets::resolve_tex_wh_on(sid, &pending_path, 288, 162, 0).0 != 0 {
         selection.ready = Some(requested);
         if !selection.cached.contains(&requested) {
             if selection.cached.len() == 24 {

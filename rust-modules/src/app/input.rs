@@ -529,8 +529,7 @@ pub(super) unsafe fn apply_item_action<R: super::playback::PlaybackResources>(
             // silently refuses instead of playing, exactly the ordinary Play path's own race
             // (`ContentReq::Play` in `app::content`), so this takes the same hold-until-released
             // path rather than calling `request_play`/`start_playback_with` directly.
-            super::content::halt_preview_now(ps, pa);
-            if crate::player::preview::occupies() {
+            if !super::content::clear_engine_for_play(ps, pa, super::bridge::player(pages).is_some()) {
                 super::content::hold_feature(intent, 0, None);
                 return;
             }
@@ -960,36 +959,60 @@ pub(crate) fn delete_outcome(leftovers: usize) -> DeleteOutcome {
 ///
 /// Extra local-file sweep after the Session adapter closes telemetry and clears credentials.
 /// Returns paths it could NOT unlink, never a decision to keep the erased account active.
-pub(crate) fn delete_all_local_data(meta: &mut crate::stores::metadata::MetadataStore) -> Vec<String> {
-    let remove = |path: &std::path::Path| match std::fs::remove_file(path) {
-        Ok(()) => Ok(()),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(e) => Err(format!("{}: {e}", path.display())),
-    };
-    let mut failures = crate::ui::rec::erase_owned_artifacts(&crate::paths::runtime_dir());
-    for path in crate::paths::obsolete_last_place_candidates()
-        .into_iter()
-        .chain(crate::paths::telemetry_candidates())
-        .chain(crate::paths::telemetry_spool_candidates())
-        .chain(crate::paths::telemetry_crashmark_candidates())
-    {
-        if let Err(e) = remove(&path) {
+///
+/// A leftover is a file that is still THERE. The candidate lists name `/media/internal`, which
+/// some jails mount read-only, and Linux answers EROFS from the parent's mount before it looks the
+/// child up — so an unlink refusal alone does not say a file remains. The shared rule
+/// ([`crate::storage::remove_file_or_prove_absent`]) counts a refusal whose no-follow lookup finds
+/// no entry as removed; a file that exists, or cannot be looked at, stays a leftover.
+fn remove_local_file(path: &std::path::Path) -> Result<(), String> {
+    remove_or_prove_absent(path).map_err(|e| format!("{}: {e}", path.display()))
+}
+
+/// The erase sweeps' removal rule as a plain `fn`, for the sweeps `ui/` owns
+/// ([`crate::ui::rec::erase_owned_artifacts`]), which may not name the storage layer themselves.
+pub(crate) fn remove_or_prove_absent(path: &std::path::Path) -> std::io::Result<()> {
+    crate::storage::remove_file_or_prove_absent(path).map(|_| ())
+}
+
+fn erase_runtime_logs(root: &std::path::Path) -> Vec<String> {
+    let mut failures = Vec::new();
+    for name in crate::paths::runtime_file::LOGS {
+        if name == crate::storage::diagnostics::NAME {
+            continue;
+        }
+        if let Err(error) = remove_local_file(&root.join(name)) {
+            failures.push(error);
+        }
+    }
+    failures
+}
+
+/// The file half of [`delete_all_local_data`]: the recording artifacts and logs under
+/// `runtime_root`, then every persistent candidate in `persistent`. Returns what could not be
+/// removed.
+fn sweep_local_files(persistent: impl IntoIterator<Item = std::path::PathBuf>,
+    runtime_root: &std::path::Path) -> Vec<String> {
+    let mut failures = crate::ui::rec::erase_owned_artifacts(runtime_root, remove_or_prove_absent);
+    for path in persistent {
+        if let Err(e) = remove_local_file(&path) {
             failures.push(e);
         }
     }
-    for name in [
-        "plxnative-events.log",
-        "plxnative-crash.log",
-        "plxnative-stderr.log",
-        "plxnative-anim.log",
-        "plxnative-gst.log",
-        "plxnative-gputime.jsonl",
-        "plxnative-hwcnt.jsonl",
-    ] {
-        if let Err(e) = remove(&crate::paths::in_runtime_dir(name)) {
-            failures.push(e);
-        }
-    }
+    failures.extend(erase_runtime_logs(runtime_root));
+    failures
+}
+
+pub(crate) fn delete_all_local_data(meta: &mut crate::stores::metadata::MetadataStore,
+    mut failures: Vec<String>) -> Vec<String> {
+    failures.extend(sweep_local_files(
+        crate::paths::obsolete_last_place_candidates()
+            .into_iter()
+            .chain(crate::paths::telemetry_candidates())
+            .chain(crate::paths::telemetry_spool_candidates())
+            .chain(crate::paths::telemetry_crashmark_candidates()),
+        crate::paths::runtime_dir(),
+    ));
     meta.run(crate::stores::metadata::MetadataCmd::Clear);
     // No explicit `ClearRecents` here (phase 7 Search cutover retired the legacy screen's own
     // thin `recents::clear()` wrapper this used to call): recent Search terms
@@ -1003,6 +1026,107 @@ pub(crate) fn delete_all_local_data(meta: &mut crate::stores::metadata::Metadata
     // Telemetry was closed by the preceding owner effect, before the credential clear and
     // this sweep. Returning survivors cannot reopen its producer gate or restore an identifier.
     failures
+}
+
+#[cfg(test)]
+mod delete_all_tests {
+    use super::{erase_runtime_logs, sweep_local_files};
+
+    /// A scratch tree standing in for the television: `persistent/` for the `/media/internal`
+    /// candidates (the obsolete last place and the three telemetry files, by their device names)
+    /// and `runtime/` for the runtime root. Removed on drop.
+    struct Tv(std::path::PathBuf);
+
+    impl Tv {
+        fn new(tag: &str) -> Self {
+            let root = std::env::temp_dir().join(format!(".plx-delete-{tag}-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&root);
+            std::fs::create_dir_all(root.join("persistent")).unwrap();
+            std::fs::create_dir_all(root.join("runtime")).unwrap();
+            Self(root)
+        }
+        fn persistent(&self) -> Vec<std::path::PathBuf> {
+            ["lastplace.json", "telemetry.json", "telemetry-spool.bin", "telemetry-crashmark.json"]
+                .iter()
+                .map(|name| self.0.join("persistent").join(format!(".com.beb.plxnative.debug-{name}")))
+                .collect()
+        }
+        fn runtime(&self) -> std::path::PathBuf {
+            self.0.join("runtime")
+        }
+    }
+
+    impl Drop for Tv {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    /// The webOS 4.10.2 report: none of the four `/media/internal` files exists, but the jail
+    /// mounts that directory read-only and Linux answers `unlink` with EROFS from the parent's
+    /// mount before it looks the child up. Nothing was left behind, so nothing is a leftover.
+    #[test]
+    fn absent_files_behind_a_read_only_mount_are_not_leftovers() {
+        let _serial = crate::testlock::serial();
+        let tv = Tv::new("absent-erofs");
+        let _erofs = crate::storage::UnlinkFaultForTest::install(&tv.0, libc::EROFS);
+        let leftovers = sweep_local_files(tv.persistent(), &tv.runtime());
+        assert!(leftovers.is_empty(), "absent files reported as leftovers: {leftovers:?}");
+    }
+
+    /// The counter-case: a file that EXISTS behind the same refusal really survived, and must
+    /// still be reported so the user is told data may remain.
+    #[test]
+    fn present_files_behind_a_read_only_mount_are_still_leftovers() {
+        let _serial = crate::testlock::serial();
+        let tv = Tv::new("present-erofs");
+        let persistent = tv.persistent();
+        for path in &persistent {
+            std::fs::write(path, b"x").unwrap();
+        }
+        let log = tv.runtime().join(crate::paths::runtime_file::EVENTS);
+        let rec = tv.runtime().join("plxnative-rec");
+        std::fs::write(&log, b"x").unwrap();
+        std::fs::write(&rec, b"x").unwrap();
+        let _erofs = crate::storage::UnlinkFaultForTest::install(&tv.0, libc::EROFS);
+        let leftovers = sweep_local_files(persistent.clone(), &tv.runtime());
+        assert_eq!(leftovers.len(), persistent.len() + 2, "{leftovers:?}");
+        assert!(persistent.iter().chain([&log, &rec]).all(|p| p.exists()));
+    }
+
+    #[test]
+    fn runtime_log_sweep_includes_the_storage_diagnostics_snapshot() {
+        let _serial = crate::testlock::serial();
+        struct Restore;
+        impl Drop for Restore {
+            fn drop(&mut self) {
+                crate::storage::diagnostics::reset_for_test();
+            }
+        }
+        let _restore = Restore;
+        let root = std::env::temp_dir().join(format!(
+            ".plx-delete-runtime-logs-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir(&root).unwrap();
+        for name in crate::paths::runtime_file::LOGS {
+            std::fs::write(root.join(name), name.as_bytes()).unwrap();
+        }
+        let event = root.join(crate::paths::runtime_file::EVENTS);
+        let diagnostics = root.join(crate::storage::diagnostics::NAME);
+
+        crate::storage::diagnostics::disable();
+        crate::storage::diagnostics::finish_disable(&root).unwrap();
+        assert!(erase_runtime_logs(&root).is_empty());
+        assert!(crate::paths::runtime_file::LOGS
+            .iter()
+            .all(|name| !root.join(name).exists()));
+        assert!(!event.exists());
+        assert!(!diagnostics.exists());
+
+        let _ = std::fs::remove_dir_all(root);
+    }
 }
 
 // (`key_item_menu` stood here — the item menu's own arm of the loop's key ladder: OK committed

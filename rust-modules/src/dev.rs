@@ -12,13 +12,22 @@
 //! — and `plxnative-url` replaces the stream the player feeds.
 //!
 //! So every read goes through here, and here is `#[cfg]`-gated on the `devtriggers` feature. In a
-//! `--no-default-features` build [`flag`] is `false` and [`read`] is `None` at COMPILE time, the
-//! branches behind them fold away, and the binary opens nothing under `/tmp` but its own logs.
+//! `--no-default-features` build [`flag`] is `false` and [`read`] is `None` at COMPILE time, so
+//! no trigger can be armed. Storage and diagnostics still use runtime files; none are developer
+//! triggers.
+//!
+//! That does NOT keep a trigger's NAME out of the binary. A branch behind `flag`/`read` usually
+//! folds away, but not reliably: once the answer is carried through a struct field (the
+//! `nobudget` flag on `DevFlags`), the optimizer may keep the branch and its string literals
+//! in a release build, and `ci/check-package.py` fails the package because it greps the shipped
+//! bytes for every trigger name this module lists. So every statement whose literal names a trigger
+//! (a log line saying `/tmp/plxnative-…`) carries its own `#[cfg(feature = "devtriggers")]`. Never
+//! rely on constant folding for this.
 //!
 //! Two rules for anything added later:
 //!
 //! 1. **Never open a `/tmp` path directly.** The grep that audits this (`/tmp/plxnative-` outside
-//!    this module and the four unconditional log sinks) is the only thing keeping the property
+//!    this module and the unconditional log sinks) is the only thing keeping the property
 //!    true. The two profiler logs are dev-only and listed in [`DIAG`] below.
 //! 2. **A gate is not always a path.** `any_trigger_present` scans the whole directory and names
 //!    no file at all — it was the one surface a literal-replacement sweep would have missed, and
@@ -26,7 +35,7 @@
 //!    (the capture listener's `INADDR_ANY` socket, the remote FIFO's `mkfifo`) are gated at their
 //!    call sites in `app.rs` for the same reason.
 //!
-//! The four unconditional LOG sinks are deliberately NOT here and stay in every build: they are creates, not
+//! The unconditional LOG sinks are deliberately NOT here and stay in every build: they are creates, not
 //! reads, they are how on-device crash triage works at all, and writing them is not a way for
 //! another process to steer this one.
 //!
@@ -49,7 +58,8 @@ pub(crate) mod scenarios;
 // `test` as well as the feature: `any_trigger_present` is the only caller and it is cfg'd out of a
 // release build, but the test below asserts this list's contents and runs with default features.
 #[cfg(any(feature = "devtriggers", test))]
-const DIAG: [&str; 26] = [
+const DIAG: [&str; 29] = [
+    "plxnative-diag.log",
     "plxnative-events.log",
     "plxnative-stderr.log",
     "plxnative-crash.log",
@@ -113,6 +123,10 @@ const DIAG: [&str; 26] = [
     "plxnative-rec",
     "plxnative-recplay",
     "plxnative-guard", // diagnostic policy only; never changes the boot screen
+    // Boot-latched Dolby Vision capability A/B. They alter only the platform answer used by the
+    // route policy, so an experiment must not independently replace Home with the profile picker.
+    "plxnative-dvcaps0",
+    "plxnative-dvcaps1",
 ];
 
 /// The triggers a CONTROLLED boot (`app::bootstrap`: the recorder, a replay, an explicit
@@ -225,7 +239,7 @@ pub(crate) fn arm_gst_logging() {
     } else {
         spec
     };
-    let log = crate::paths::in_runtime_dir("plxnative-gst.log");
+    let log = crate::paths::in_runtime_dir(crate::paths::runtime_file::GST);
     // SAFETY: single-threaded here by construction — `plex_run` has not yet minted a worker, and
     // this runs before SDL init. `set_var` is only unsound against a concurrent reader.
     std::env::set_var("GST_DEBUG", &spec);
@@ -565,16 +579,21 @@ pub(crate) fn quality_switch_script() -> Option<(u32, Vec<crate::plex::session::
 }
 
 /// One synchronized user Pause, optionally followed by Resume —
-/// `plxnative-autopause=[delay=<ms>,][hold=<ms>]`.
+/// `plxnative-autopause=[delay=<ms>,][at=<ms>,][hold=<ms>]`.
 ///
 /// An empty file preserves the original paused-HUD capture contract: pause at the player's
 /// ordinary six-second dev gate and stay paused. A non-empty script may delay that edge and name a
-/// finite accepted hold. Unknown/duplicate/invalid fields fail the whole trigger closed; silently
+/// finite accepted hold. `at` also holds the edge until the PUBLISHED playhead has reached that
+/// media position (and, in the simulator, stops the clock sink exactly on it, so the pause freezes
+/// that position: `ffi_host.rs::stop_clock_at`): a wall-clock delay pauses wherever the host's
+/// scheduling has got playback to, which moves from run to run, and the documentation's player
+/// figure wants the same frame and the same clock every time. Unknown/duplicate/invalid fields fail the whole trigger closed; silently
 /// substituting a duration would exercise a different interleaving from the manifest.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct PauseScript {
     pub(crate) delay_ms: u32,
     pub(crate) hold_ms: Option<u32>,
+    pub(crate) at_ms: Option<u32>,
 }
 
 fn parse_pause_script(raw: &str) -> Option<PauseScript> {
@@ -582,10 +601,12 @@ fn parse_pause_script(raw: &str) -> Option<PauseScript> {
         return Some(PauseScript {
             delay_ms: 0,
             hold_ms: None,
+            at_ms: None,
         });
     }
     let mut delay_ms = None;
     let mut hold_ms = None;
+    let mut at_ms = None;
     for field in raw
         .split(',')
         .map(str::trim)
@@ -596,6 +617,11 @@ fn parse_pause_script(raw: &str) -> Option<PauseScript> {
                 return None;
             }
             delay_ms = Some(value.parse().ok()?);
+        } else if let Some(value) = field.strip_prefix("at=") {
+            if at_ms.is_some() {
+                return None;
+            }
+            at_ms = Some(value.parse().ok()?);
         } else if let Some(value) = field.strip_prefix("hold=") {
             if hold_ms.is_some() {
                 return None;
@@ -612,6 +638,7 @@ fn parse_pause_script(raw: &str) -> Option<PauseScript> {
     Some(PauseScript {
         delay_ms: delay_ms.unwrap_or(0),
         hold_ms,
+        at_ms,
     })
 }
 
@@ -1046,14 +1073,18 @@ pub(crate) fn any_trigger_present() -> bool {
 /// only: a trigger's CONTENT can be a query or a path and never enters a recording.
 #[cfg(feature = "devtriggers")]
 pub(crate) fn armed_triggers() -> Vec<String> {
-    let mut v: Vec<String> = std::fs::read_dir(crate::paths::runtime_dir())
+    armed_triggers_in(crate::paths::runtime_dir())
+}
+#[cfg(feature = "devtriggers")]
+fn armed_triggers_in(root: &std::path::Path) -> Vec<String> {
+    let mut v: Vec<String> = std::fs::read_dir(root)
         .ok()
         .map(|rd| {
             rd.filter_map(|e| e.ok())
                 .filter(|e| e.file_type().map(|t| t.is_file()).unwrap_or(false))
                 .filter_map(|e| {
                     let n = e.file_name().to_string_lossy().into_owned();
-                    // the three logs share the prefix and are not triggers
+                    // Runtime logs share the prefix and are not triggers
                     (n.starts_with("plxnative-") && !n.ends_with(".log")).then_some(n)
                 })
                 .collect()
@@ -1139,16 +1170,28 @@ mod tests {
     /// than against a copy of the list, so adding another log sink without listing it fails here.
     #[test]
     fn diag_names_every_log_this_app_writes() {
-        for log in [
-            "plxnative-events.log",
-            "plxnative-stderr.log",
-            "plxnative-crash.log",
-            "plxnative-anim.log",
-            "plxnative-gputime.jsonl",
-            "plxnative-hwcnt.jsonl",
-        ] {
+        for log in crate::paths::runtime_file::LOGS {
             assert!(super::DIAG.contains(&log), "{log} is written by this app but absent from DIAG — it would suppress the boot picker forever");
         }
+    }
+
+    #[cfg(feature = "devtriggers")]
+    #[test]
+    fn storage_diagnostics_is_never_an_armed_trigger() {
+        let _serial = crate::testlock::serial();
+        let root = std::env::temp_dir().join(format!(".plx-diag-trigger-{}", std::process::id()));
+        std::fs::create_dir(&root).unwrap();
+        struct Cleanup(std::path::PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) { let _ = std::fs::remove_dir_all(&self.0); }
+        }
+        let _cleanup = Cleanup(root.clone());
+        std::fs::write(root.join(crate::storage::diagnostics::NAME), b"schema=1\n").unwrap();
+        let entry = std::fs::read_dir(&root).unwrap().next().unwrap().unwrap();
+        assert!(!super::is_armed_trigger(&entry));
+        assert!(super::armed_triggers_in(&root).is_empty());
+        std::fs::write(root.join("plxnative-home"), b"").unwrap();
+        assert_eq!(super::armed_triggers_in(&root), vec!["plxnative-home"]);
     }
 
     /// A DIRECTORY whose name matches the trigger prefix must not read as an armed trigger.
@@ -1685,6 +1728,7 @@ mod tests {
             Some(super::PauseScript {
                 delay_ms: 0,
                 hold_ms: None,
+                at_ms: None,
             }),
             "the empty screenshot trigger remains a permanent Pause",
         );
@@ -1693,8 +1737,20 @@ mod tests {
             Some(super::PauseScript {
                 delay_ms: 25_000,
                 hold_ms: Some(6_000),
+                at_ms: None,
             }),
         );
+        assert_eq!(
+            parse("at=432000"),
+            Some(super::PauseScript {
+                delay_ms: 0,
+                hold_ms: None,
+                at_ms: Some(432_000),
+            }),
+            "a position-gated pause: the published playhead, not a wall-clock delay",
+        );
+        assert_eq!(parse("at=1,at=2"), None);
+        assert_eq!(parse("at=soon"), None);
         assert_eq!(parse("hold=0"), None);
         assert_eq!(parse("delay=10,delay=20"), None);
         assert_eq!(parse("hold=oops"), None);

@@ -285,6 +285,7 @@ fn push_player(ps: &crate::route::PlaybackSession, s: &mut String, overlay: &str
     // the panels' fields rather than being read off a module global here.
     let slot = match ctrl {
         ControlSlot::Discs => "discs",
+        ControlSlot::DiscsNext => "discs-next",
         ControlSlot::Skip(_) => "skip",
         ControlSlot::UpNext(_) => "upnext",
     };

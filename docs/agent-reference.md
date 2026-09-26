@@ -542,7 +542,11 @@ which the linking section explains is load-bearing rather than tidy.
   at loop start, preserving the interrupted thread's registers. Guard `abort()` records the abort
   path instead; the label identifies its guarded call. The host harness never starts the observer.
   Developer draw/swap scopes label stalls `frame draw` / `gl present` without invoking or
-  bypassing the blocking guard; slow GPU frames still count toward the two-second fatal limit.
+  bypassing the blocking guard; slow GPU frames still count toward the two-second fatal limit on
+  hardware GL. When `GL_RENDERER` names a CPU rasterizer (Apple Software Renderer, llvmpipe,
+  softpipe, swrast, SwiftShader, WARP — the CI simulator), time in those phases and in `gl
+  readback` logs and warns but does not count toward the kill; two seconds outside them and the
+  blocking guard stay fatal (`task/runtime_check.rs`).
   A watchdog poll gap >400 ms discards the uncertain interval, clears warnings and rebases the
   stall timer and fatal latch: a stopped or starved observer is not evidence against the main thread.
   Escape hatch: write `log` into `/tmp/plxnative-guard` before launch (sim: instance runtime root).
@@ -599,9 +603,10 @@ which the linking section explains is load-bearing rather than tidy.
   sha256 per platform, and what the app writes, reads and reaches on your television.
 - `site/` — the landing page (`index.html`/`styles.css`/`site.js`/`CNAME`); `.github/workflows/
   pages.yml` stages its screenshots, logo and fonts from their existing README/app locations
-  rather than copying them into `site/`. The link-preview card `site/media/og-card.jpg` is
-  rendered from `site/og/card.html` (not deployed) by `tools/render-og-card.sh`; re-render it
-  after editing the card or `site/media/feel-poster.jpg`.
+  rather than copying them into `site/`. The close-up stills `site/media/closeup-*.jpg` and the
+  link-preview card `site/media/og-card.jpg` are `make screenshots` outputs (`ui-sim` skill,
+  "Documentation screenshots"): the card is `site/og/card.html` (not deployed) rendered around
+  the home figure by `tools/render-og-card.sh`; re-render after editing the card.
 - `pkg/` — deployable payload: `appinfo.json` (native app manifest), `plxnative` binary, icons,
   `appfont*.ttf`, and the prebuilt `.ipk`.
 - `ipkroot/` — ipk staging (`ctl/control`, `data/`, `debian-binary`); assembled by `make ipk`.
@@ -951,6 +956,33 @@ which the linking section explains is load-bearing rather than tidy.
   is truncated each launch; **`plxnative-crash.log` is append-only and survives the relaunch** — read it
   after a crash+restart. Note pmlog's wall clock is ~3h skewed on this TV, so correlate by **monotonic
   `SDL_GetTicks`** timestamps (and the SAM `exit_status`), not pmlog time.
+- **Storage diagnostics:** every flavour publishes `plxnative-diag.log` in its runtime root.
+  This is a schema-versioned, at-most-16-KiB snapshot, atomically replaced at mode **0640**;
+  events, crash and stderr remain **0600**. It contains build/uid/gid identity, supplementary
+  groups, fixed-label directory probes, activation status and the latest helper stage outcome.
+  Activation is only the best-effort LS2 wake hint: `activation-rejected`,
+  `activation-timeout` or an activation setup stage does not mean storage failed when
+  `helper stage=complete`; the authenticated helper transaction is
+  authoritative.
+  Probe files are hidden, exclusive creates, one byte, immediately removed; session files are
+  never opened by diagnostics. No paths, helper payloads, account data or raw error text enter
+  this file or telemetry. A dedicated worker retains boot evidence and suppresses semantically
+  duplicate outcomes. `truncated value=true` marks a size cap; `history_truncated=true` marks a
+  bounded helper-outcome history. A failed publication leaves the previous snapshot in place, so
+  check the build identity and sequence when interpreting a file after a relaunch. The group-read
+  bit only helps a shell sharing the file's actual gid; the snapshot does not claim universal SSH
+  access.
+
+  ```text
+  identity schema=1 seq=2 app_id=com.beb.plxnative flavour=stable version=0.6.0 uid=6303 euid=6303 gid=5000 egid=5000
+  groups values=29,44,505,509,777,5000 errno=0 truncated=false
+  dir label=tmp uid=0 gid=0 mode=1777 readonly=false open_errno=0 stat_errno=0 mount_errno=0 create_errno=0 write_errno=0 close_errno=0 unlink_errno=0
+  dir label=runtime uid=6303 gid=5000 mode=0700 readonly=false open_errno=0 stat_errno=0 mount_errno=0 create_errno=0 write_errno=0 close_errno=0 unlink_errno=0
+  activation stage=activation-rejected error_code=-1 elapsed_ms=19
+  helper stage=complete errno=- code=- start_timeout=false activation_stage=- activation_error_code=- reported_stage=- reported_code=- wire_code=- attempts=1 elapsed_ms=31 history_truncated=false
+  history stage=complete errno=- code=- start_timeout=false activation_stage=- activation_error_code=- reported_stage=- reported_code=- wire_code=-
+  truncated value=false
+  ```
 - **The app's own files are located at RUNTIME (`paths.rs`), never by literal.** webOS picks one
   of two install prefixes — `/media/developer/apps/…` (Developer Mode) or `/media/cryptofs/apps/…`
   (Homebrew Channel) — and the two jail profiles disagree about which directories are WRITABLE:
@@ -1120,8 +1152,8 @@ you get without waking a television. What it covers today, by module:
     conversion (keyframe detection, parameter-set prepending, truncation instead of panic), and the
     AVIO abort guards (a seek after teardown must not open a second connection — graded on an
     accept COUNT from a counting listener, not a return value).
-  - `route/plan.rs` (8) — direct-play vs transcode **selection policy**: track fallbacks, English
-    over the file's default, the flagged default, part-id parsing, mkv-only direct play.
+  - `route/plan.rs` (8) — direct-play vs transcode **selection policy**: track fallbacks, a real
+    server pick and a show's language over the file's default, the flagged default, part-id parsing, mkv-only direct play.
   - `screens/home/tests.rs` + `ui/card_row.rs` — **focus/geometry/spring math**: every strip
     element decoding to exactly one destination, row stepping staying inside the shelf array, the
     pointer hit column matching the drawn card at every snap phase, and the shelf heading's
@@ -1465,8 +1497,8 @@ path. Never run only this one before a release. `tests/README.md` has the tier t
   saved logs it fails the 60-declared run at a median of 14 and passes the 24-declared one.
 - **`tests/run.py` always cleans the TV on exit** — pass, fail, Ctrl-C, `kill`, or crash: it closes
   the app, clears every `plxnative-*` trigger in that install's runtime root **including the
-  injected PMS token**, and reaps stray ssh clients. Only the three append-only `*.log` files
-  survive. Nothing did this before
+  injected PMS token**, and reaps stray ssh clients. Runtime `*.log` files
+  survive, including the storage diagnostics snapshot. Nothing did this before
   2026-07-28 except the normal path, so an interrupted run left the app playing (scrobbling a
   resume point the next run then inherited) and a live per-server token in world-readable `/tmp`.
   The teardown is armed at the moment the harness commits to driving the TV, so `--list` and a
@@ -1547,7 +1579,7 @@ path. Never run only this one before a release. `tests/README.md` has the tier t
   them:** the stable install keeps `/tmp` byte for byte, so every `/tmp/plxnative-*` path written
   out below stays literally true for the app users get, while a flavoured install puts the SAME
   names under `/tmp/<app id>` (`/tmp/com.beb.plxnative.debug/plxnative-library`). Nothing was
-  renamed — not the ~40 triggers, not the `plxnative-remote` FIFO, not the three logs, not
+  renamed — not the ~40 triggers, not the `plxnative-remote` FIFO, not the runtime logs, not
   `dev::DIAG`; only the directory they sit in. `make -s print-rundir FLAVOR=<f>` is how a tool asks
   rather than restating the rule, and the root is created **1777, mkdir THEN an explicit chmod**
   (umask masks mkdir's mode) because root arms triggers there over ssh before the jailed app has

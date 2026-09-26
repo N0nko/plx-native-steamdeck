@@ -197,8 +197,6 @@ fn our_own_server_leads_the_roster_however_plex_tv_ordered_it() {
         vec![1, 0, 2],
         "ours first, then plex.tv's own order"
     );
-    assert_eq!(primary_index(&roster), 1);
-
     // an entry with no credential (or no address) cannot be dialled, so it is not registered —
     // registering it would put a `Client` in the table that 401s everything asked of it
     let mut half = roster.clone();
@@ -212,7 +210,6 @@ fn our_own_server_leads_the_roster_however_plex_tv_ordered_it() {
         source("share-1", false, "t1"),
         source("share-2", false, "t3"),
     ];
-    assert_eq!(primary_index(&shares), 0);
     assert_eq!(registration_order(&shares), vec![0, 1]);
 }
 
@@ -391,7 +388,7 @@ fn endpoint_recovery_cannot_introduce_a_server_outside_the_profile_roster() {
 }
 
 #[test]
-fn profile_activation_promotes_a_surviving_share_when_primary_is_revoked() {
+fn profile_activation_keeps_a_cached_surviving_share_credential_live() {
     let stored = vec![
         source("revoked-primary", true, "old-owner"),
         source("surviving-share", false, "old-share"),
@@ -405,8 +402,10 @@ fn profile_activation_promotes_a_surviving_share_when_primary_is_revoked() {
 
     assert_eq!(next.len(), 1);
     assert_eq!(next[0].machine_id, "surviving-share");
-    assert_eq!(next[0].token, "profile-share");
-    assert_eq!(primary_index(&next), 0);
+    assert_eq!(next[0].token, "profile-share",
+        "the profile's own resource grant remains cached for offline seating");
+    assert!(next[0].dialable(),
+        "authenticated admission selects the primary without disabling secondary grants");
 }
 
 /// **A Plex Home managed user's own household server must not be credited to the admin.**
@@ -622,16 +621,16 @@ fn a_primary_with_a_plaintext_origin_is_followed_to_https_by_reconcile_primary()
 }
 
 #[test]
-fn a_removed_primary_promotes_the_preferred_surviving_grant_but_an_empty_answer_erases_nothing()
+fn a_refresh_selects_the_admitted_surviving_grant_but_an_empty_answer_erases_nothing()
 {
     let mut old = primary("gone", "10.0.0.1", 32400, "old");
     let share = source("share", false, "share-token");
-    assert!(reconcile_refresh_primary(&mut old, &[share.clone()]));
+    assert!(reconcile_refresh_primary(&mut old, &[share.clone()], "share"));
     assert_eq!(old.machine_id, "share");
     assert_eq!(old.token, "share-token");
 
     let before = old.clone();
-    assert!(!reconcile_refresh_primary(&mut old, &[]));
+    assert!(!reconcile_refresh_primary(&mut old, &[], "share"));
     assert_eq!(old.machine_id, before.machine_id);
     assert_eq!(old.address, before.address);
     assert_eq!(old.token, before.token);
@@ -650,7 +649,7 @@ fn a_refresh_moves_the_active_home_users_token_with_same_or_replaced_primary() {
     };
 
     let fresh_ours = source("ours", true, "fresh-own");
-    assert!(reconcile_refresh_session(&mut sess, &[fresh_ours]));
+    assert!(reconcile_refresh_session(&mut sess, &[fresh_ours], "ours"));
     assert_eq!(sess.server.token, "fresh-own");
     assert_eq!(
         sess.pms_token(),
@@ -659,7 +658,7 @@ fn a_refresh_moves_the_active_home_users_token_with_same_or_replaced_primary() {
     );
 
     let survivor = source("share", false, "fresh-share");
-    assert!(reconcile_refresh_session(&mut sess, &[survivor]));
+    assert!(reconcile_refresh_session(&mut sess, &[survivor], "share"));
     assert_eq!(sess.server.machine_id, "share");
     assert_eq!(
         sess.pms_token(),
@@ -682,7 +681,7 @@ fn probe_endpoint_work_reports_nothing_when_plex_tv_is_unreachable() {
         ServerId::from_raw(0),
         "some-machine",
         &sess,
-        |_ac: &AccountClient| -> Option<Vec<Resource>> { None }, // plex.tv unreachable
+        |_ac: &AccountClient| -> Result<Vec<Resource>, crate::plex::account::CallEvidence> { Err(Ok(503)) }, // plex.tv unreachable
         |_resource, _household| -> (Option<SourceRef>, SettledProbe) {
             panic!("the probe closure must never run when plex.tv could not be reached")
         },
@@ -711,7 +710,7 @@ fn endpoint_refresh_early_exit_does_not_widen_an_existing_insecure_only_verdict(
         sid,
         "insecure-mach",
         &sess,
-        |_ac: &AccountClient| -> Option<Vec<Resource>> { None }, // plex.tv unreachable
+        |_ac: &AccountClient| -> Result<Vec<Resource>, crate::plex::account::CallEvidence> { Err(Ok(503)) }, // plex.tv unreachable
         |_resource, _household| -> (Option<SourceRef>, SettledProbe) {
             panic!("nothing should be dialled once plex.tv itself never answered")
         },

@@ -296,6 +296,9 @@ pub(crate) struct HomeScreen {
     /// operation sequence that measurably diverges the hash. `tick`'s own comment explains why
     /// the timer deliberately reports no `Motion` while it counts.
     hero_auto: f32,
+    /// `HomeCmd::PinHero` holds the billboard: the countdown above stops for the life of the page.
+    /// A screenshot pin only, never set by the product, and not logical state (no replay sets it).
+    hero_pinned: bool,
     /// The container says this page is covered. For modals, `Navigation` emits `Cover` for the
     /// first presentation and `Uncover` only when the last surface is dismissed, independent of
     /// whether that surface's host-update policy is Live or Frozen.
@@ -333,6 +336,7 @@ impl HomeScreen {
             hero_slide: Spring::at(1.0),
             hero_dir: 1.0,
             hero_auto: HERO_AUTO_S,
+            hero_pinned: false,
             covered: false,
             snap_target: 0.0,
             visible_activation: None,
@@ -382,9 +386,10 @@ impl HomeScreen {
     fn hub_identity(view: HubsView<'_>, row: usize, hub: HubRef<'_>) -> HomeHubIdentity {
         match hub.identity {
             Some(HubIdentity::ContinueWatching) => HomeHubIdentity::ContinueWatching,
-            Some(HubIdentity::Identifier { sid, id }) => HomeHubIdentity::Identifier {
+            Some(HubIdentity::Identifier { sid, id, key }) => HomeHubIdentity::Identifier {
                 sid,
                 id: id.to_owned(),
+                key: key.to_owned(),
             },
             Some(HubIdentity::Key { sid, key }) => HomeHubIdentity::Key {
                 sid,
@@ -723,6 +728,8 @@ impl HomeScreen {
             // Compact surfaces keep ticking their host page, unlike Sheet/Alert/Opaque surfaces.
             // Cover/Uncover is the shared modal lifecycle across BOTH policies, so retain the
             // countdown here and restart it exactly once when the last surface is dismissed.
+        } else if self.hero_pinned {
+            // Held by `HomeCmd::PinHero`: no countdown, no flip.
         } else if self.snap.pos < 0.05 && view.hero_count() > 1 {
             // Spelled as an assignment, not `-= dt`: bit-for-bit identical arithmetic to the
             // pre-D4 accumulator, deliberately UNCHANGED — `hero_auto` is HASHED `LogicalState`
@@ -940,7 +947,7 @@ impl HomeScreen {
                 }
                 fx.invalidate(Provenance::Input);
             }
-            HomeCmd::SelectHero(index) => {
+            HomeCmd::SelectHero(index) | HomeCmd::PinHero(index) => {
                 let view = H::hubs(cx);
                 if view.hero_count() == 0 {
                     return Handled::No;
@@ -955,6 +962,10 @@ impl HomeScreen {
                 self.carousel = Some(identity);
                 self.outgoing = None;
                 self.hero_slide.jump(1.0);
+                if matches!(command, HomeCmd::PinHero(_)) {
+                    self.hero_pinned = true;
+                    crate::log(&format!("home: hero pinned at slot {index}"));
+                }
                 fx.invalidate(Provenance::Input);
             }
             HomeCmd::ItemMenu => return self.emit_item_menu(cx, fx),
@@ -1408,7 +1419,7 @@ impl LogicalState for HomeScreen {
         // is encoded below, including velocities that determine the next Tick's answer.
         let Self { entry: _, instance: _, groups: _, items: _, next_group: _, next_elem: _,
             rows: _, projected_generation: _, restored_scroll: _, restore_reveal: _, carousel: _,
-            outgoing: _, hero_flip_cd: _, hero_slide: _, hero_dir: _, hero_auto: _, covered: _,
+            outgoing: _, hero_flip_cd: _, hero_slide: _, hero_dir: _, hero_auto: _, hero_pinned: _, covered: _,
             snap_target: _,
             visible_activation: _, cta_available: _, strip_chosen: _, snap: _, status_ms: _,
             hero_pop: _, backdrop: _, grid: _ } = self;
@@ -1989,8 +2000,8 @@ fn write_hub_identity(identity: &HomeHubIdentity, c: &mut Canon) {
         HomeHubIdentity::ContinueWatching => {
             c.u32(0);
         }
-        HomeHubIdentity::Identifier { sid, id } => {
-            c.u32(1).u32(u32::from(sid.raw())).str(id);
+        HomeHubIdentity::Identifier { sid, id, key } => {
+            c.u32(1).u32(u32::from(sid.raw())).str(id).str(key);
         }
         HomeHubIdentity::Key { sid, key } => {
             c.u32(2).u32(u32::from(sid.raw())).str(key);

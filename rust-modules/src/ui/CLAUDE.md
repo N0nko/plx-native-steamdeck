@@ -126,9 +126,16 @@ paints it, so it appears when the stall ENDS and lingers for about three seconds
 WHILE the stall is happening: the stuck main thread cannot draw. At >=2000 ms the observer sends SIGABRT once per stall to the main pthread
 captured at loop start, so crashtrace records the interrupted main thread, not the observer.
 Developer draw and swap phases publish label-only scopes (`frame draw`, `gl present`): these
-neither invoke the blocking guard nor grant permission for guarded calls. A legitimately slow
-GPU frame still hits the >=2000 ms fatal threshold by design: a two-second main-thread stall
-is a bug regardless of cause; use the `guard=log` escape hatch below when investigating it.
+neither invoke the blocking guard nor grant permission for guarded calls. On hardware GL (the TV,
+a desktop GPU) a legitimately slow GPU frame still hits the >=2000 ms fatal threshold by design:
+a two-second main-thread stall is a bug regardless of cause; use the `guard=log` escape hatch
+below when investigating it. The one exception is a CPU rasterizer: when the boot's `GL_RENDERER`
+is a software renderer (Apple Software Renderer, llvmpipe, softpipe, swrast, SwiftShader, WARP —
+the CI simulator), time sampled in a GL-work phase — `frame draw`, `gl readback` (the capture
+stream's and the simulator screenshot's `glReadPixels`), `gl present` — logs and warns but does
+not count toward the kill, because that time is the rasterizer's. Two seconds outside those
+phases, `unlabeled` included, stays fatal there, and so does the blocking guard.
+`threadcheck: software GL renderer` in the log says the exception is armed.
 If the watchdog itself misses more than four poll intervals (>400 ms), it cannot distinguish
 process freeze, suspend, debugger stop or observer starvation from a main-thread stall. It
 rebases the stall origin, clears any warning, resets the fatal latch and reports nothing for
@@ -173,6 +180,9 @@ presentation in a design pass.
    ladder, an item context menu, the play-queue list — is a `popover.rs` container over the live
    screen with a `table.rs` `TableView` inside, anchored near its trigger, the way `track_menu.rs`
    and the library sort/filter menus already work. Plex's full-screen modals were rejected by name.
+   A menu never opens with its focus on a destructive action: tag such rows
+   `Row::destructive(true)` and open the table with `TableView::open_sections`, whose
+   `opening_row` is also the focus fallback when a focused row disappears.
 
 2. **Clickable text marks are ALL CAPS.** `MORE` and every other pressable text mark is
    capitalised, overriding the design system's sentence-case rule for app-written text: the mark is

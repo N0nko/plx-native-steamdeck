@@ -1,5 +1,5 @@
-//! Which webOS this television actually is — and the one thing the app ever ASKS the platform to
-//! do, which is to take the screen back ([`go_home`]).
+//! Which webOS this television actually is, the cached playback capabilities it reports
+//! ([`caps`]), and the request which hands the screen back ([`go_home`]).
 //!
 //! # Why the app needs to know, when it never did before
 //!
@@ -29,12 +29,15 @@
 //! bucket (their `library-version` guide — `goldilocks` is 4.0~4.4, `goldilocks2` 4.5~4.10). So
 //! logging it says which of THEIR buckets a report belongs to, not just a number.
 //!
-//! Parsed by hand rather than through a JSON crate: this is a flat object of string values written
-//! by the platform, the crate has no JSON dependency, and a parser that cannot fail is the right
-//! shape for something that must never keep the app from booting.
+//! Parsed by hand because this is a flat object of string values and a parser that cannot fail is
+//! the right shape for something that must never keep the app from booting. This is not a pattern
+//! for service replies: [`caps`] uses `serde_json` and strict types because uncertainty there is a
+//! playback-safety decision. The capability query deliberately does not fill a missing webOS
+//! version; no public version key or anonymous permission for one is evidenced.
 use std::sync::OnceLock;
 
 pub(crate) mod jail_repair;
+pub(crate) mod caps;
 
 const OS_INFO: &str = "/var/run/nyx/os_info.json";
 
@@ -577,15 +580,43 @@ fn ls2_probe() {
     ls2::probe();
 }
 
+/// Grade only the allowlisted fields in the LS2 wake reply. The raw platform JSON never enters a
+/// report or the local snapshot.
+#[cfg(any(test, all(target_os = "linux", target_arch = "arm", not(feature = "hostsim"))))]
+fn storage_activation_reply(reply: &str) -> crate::storage::wire::failure::Detail {
+    use crate::storage::wire::failure::{Detail, Stage};
+    if reply.len() > 4096 { return Detail::new(Stage::ActivationInvalidReply, None); }
+    let value = serde_json::from_str::<serde_json::Value>(reply).ok();
+    let accepted = value.as_ref().and_then(|value| value.get("returnValue"))
+        .and_then(serde_json::Value::as_bool);
+    let code = value.as_ref().and_then(|value| value.get("errorCode"))
+        .and_then(serde_json::Value::as_i64)
+        .and_then(|value| i32::try_from(value).ok());
+    match accepted {
+        Some(true) => Detail::new(Stage::ActivationAccepted, code),
+        Some(false) => Detail::new(Stage::ActivationRejected, code),
+        None => Detail::new(Stage::ActivationInvalidReply, code),
+    }
+}
+
 /// Best-effort dynamic-service activation hint for the storage helper.
 ///
 /// The helper publishes readiness from its startup path, so neither a successful method reply nor
-/// delivery of `/wake` is required; the result is deliberately ignored and the authenticated
+/// delivery of `/wake` is required; the result is retained only as diagnostics and the authenticated
 /// Unix-socket `Hello` is the sole readiness proof.
 #[cfg(all(target_os = "linux", target_arch = "arm", not(feature = "hostsim"), not(test)))]
-pub(crate) fn activate_storage_helper(service: &str) {
+pub(crate) fn activate_storage_helper(service: &str) -> crate::storage::wire::failure::Detail {
+    use crate::storage::wire::failure::{Detail, Stage};
     let uri = format!("luna://{service}/wake");
-    let _ = ls2::call_once(&uri, "{}");
+    let started = std::time::Instant::now();
+    let detail = match ls2::call_once(&uri, "{}") {
+        Ok(reply) => storage_activation_reply(&reply),
+        Err(ls2::Fail::Timeout) => Detail::new(Stage::ActivationTimeout, None),
+        Err(ls2::Fail::Setup { stage, code, .. }) =>
+            crate::storage::wire::failure::activation_failure(stage, code),
+    };
+    crate::storage::diagnostics::activation(detail, started.elapsed().as_millis() as u64);
+    detail
 }
 
 #[cfg(all(not(feature = "hostsim"), not(test)))]
@@ -610,14 +641,14 @@ fn launch_home() -> bool {
         // log that wastes a device session: "SAM did not answer" read the same whether the bus
         // refused this app a registration, the call was never submitted, or the reply really did
         // time out. They are three different bugs and only one of them is about SAM.
-        Err(ls2::Fail::Setup { stage, detail }) if detail.is_empty() => {
+        Err(ls2::Fail::Setup { stage, detail, .. }) if detail.is_empty() => {
             crate::log(&format!("gohome: LS2 setup failed stage={stage} after {ms}ms"));
             false
         }
         // The hub's own words, when it gave any. The register refusal that shipped with this
         // branch (`Can not find service "" permissions`) was legible ONLY in ls-hubd's log,
         // which nobody reading the app's evidence knew to open.
-        Err(ls2::Fail::Setup { stage, detail }) => {
+        Err(ls2::Fail::Setup { stage, detail, .. }) => {
             crate::log(&format!(
                 "gohome: LS2 setup failed stage={stage} after {ms}ms — {detail}"
             ));
@@ -774,7 +805,7 @@ pub(crate) mod ls2 {
     fn app_id_cstring() -> Result<CString, RegisterFail> {
         CString::new(crate::paths::app_id()).map_err(|_| RegisterFail::Setup {
             stage: "app-id",
-            detail: String::new(),
+            detail: String::new(), code: None,
         })
     }
 
@@ -800,16 +831,18 @@ pub(crate) mod ls2 {
     /// and, when the hub gave one, its own message.
     #[derive(Debug)]
     pub(crate) enum RegisterFail {
-        Setup { stage: &'static str, detail: String },
+        Setup { stage: &'static str, detail: String,
+            #[allow(dead_code)] // Numeric diagnostics are consumed by the ARM helper activation path.
+            code: Option<i32> },
     }
 
     impl std::fmt::Display for RegisterFail {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             match self {
-                RegisterFail::Setup { stage, detail } if detail.is_empty() => {
+                RegisterFail::Setup { stage, detail, .. } if detail.is_empty() => {
                     write!(f, "setup failed stage={stage}")
                 }
-                RegisterFail::Setup { stage, detail } => {
+                RegisterFail::Setup { stage, detail, .. } => {
                     write!(f, "setup failed stage={stage} ({detail})")
                 }
             }
@@ -834,12 +867,13 @@ pub(crate) mod ls2 {
             unsafe { LSErrorFree(&mut error) };
             return Err(RegisterFail::Setup {
                 stage: "glib-context",
-                detail: String::new(),
+                detail: String::new(), code: None,
             });
         }
         let mut handle = std::ptr::null_mut();
         let registered = unsafe { LSRegister(std::ptr::null(), &mut handle, &mut error) };
         if !registered || handle.is_null() {
+            let code = Some(error.error_code);
             let detail = error_text(&error);
             unsafe {
                 LSErrorFree(&mut error);
@@ -847,11 +881,12 @@ pub(crate) mod ls2 {
             }
             return Err(RegisterFail::Setup {
                 stage: "register",
-                detail,
+                detail, code,
             });
         }
         reset(&mut error);
         if !unsafe { LSGmainContextAttach(handle, context, &mut error) } {
+            let code = Some(error.error_code);
             let detail = error_text(&error);
             reset(&mut error);
             unsafe {
@@ -861,7 +896,7 @@ pub(crate) mod ls2 {
             }
             return Err(RegisterFail::Setup {
                 stage: "attach",
-                detail,
+                detail, code,
             });
         }
         unsafe { LSErrorFree(&mut error) };
@@ -894,7 +929,9 @@ pub(crate) mod ls2 {
     pub(crate) enum Fail {
         /// The bus, glib or the call itself never got as far as being sent. The stage names which,
         /// and `detail` carries the hub's words when it gave any.
-        Setup { stage: &'static str, detail: String },
+        Setup { stage: &'static str, detail: String,
+            #[allow(dead_code)] // Numeric diagnostics are consumed by the ARM helper activation path.
+            code: Option<i32> },
         /// It WAS sent and the budget elapsed with no reply.
         Timeout,
     }
@@ -902,7 +939,7 @@ pub(crate) mod ls2 {
     impl From<RegisterFail> for Fail {
         fn from(f: RegisterFail) -> Self {
             match f {
-                RegisterFail::Setup { stage, detail } => Fail::Setup { stage, detail },
+                RegisterFail::Setup { stage, detail, code } => Fail::Setup { stage, detail, code },
             }
         }
     }
@@ -915,7 +952,7 @@ pub(crate) mod ls2 {
             let _block = crate::task::assert_may_block(const { &crate::task::BlockingLabel::new("LS2 round trip") });
             let setup = |stage| Fail::Setup {
                 stage,
-                detail: String::new(),
+                detail: String::new(), code: None,
             };
             let uri = CString::new(uri).map_err(|_| setup("uri"))?;
             let payload = CString::new(payload).map_err(|_| setup("payload"))?;
@@ -939,6 +976,7 @@ pub(crate) mod ls2 {
                 )
             };
             if !called {
+                let code = Some(error.error_code);
                 let detail = error_text(&error);
                 unsafe {
                     LSErrorFree(&mut error);
@@ -946,7 +984,7 @@ pub(crate) mod ls2 {
                 }
                 return Err(Fail::Setup {
                     stage: "call",
-                    detail,
+                    detail, code,
                 });
             }
             let until = Instant::now() + budget;
@@ -1043,7 +1081,7 @@ pub(crate) mod ls2 {
                     Err(Fail::Timeout) => {
                         crate::log(&format!("ls2probe: {label}: getForegroundAppInfo timed out"))
                     }
-                    Err(Fail::Setup { stage, detail }) => crate::log(&format!(
+                    Err(Fail::Setup { stage, detail, .. }) => crate::log(&format!(
                         "ls2probe: {label}: call failed stage={stage} ({detail})"
                     )),
                 }
@@ -1066,6 +1104,20 @@ pub(crate) mod ls2 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn storage_activation_reply_keeps_only_status_and_numeric_error_code() {
+        use crate::storage::wire::failure::{Detail, Stage};
+        assert_eq!(storage_activation_reply(r#"{"returnValue":true}"#),
+            Detail::new(Stage::ActivationAccepted, None));
+        assert_eq!(storage_activation_reply(
+            r#"{"returnValue":false,"errorCode":-1,"errorText":"private refusal"}"#),
+            Detail::new(Stage::ActivationRejected, Some(-1)));
+        assert_eq!(storage_activation_reply("not json"),
+            Detail::new(Stage::ActivationInvalidReply, None));
+        assert_eq!(storage_activation_reply(&"x".repeat(4097)),
+            Detail::new(Stage::ActivationInvalidReply, None));
+    }
 
     /// The real file off the dev set, verbatim. The parser has to survive the platform's
     /// formatting, not a tidied version of it.

@@ -87,7 +87,7 @@ pub(crate) fn install_panic_logger() {
         if let Ok(mut f) = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
-            .open(&crate::paths::in_runtime_dir("plxnative-crash.log"))
+            .open(&crate::paths::in_runtime_dir(crate::paths::runtime_file::CRASH))
         {
             let _ = writeln!(f, "{line}");
         }
@@ -463,13 +463,13 @@ pub(crate) unsafe fn construct(
     {
         let r = glGetString(GL_RENDERER);
         let v = glGetString(GL_VERSION);
-        if !r.is_null() && !v.is_null() {
-            log(&format!(
-                "GL: {} / {}",
-                std::ffi::CStr::from_ptr(r).to_string_lossy(),
-                std::ffi::CStr::from_ptr(v).to_string_lossy()
-            ));
+        let renderer = (!r.is_null()).then(|| std::ffi::CStr::from_ptr(r).to_string_lossy());
+        if let (Some(renderer), false) = (&renderer, v.is_null()) {
+            log(&format!("GL: {} / {}", renderer, std::ffi::CStr::from_ptr(v).to_string_lossy()));
         }
+        // A CPU rasterizer's frame time is not a main-thread hang (`task::runtime_check`).
+        #[cfg(feature = "threadcheck")]
+        crate::task::runtime_check::note_renderer(renderer.as_deref());
     }
     // The system on-screen keyboard, PROBED — see `crate::textinput`'s module doc. Both facts
     // on this line are preconditions that fail in complete silence, and nothing in this tree
@@ -488,11 +488,9 @@ pub(crate) unsafe fn construct(
     // read, logged and used for nothing: `docs/egl-partial-update-and-damage.md` is what it
     // was for. Deliberately NOT a new link dependency; see `egl.rs`'s module doc for why
     // `-lEGL` would kill the process at exec() on the very firmwares this app runs on.
-    if cfg!(all(feature = "hostsim", target_os = "linux")) {
-        log("egl: skipped — Linux host simulator does not require EGL diagnostics");
-    } else {
-        crate::egl::probe();
-    }
+    // No platform carve-out: the probe asks EGL nothing unless an EGL context is current on this
+    // thread (`egl::current_with`), which is what makes it safe on a GLX-backed Linux simulator.
+    crate::egl::probe();
     crate::textinput::bind(win);
     // …and the same handshake for the ROOT press: `webos::go_home`'s fallback leg minimizes
     // this window, and the window is created here, a long way from where BACK is decided.
@@ -566,9 +564,11 @@ pub(crate) unsafe fn construct(
     // except the token.
     let dev_servers = if controlled { Ok(Vec::new()) } else { crate::dev::servers() };
     match &dev_servers {
-        Err(e) => log(&format!(
-            "servers: /tmp/plxnative-servers IGNORED — not valid JSON: {e}"
-        )),
+        // `_e`: the only reader is the gated log line (see `dev.rs` on why literals are gated).
+        Err(_e) => {
+            #[cfg(feature = "devtriggers")]
+            log(&format!("servers: /tmp/plxnative-servers IGNORED — not valid JSON: {_e}"));
+        }
         Ok(v) if !v.is_empty() => {
             let usable = v.iter().filter(|s| s.usable()).count();
             for (i, s) in v.iter().enumerate() {
@@ -677,6 +677,7 @@ pub(crate) unsafe fn construct(
         super::bridge::execute_session_command(pages, crate::auth::SessionCmd::StartLogin);
         pages.frame_with(bridge, crate::ui::machine::Tick::default(), Vec::new(), Vec::new(),
             rec, false);
+        #[cfg(feature = "devtriggers")]
         log("boot: /tmp/plxnative-login — starting QR login");
         BootTo::Login
     } else if !dev_token.is_empty() {
@@ -788,6 +789,9 @@ pub(crate) unsafe fn construct(
     // dev: the animation-diagnostic overlay is OFF by default; /tmp/plxnative-anim enables it (its
     // trace goes to /tmp/plxnative-anim.log, a separate stream from the main event log)
     if !controlled { crate::dev::scenarios::arm_anim(); }
+    // dev: /tmp/plxnative-stillclock=<ms> holds every free-running animation clock (spinners)
+    // still, so a screenshot of a waiting screen settles on one deterministic frame.
+    if !controlled { crate::dev::scenarios::arm_stillclock(); }
     // dev: profile is asynchronous EXT_disjoint_timer_query timing; hwcnt is the serialized
     // direct Mali counter-attribution run. Their content names ONE phase (empty = frame.ui).
     // Combining them would perturb the timer result, so fail closed when both are present.
@@ -1159,7 +1163,7 @@ pub(crate) unsafe fn construct(
     // `/tmp/plxnative-autopause`: an authored Pause edge, plus the optional Resume edge which
     // owns the same script. External effects retry until the synchronized player state machine
     // accepts them; a busy native transition cannot silently consume the test operation.
-    let pause_script: Option<(u32, Option<u32>)> = None;
+    let pause_script: Option<(u32, Option<u32>, Option<u32>)> = None;
     let pause_resume_at: Option<u32> = None;
     let prev = 0u32;
     // Home data refresh, armed on every player exit (Stop/BACK/EOS): the hubs are refetched a
@@ -1252,6 +1256,8 @@ pub(crate) unsafe fn construct(
             press_release_at,
             itemmenu_tried,
             acct_tried,
+            acct_rest: None,
+            shots: Default::default(),
             auto_tried,
             replay_left,
             grid_tried,
@@ -1301,8 +1307,13 @@ pub(crate) unsafe fn construct(
     // dev: /tmp/plxnative-nobudget — put the ONE frame budget (the tree's, spec §2.2) into its
     // pre-phase-11 shape for the A/B's control leg. The tree exists now, which is why this is
     // here rather than beside the trigger read.
+    //
+    // The log line is gated on its own: the flag reaches here through a struct field, and the
+    // optimizer does not always prove that field `false` in a release build, so the literal
+    // shipped (`ci/check-package.py` failed on it). See `dev.rs`'s module doc.
     if app.scenarios.dev.nobudget {
         app.pages.budget = crate::ui::frame::Budget::pre_phase_11();
+        #[cfg(feature = "devtriggers")]
         crate::log("budget: pre-phase-11 admission (quota only) by /tmp/plxnative-nobudget");
     }
     if controlled {

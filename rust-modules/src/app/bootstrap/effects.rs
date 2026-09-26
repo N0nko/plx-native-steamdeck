@@ -30,6 +30,7 @@ fn home_command(command: &crate::screens::registry::HomeCmd) -> Value {
             HomeTab::Home => "home", HomeTab::Movies => "movies", HomeTab::Shows => "shows", HomeTab::Search => "search" }}),
         HomeCmd::Flip(delta) => json!({"flip":delta}),
         HomeCmd::SelectHero(index) => json!({"select_hero":index}),
+        HomeCmd::PinHero(index) => json!({"pin_hero":index}),
         HomeCmd::ItemMenu => json!("itemmenu"),
     }
 }
@@ -38,7 +39,7 @@ fn home_hub(identity: &crate::screens::registry::HomeHubIdentity) -> Value {
     use crate::screens::registry::HomeHubIdentity;
     match identity {
         HomeHubIdentity::ContinueWatching => json!([0]),
-        HomeHubIdentity::Identifier { sid, id } => json!([1, sid.raw(), id]),
+        HomeHubIdentity::Identifier { sid, id, key } => json!([1, sid.raw(), id, key]),
         HomeHubIdentity::Key { sid, key } => json!([2, sid.raw(), key]),
         HomeHubIdentity::Ephemeral { generation, ordinal } => json!([3, generation, ordinal]),
     }

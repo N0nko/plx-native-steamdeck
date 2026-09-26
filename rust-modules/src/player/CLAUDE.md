@@ -16,9 +16,9 @@ spec). The stream side: `PMS HTTP GET` → demux → per-lane access-unit
 queues with byte-cap backpressure (`aq.rs`) → the pump `Feed()`s each AU to the Starfish pipeline.
 The demuxer is **`ff.rs` — the libavformat the app BUNDLES (not the TV's), over a custom AVIO on
 one of TWO transports** (design record: `docs/ffmpeg-demuxer-plan.md`; the hand-rolled `mkv.rs`
-fallback is retired/deleted). **Which transport is decided once, in `ff::demux`, from the part
-URL's scheme** — `AvioState` holds a source enum and `read_cb`/`seek_cb` dispatch: `http` →
-`stream.rs`'s raw socket, `https` → `crate::curlio`. That matters *here* because teardown is a
+fallback is retired/deleted). **Which transport is decided in `ff::demux` from the part URL's
+scheme, or by a plaintext open's redirect to https (`stream::redirect` hands that hop to curl)** —
+`AvioState` holds a source enum and `read_cb`/`seek_cb` dispatch: `http` → `stream.rs`'s raw socket, `https` → `crate::curlio`. That matters *here* because teardown is a
 different mechanism per arm: `engine::teardown` fires `stream::http_shutdown` at the socket **and**
 `curlio::abort_active()` at the curl source's wake pipe, since a thread parked in `curl_multi_wait`
 is not one any `shutdown(2)` of ours can reach. Exactly one of the two ever has anything to do. Ours ships beside the binary as `libav*-plx.so.*`, is `dlopen`'d by absolute path
@@ -69,10 +69,12 @@ something.
   gated teardown path and **never** hand the object to C++ `new`/`delete` (its real size is unknown).
   Methods returning a `std::string` use a hidden sret first-arg; read the `char*` at offset 0 (SSO)
   for short replies like `"Ok"`/`"BufferFull"`.
-- **Dolby Vision and Dolby Atmos have their own document: `docs/dolby-vision.md`.** The two
-  payload nodes, the ACB audio forward, the Profile 5 one-tick fix and the instrument traps live
-  there rather than here, because half of that record is about LG's binaries and the Dolby
-  specifications rather than about our engine.
+- **Dolby Vision and Dolby Atmos have their own document: `docs/dolby-vision.md`.** A DV node is
+  emitted only after the boot-time configd probe definitely confirms hardware support. The route
+  freezes that capability + presentation decision, and every Load/reload/recovery consumes the
+  stored presentation rather than re-reading the later cache; `dvnonode` is the logged diagnostic
+  exception. Atmos routing and ACB forwarding are independent and unchanged. The payload evidence,
+  Profile 5 one-tick fix and instrument traps live in that document.
 - **The Load's `adaptiveStreaming` ceiling is derived per session (`engine::sink_envelope`), and
   it was a 4K60 constant for EVERY codec until 2026-09-03 — which on webOS 10 refused every H.264
   stream: `docs/webos10-resource-allocation.md`.** Lab-measured 2026-08-27 on release 10.3.1: the

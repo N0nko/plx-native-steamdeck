@@ -89,6 +89,8 @@ pub enum Icon {
     Rewind,
     /// See [`Icon::Rewind`].
     FastForward,
+    /// Advance to the next episode (triangle with an end bar).
+    NextEpisode,
     /// Counter-clockwise circular arrow (↺) — **the detail hero's restart disc, and only that**.
     ///
     /// It is the same ACTION as [`Icon::PlayStart`], which is normally how a second mark gets
@@ -244,6 +246,7 @@ fn src(id: Icon) -> &'static str {
         Icon::Pause => include_str!("../../../assets/icons/pause.svg"),
         Icon::Rewind => include_str!("../../../assets/icons/rewind.svg"),
         Icon::FastForward => include_str!("../../../assets/icons/fast-forward.svg"),
+        Icon::NextEpisode => include_str!("../../../assets/icons/next-episode.svg"),
         Icon::Restart => include_str!("../../../assets/icons/restart.svg"),
         Icon::Repair => include_str!("../../../assets/icons/repair.svg"),
         Icon::Trailer => include_str!("../../../assets/icons/trailer.svg"),

@@ -1243,7 +1243,7 @@ fn abandoned_resolves_retire_the_streaming_resources_they_created() {
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
         let mut requests = Vec::new();
         while std::time::Instant::now() < deadline && requests.len() < 2 {
-            match listener.accept() {
+            match crate::testnet::accept(&listener) {
                 Ok((mut socket, _)) => {
                     let mut request = String::new();
                     let mut reader = BufReader::new(socket.try_clone().expect("clone socket"));
@@ -1883,7 +1883,7 @@ fn cold_source_preflight_uses_the_playback_identity_and_does_not_close_it() {
 
         listener.set_nonblocking(true).unwrap();
         for _ in 0..50 {
-            match listener.accept() {
+            match crate::testnet::accept(&listener) {
                 Ok((socket, _)) => {
                     let mut extra = String::new();
                     BufReader::new(socket)
@@ -2045,6 +2045,55 @@ fn the_preview_tells_a_container_remux_apart_from_a_re_encode() {
     );
     // nothing playable loaded (a show still resolving its episode) answers nothing at all
     assert_eq!(playback_preview(&item("h264", "", "aac")), None);
+}
+
+#[test]
+fn on_deck_hevc_p5_preview_uses_the_selected_episodes_codec() {
+    // `playback_preview_with_capability_for_test` reads the process-global quality ceiling
+    // (`quality()`) and the server registry (`crate::plex::client_for`), same as
+    // `the_preview_tells_a_container_remux_apart_from_a_re_encode` above it. Without this guard
+    // another thread's test can move either between the two assertions below and flip
+    // DirectPlay/Converts out from under this one — see `crate::testlock` for why the lock (not a
+    // retry) is the fix.
+    let mut ps = crate::route::PlaybackSession::IDLE;
+    let _g = fresh_registry(&mut ps);
+    restore_quality(Quality::Original);
+    let mut show = crate::metadata::Detail {
+        is_show: true,
+        part: String::new(),
+        vcodec: String::new(),
+        width: 3840,
+        height: 1602,
+        dovi: p5(),
+        audio: vec![crate::metadata::Stream {
+            codec: "eac3".into(),
+            ..Default::default()
+        }],
+        on_deck: Some(crate::metadata::Episode {
+            part: "/library/parts/1/2/on-deck.mkv".into(),
+            vcodec: "hevc".into(),
+            acodec: "eac3".into(),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    assert!(show.vcodec.is_empty(), "a show deliberately has no file codec");
+    assert_eq!(
+        playback_preview_with_capability_for_test(
+            &show,
+            crate::webos::caps::DvCapability::Supported,
+        ),
+        Some(Preview::DirectPlay),
+    );
+    show.on_deck.as_mut().unwrap().vcodec = "h264".into();
+    assert_eq!(
+        playback_preview_with_capability_for_test(
+            &show,
+            crate::webos::caps::DvCapability::Supported,
+        ),
+        Some(Preview::Converts),
+        "the test must prove the selected episode codec reaches DV policy",
+    );
 }
 
 #[test]

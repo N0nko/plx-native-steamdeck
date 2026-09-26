@@ -156,6 +156,30 @@ pub fn guard(f: impl FnOnce()) {
     }
 }
 
+/// Where a cover crop ([`Rect::cover_uv`]) keeps a picture that does not share its box's aspect.
+/// A source WIDER than the box always loses its sides evenly; this decides only how a TALLER one
+/// splits its vertical overflow between top and bottom.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Crop {
+    /// Even: art whose subject is wherever the artist put it — posters, stills, extras, avatars.
+    Centre,
+    /// A person's photo. A portrait headshot has the face in its upper third, so an even crop into
+    /// a circle keeps the chest and cuts the forehead; this takes a fifth of the overflow off the
+    /// top and the rest off the bottom, so the kept window rides high on the photo.
+    Headshot,
+}
+
+impl Crop {
+    /// The fraction of a vertical overflow cut from the TOP; the rest comes off the bottom.
+    #[inline]
+    pub const fn top_share(self) -> f32 {
+        match self {
+            Crop::Centre => 0.5,
+            Crop::Headshot => 0.2,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Default, Debug)]
 pub struct Rect {
     pub x: f32,
@@ -228,6 +252,32 @@ impl Rect {
             w,
             h,
         )
+    }
+    /// The UV window `(u0, v0, su, sv)` of a `tw × th` source that COVERS this rect with its aspect
+    /// preserved — [`cover`](Self::cover) expressed as a crop of the texture instead of an overflow
+    /// of the quad. That is the form a CLIPPED picture needs: a card's rounded rect or a headshot's
+    /// circle is masked by the rect itself, so the only way to keep the frame fully painted without
+    /// squashing the source is to sample less of it. `crop` says where the kept window sits.
+    ///
+    /// Cover and not contain, deliberately: a letterboxed picture inside a circle or a rounded card
+    /// leaves empty bands that read as a broken image, and the source is never scaled unevenly
+    /// either way. A degenerate source or rect (the texture has not decoded yet) answers
+    /// [`crate::gfx::UV_FULL`], the whole texture, exactly as `cover` returns the frame unchanged.
+    #[inline]
+    pub fn cover_uv(&self, tw: f32, th: f32, crop: Crop) -> [f32; 4] {
+        if tw <= 0.0 || th <= 0.0 || self.w <= 0.0 || self.h <= 0.0 {
+            return crate::gfx::UV_FULL;
+        }
+        let (box_a, src_a) = (self.w / self.h, tw / th);
+        if src_a > box_a {
+            // wider than the box: keep the full height, crop the sides evenly
+            let su = box_a / src_a;
+            [(1.0 - su) * 0.5, 0.0, su, 1.0]
+        } else {
+            // taller (or equal — `sv` is then 1 and the window is the identity)
+            let sv = src_a / box_a;
+            [0.0, (1.0 - sv) * crop.top_share(), 1.0, sv]
+        }
     }
     /// The overlap of two rects — the part of `self` that `o` lets through. A miss returns a
     /// ZERO-SIZE rect (never a negative one), so `w > 0` is a clean "any of this is visible?"
@@ -413,9 +463,13 @@ impl Painter {
         if frame::backdrop::recording_excluded() {
             // `paint` would discard this unconditionally (see its comment); skip building
             // `values` at all rather than build it only to throw it away.
-            debug_assert_ne!(
-                tag,
-                frame::backdrop::GLASS_COMMAND,
+            //
+            // Only the SURFACES half of that gate is a programming error for a glass. The other
+            // half — content under a frozen host boundary (the tab bar's glass on Home while an
+            // account or item menu holds Home as a snapshot) — is dead content that `paint`
+            // discards by the same rule, and asserting there panicked every such frame.
+            debug_assert!(
+                tag != frame::backdrop::GLASS_COMMAND || !frame::backdrop::in_surfaces_band(),
                 "a glass command was declared at/above the surfaces band, where recording is \
                  skipped; this glass would never resolve"
             );
@@ -865,16 +919,22 @@ impl Painter {
         );
     }
     pub fn tex(self, tex: u32, r: Rect, rad: f32, tint: [f32; 4]) {
+        self.tex_uv(tex, crate::gfx::UV_FULL, r, rad, tint);
+    }
+    /// [`tex`](Self::tex) sampling only the `uv` window of the texture — [`Rect::cover_uv`]'s
+    /// answer for a picture whose aspect is not `r`'s, so it is cropped rather than squashed.
+    pub fn tex_uv(self, tex: u32, uv: [f32; 4], r: Rect, rad: f32, tint: [f32; 4]) {
         if self.declare(r, 12, |data| {
             use frame::backdrop::Value;
             tex.record(data);
             crate::gfx::tex_ledger::revision(tex).record(data);
+            uv.record(data);
             rad.record(data);
             tint.record(data);
         }) { return; }
         if self.text_recorder { return; }
         let t = self.c(tint);
-        crate::gfx::draw_tex(tex, r.x + self.dx, r.y + self.dy, r.w, r.h, rad, t.as_ptr());
+        crate::gfx::draw_tex_uv(tex, uv, r.x + self.dx, r.y + self.dy, r.w, r.h, rad, t.as_ptr());
     }
     /// The FROSTED ground: what the frame drew behind `r`, blurred, clipped to `r`'s rounded rect.
     ///
@@ -939,12 +999,13 @@ impl Painter {
         )
     }
     /// [`tex`](Self::tex) with the focus edge-sheen (the 1px inset perimeter rim) baked into the SAME
-    /// pass — rim only, no shadow. Used for the profile chip avatar.
-    pub fn tex_stroked(self, tex: u32, r: Rect, rad: f32, tint: [f32; 4]) {
+    /// pass — rim only, no shadow. Used for the profile chip avatar. `uv` as [`tex_uv`](Self::tex_uv).
+    pub fn tex_stroked(self, tex: u32, uv: [f32; 4], r: Rect, rad: f32, tint: [f32; 4]) {
         if self.declare(r, 13, |data| {
             use frame::backdrop::Value;
             tex.record(data);
             crate::gfx::tex_ledger::revision(tex).record(data);
+            uv.record(data);
             rad.record(data);
             tint.record(data);
         }) { return; }
@@ -952,6 +1013,7 @@ impl Painter {
         let t = self.c(tint);
         crate::gfx::draw_tex_stroked(
             tex,
+            uv,
             r.x + self.dx,
             r.y + self.dy,
             r.w,
@@ -966,11 +1028,13 @@ impl Painter {
     /// grows with the pop `f` (folded via [`gfx::draw_tex_carded`](crate::gfx::draw_tex_carded)). `r` is
     /// the (already-scaled) card rect; the quad is inflated by the penumbra internally. This is how
     /// every art tile gets its resting-and-rising shadow without a separate soft-shadow pass.
-    pub fn tex_carded(self, tex: u32, r: Rect, rad: f32, tint: [f32; 4], f: f32) {
+    /// `uv` is the window of the texture the card shows ([`tex_uv`](Self::tex_uv)).
+    pub fn tex_carded(self, tex: u32, uv: [f32; 4], r: Rect, rad: f32, tint: [f32; 4], f: f32) {
         if self.declare({ let (b,o,_)=card_shadow_params(r.h,f); Rect::new(r.x-b,r.y+o-b,r.w+2.0*b,r.h+2.0*b) }, 14, |data| {
             use frame::backdrop::Value;
             tex.record(data);
             crate::gfx::tex_ledger::revision(tex).record(data);
+            uv.record(data);
             rad.record(data);
             tint.record(data);
             f.record(data);
@@ -982,6 +1046,7 @@ impl Painter {
         let pad = blur + 1.0; // inflate for the symmetric penumbra (+1 AA margin)
         crate::gfx::draw_tex_carded(
             tex,
+            uv,
             r.x + self.dx,
             r.y + self.dy,
             r.w,
@@ -1588,6 +1653,70 @@ mod tests {
         }
     }
 
+    /// The texels one box pixel spans along each axis. Equal on both axes ⇔ the picture is scaled
+    /// evenly, which is the whole claim a crop makes over the stretch it replaces.
+    fn texels_per_px(r: Rect, tw: f32, th: f32, uv: [f32; 4]) -> (f32, f32) {
+        (uv[2] * tw / r.w, uv[3] * th / r.h)
+    }
+
+    fn near4(a: [f32; 4], b: [f32; 4]) -> bool {
+        a.iter().zip(b).all(|(x, y)| (x - y).abs() < 1e-5)
+    }
+
+    /// A 2:3 PORTRAIT headshot into a 1:1 circle — the cast row's case. The full width survives,
+    /// two-thirds of the height is kept, and the headshot crop takes a fifth of the lost third off
+    /// the top (the face lives up there); an even crop takes half. Never an uneven scale.
+    #[test]
+    fn cover_uv_crops_a_portrait_vertically_riding_high_for_a_headshot() {
+        let r = Rect::new(0.0, 0.0, 190.0, 190.0);
+        let (tw, th) = (300.0, 450.0);
+        let head = r.cover_uv(tw, th, Crop::Headshot);
+        assert!(near4(head, [0.0, (1.0 / 3.0) * 0.2, 1.0, 2.0 / 3.0]), "{head:?}");
+        let even = r.cover_uv(tw, th, Crop::Centre);
+        assert!(near4(even, [0.0, 1.0 / 6.0, 1.0, 2.0 / 3.0]), "{even:?}");
+        assert!(head[1] < even[1], "a headshot must keep more of the top than an even crop");
+        for uv in [head, even] {
+            let (sx, sy) = texels_per_px(r, tw, th, uv);
+            assert!((sx - sy).abs() < 1e-4, "scaled unevenly: {sx} vs {sy}");
+            assert!(uv[1] >= 0.0 && uv[1] + uv[3] <= 1.0 + 1e-6, "window must stay inside the texture");
+        }
+    }
+
+    /// A 16:9 source into a 1:1 box crops its SIDES, evenly, whatever the crop's vertical bias —
+    /// a headshot's lean is about faces, and there is no left/right equivalent.
+    #[test]
+    fn cover_uv_crops_a_landscape_horizontally_and_centred() {
+        let r = Rect::new(40.0, 900.0, 190.0, 190.0);
+        for crop in [Crop::Centre, Crop::Headshot] {
+            let uv = r.cover_uv(1600.0, 900.0, crop);
+            let su = 9.0 / 16.0;
+            assert!(near4(uv, [(1.0 - su) * 0.5, 0.0, su, 1.0]), "{crop:?}: {uv:?}");
+            let (sx, sy) = texels_per_px(r, 1600.0, 900.0, uv);
+            assert!((sx - sy).abs() < 1e-4, "scaled unevenly: {sx} vs {sy}");
+        }
+    }
+
+    /// A source already at its box's aspect is the WHOLE texture, at any pixel size — so every
+    /// poster in a poster tile and every 16:9 still in a 16:9 tile draws exactly what it drew before.
+    /// An undecoded texture (size 0) or a degenerate box is the whole texture too, never a NaN.
+    #[test]
+    fn cover_uv_is_the_identity_at_matching_aspect_and_for_an_undecoded_source() {
+        for (r, tw, th) in [
+            (Rect::new(0.0, 0.0, 190.0, 190.0), 300.0, 300.0),
+            (Rect::new(0.0, 0.0, 250.0, 375.0), 250.0, 375.0),
+            (Rect::new(0.0, 0.0, 250.0, 375.0), 500.0, 750.0),
+        ] {
+            for crop in [Crop::Centre, Crop::Headshot] {
+                assert!(near4(r.cover_uv(tw, th, crop), crate::gfx::UV_FULL), "{tw}x{th} {crop:?}");
+            }
+        }
+        let r = Rect::new(0.0, 0.0, 190.0, 190.0);
+        for (tw, th) in [(0.0, 0.0), (0.0, 450.0), (300.0, 0.0), (-1.0, -1.0)] {
+            assert_eq!(r.cover_uv(tw, th, Crop::Headshot), crate::gfx::UV_FULL);
+        }
+        assert_eq!(Rect::new(0.0, 0.0, 0.0, 0.0).cover_uv(300.0, 450.0, Crop::Centre), crate::gfx::UV_FULL);
+    }
+
     /// The centring is about the FRAME, not about the panel: home's backdrop layer is parallaxed to
     /// a non-zero origin and slides horizontally, so a `cover` that centred on (0,0) would drift the
     /// crop across the flip.
@@ -1607,5 +1736,46 @@ mod tests {
             r.y < f.y && r.y + r.h > f.y + f.h,
             "the square must overflow the short axis both ways"
         );
+    }
+
+    /// A glass declared UNDER a frozen host boundary — the tab bar's backdrop on Home while the
+    /// account menu or an item menu holds Home as a frozen snapshot — is dead content, exactly as
+    /// `backdrop::paint` treats it: skipped silently. The declare pre-check once asserted on every
+    /// skipped glass, so opening either menu over Home panicked every frame of a debug build (the
+    /// frame guard caught it, and the menu never drew).
+    #[test]
+    fn a_glass_under_a_frozen_host_boundary_is_skipped_not_asserted() {
+        use frame::backdrop::{self, Layer, Sources, Z};
+        use std::{cell::RefCell, rc::Rc};
+        let _guard = crate::testlock::serial();
+        let sources = Rc::new(RefCell::new(Sources::default()));
+        sources.borrow_mut().begin(vec![Layer {
+            z: Z::surface(0),
+            rect: backdrop::canvas(),
+            blocks: true,
+            revision: 1,
+            composite_alpha: None,
+        }]);
+        let _walk = backdrop::discover(sources.clone());
+        let _chrome = backdrop::layer(Z::CHROME, true);
+        assert!(backdrop::recording_excluded(), "the chrome sits under a blocking full-canvas layer");
+        let skipped = Painter::root().declare(Rect::new(0.0, 0.0, 100.0, 40.0), backdrop::GLASS_COMMAND, |_| {});
+        assert!(skipped, "an occluded glass is consumed without recording");
+    }
+
+    /// …while a glass declared IN the surfaces band still trips the assertion: nothing there is
+    /// ever resolved, so the declaration itself is the bug.
+    #[test]
+    #[cfg(debug_assertions)]
+    #[should_panic(expected = "surfaces band")]
+    fn a_glass_in_the_surfaces_band_still_asserts() {
+        use frame::backdrop::{self, Sources, Z};
+        use std::{cell::RefCell, rc::Rc};
+        let _guard = crate::testlock::serial();
+        let sources = Rc::new(RefCell::new(Sources::default()));
+        sources.borrow_mut().begin(vec![]);
+        let _walk = backdrop::discover(sources.clone());
+        let _surface = backdrop::layer(Z::surface(0), true);
+        let _ = Painter::root().declare(Rect::new(0.0, 0.0, 100.0, 40.0), backdrop::GLASS_COMMAND, |_| {});
     }
 }

@@ -206,11 +206,16 @@ pub(crate) fn enter_player(
     from: Origin,
     ret: Option<crate::ui::screen::ReturnState<u32, crate::screens::registry::PageMemory>>,
 ) {
+    // …or already on its way: a Play inside the push's own dip-out finds the page it pressed on
+    // still the committed top, and re-seeding from it would leave a seed no mount ever spends
+    // (the pending push is inert against its twin, `NavStack::is_inert`) for the next player
+    // mount to pick up as its origin.
     let already_up = pages
         .nav
         .top_page()
         .map(|e| matches!(e.arg, AppArg::Player))
-        .unwrap_or(false);
+        .unwrap_or(false)
+        || matches!(pages.nav.tabs.stack.pending_dest(), Some(AppArg::Player));
     if already_up {
         return;
     }
@@ -645,19 +650,26 @@ pub(crate) fn exit_player(
 /// The episode is OVER — drained to EOS, or the user skipped a `final` credits marker.
 /// Starts the queued episode when the show has one, else leaves the player exactly as
 /// `exit_player` would. There is no interstitial: "always the next episode".
+///
+/// Returns whether playback was handed off to Up Next (`true`) or the player was left (`false`).
+/// `exit_player`'s `PopTo` only PARKS the navigation (`Dispatcher::request`, applied at the next
+/// commit), so `app.route()` still reads `Player` for the rest of this frame; a caller that needs
+/// to tell a real exit from an Up Next handoff — `dev::scenarios::maybe_replay_after_eos` is the
+/// one that does — must use this return value rather than the route.
 pub(crate) fn finish_playback(
     ps: &mut crate::route::PlaybackSession,
     pa: &mut crate::player::adapter::PlayerAdapter,
     refresh_hubs_at: &mut u32,
     pages: &mut crate::ui::dispatch::Dispatcher<super::bridge::AppHost>,
     bridge: &mut super::bridge::Bridge,
-) {
+) -> bool {
     if play_up_next(ps, pa, HUD_LINGER_MS, pages, bridge) {
-        return;
+        return true;
     }
     exit_player(ps, pa, refresh_hubs_at, pages, bridge);
     // The ring goes back to the scrubber for the NEXT session, and the next session is a fresh
     // instance — so there is nothing to park here any more (`start_playback`'s note).
+    false
 }
 
 /// Activate whatever occupies the control row. ONE dispatch for both the OK key and the
@@ -714,12 +726,12 @@ pub(crate) fn activate_ctrl_row(
                 }
                 // a `final` credits segment: skipping it IS finishing the item
                 SkipAction::Finish => {
-                    finish_playback(ps, pa, refresh_hubs_at, pages, bridge);
+                    let _ = finish_playback(ps, pa, refresh_hubs_at, pages, bridge);
                     true
                 }
             }
         }
-        ControlSlot::Discs => false,
+        ControlSlot::Discs | ControlSlot::DiscsNext => false,
     }
 }
 
@@ -960,6 +972,8 @@ pub(crate) unsafe fn activate_player_row(
             pages,
             bridge,
         );
+    } else if ctrl == crate::ui::player_hud::ControlSlot::DiscsNext && btn == crate::ui::player_hud::BTN_NEXT {
+        play_up_next(ps, pa, HUD_LINGER_MS, pages, bridge);
     } else if btn == crate::ui::player_hud::BTN_MORE {
         // …so the discs are what row 1 holds — the complement of the arm above, and the row's only
         // other occupant. OK on a control disc PRESENTS its panel on this page's own stack.
@@ -1445,6 +1459,44 @@ mod player_return_tests {
             p.top_entry(),
             show,
             "four auto-advances later, still the show page",
+        );
+        crate::plex::reset_servers_for_test();
+    }
+
+    /// **The push is the product's dip, and the player is asked for twice inside it** — once by
+    /// the Play press, once by a second Play (or the plan's landing) before the floor. The page
+    /// the user pressed on is still the committed top for that whole window, so the second ask
+    /// must neither prepare a fresh player that has lost the origin nor re-seed one that no mount
+    /// will ever spend: the session still returns to the detail page, and the NEXT player mount
+    /// that nobody seeded (`show_page(Player)`'s foreground restore) inherits nothing.
+    #[test]
+    fn a_second_play_inside_the_push_keeps_the_origin_and_leaves_no_seed() {
+        let _serial = crate::testlock::serial();
+        let _session = crate::plex::session::TempSession::new("player-return-dip");
+        let mut p = Pages::new();
+        p.d.nav.tabs.stack.transition = Box::new(crate::ui::containers::transition::PageDip::new());
+        p.stand_on(AppArg::Home);
+        p.stand_on(detail(A, "7"));
+        let page = p.top_entry();
+        enter_player(&mut p.d, &mut p.rig, Origin::Here, None);
+        p.t += 16;
+        bridge::frame(&mut p.d, &mut p.rig, tick(p.t), vec![]);
+        assert!(
+            p.d.nav.tabs.stack.pending_target_mut().is_some_and(|e| e.inst.is_some()),
+            "premise: the dip-out has prepared the player",
+        );
+        p.play(Origin::Here);
+        assert!(matches!(p.top(), AppArg::Player));
+        assert_eq!(p.d.nav.tabs.stack.depth(), 3, "one player, not two");
+        p.back_out();
+        assert_eq!(p.top_entry(), page, "the session came back to the detail page");
+
+        bridge::show_page(&mut p.d, AppArg::Player);
+        p.settle();
+        assert_eq!(
+            bridge::player(&p.d).and_then(|player| player.origin).map(|o| o.entry),
+            None,
+            "an unseeded player mount inherits no origin from the earlier session",
         );
         crate::plex::reset_servers_for_test();
     }

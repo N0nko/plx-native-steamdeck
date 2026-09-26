@@ -1399,15 +1399,13 @@ impl<H: ContentLike + crate::screens::registry::MetadataLike> Focusable<H> for D
         let elem = if group == hero::HERO_GROUP {
             hero::HeroCtl::Play.elem()
         } else if group == season::SEASON_GROUP {
+            // Land on the SELECTED season, not whichever tab happens to be geometrically nearest
+            // `from`: `Placed` carries no source group, so this fires from every entry into the
+            // strip (episodes below, hero above) alike, which is what a season tab strip means by
+            // "current".
             let n = d.map(|d| d.seasons.len()).unwrap_or(0).min(64);
-            let i = nearest_variable(
-                &self.season_metrics,
-                from.rect.cx(),
-                self.tab_scroll.pos,
-                n,
-                from_i,
-            );
-            season::elem(i).unwrap_or(season::SEASON_ELEM_RANGE_START)
+            let i = d.map(|d| d.cur_season.min(n.saturating_sub(1)));
+            i.and_then(season::elem).unwrap_or(season::SEASON_ELEM_RANGE_START)
         } else if group == episodes::EPISODES_GROUP {
             let n = d
                 .map(|d| d.episodes.len())
@@ -1500,23 +1498,6 @@ fn row_move(index: usize, len: usize, dir: Dir) -> Option<usize> {
         Dir::Right if index + 1 < len => Some(index + 1),
         _ => None,
     }
-}
-
-fn nearest_variable(metrics: &season::Metrics, x: f32, scroll: f32, n: usize, tie: usize) -> usize {
-    (0..n)
-        .min_by(|a, b| {
-            let da = metrics
-                .rect(*a, 0.0, scroll)
-                .map(|r| (r.cx() - x).abs())
-                .unwrap_or(f32::MAX);
-            let db = metrics
-                .rect(*b, 0.0, scroll)
-                .map(|r| (r.cx() - x).abs())
-                .unwrap_or(f32::MAX);
-            da.total_cmp(&db)
-                .then_with(|| a.abs_diff(tie).cmp(&b.abs_diff(tie)))
-        })
-        .unwrap_or(0)
 }
 
 impl<H: ContentLike + crate::screens::registry::MetadataLike> Machine<H> for DetailScreen {
@@ -3780,7 +3761,9 @@ impl DetailScreen {
   let profile=crate::plex::session::current_gen();
   let target=self.companion_target(meta);
   if self.companion_profile!=profile || self.companion.as_ref().map(|s|&s.key)!=target.as_ref(){self.companion=None;self.companion_at=None;self.companion_confirm=None;self.companion_profile=profile;}
-  if let Some(key)=target {if self.companion_at.is_none_or(|at|now.wrapping_sub(at)>=2000) && !self.companion.as_ref().is_some_and(|s|s.busy){
+  // A covered page can miss a worker reply. Observe even a cached busy snapshot;
+  // the adapter owns single-flight and network cadence, so this cannot duplicate actions.
+  if let Some(key)=target {if self.companion_at.is_none_or(|at|now.wrapping_sub(at)>=2000){
    self.companion_at=Some(now);fx.push(Fx::App(AppFx::Companion(crate::media_companion::Request{key,action:crate::media_companion::Action::Observe})));
   }}
  }

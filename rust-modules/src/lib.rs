@@ -16,6 +16,7 @@ pub(crate) mod audio_local;
 mod auth; // plex.tv login/boot flow controller (PIN/QR → discovery → who's-watching → install)
 mod browse; // Library browse: per-section paged catalog (sparse store + off-thread page fetches)
 mod capture; // dev live UI capture stream: own-GLES-frame grab → MPEG1/TS or JPEG → TCP (UI plane only)
+mod checkpoint; // the transport-neutral "may I keep waiting?" seam every blocking media wait consults
 mod cbuf; // fixed NUL-terminated C-string buffer read/write (shared by pms/route/posters)
 mod coldstart; // retires old last-page bookmarks; authenticated cold boots now stay on Home
 mod curlio; // the HTTPS media plane: a remote file pulled by byte range over libcurl-multi (stream.rs is the plaintext-socket twin)
@@ -71,6 +72,27 @@ mod system;
 mod task; // the one spawn: a refused thread is a return value, not a panic that kills the app
 mod telemetry; // the opt-in crash + usage channels: consent, the spool, the worker, the two wire formats
 mod viewstate; // watched / unwatched / remove-from-deck: the PMS view-state WRITES, off the SDL thread
+
+#[cfg(test)]
+pub(crate) mod testnet {
+    //! The one accept for a loopback test server whose listener is nonblocking.
+    //!
+    //! A fixture makes its listener nonblocking so the acceptor can poll a stop flag or a
+    //! deadline. Darwin hands the accepted socket the listener's O_NONBLOCK; Linux does not. A
+    //! reader that assumed blocking I/O then sees `WouldBlock` whenever a parallel suite accepts
+    //! before the request line is buffered, and a writer can drop a body on a full send buffer —
+    //! flakes that exist on the Mac only. Every such acceptor accepts through here, so the
+    //! connection behaves as on Linux and read/write timeouts mean what they say.
+
+    /// `listener.accept()`, with the accepted socket put back in blocking mode.
+    pub(crate) fn accept(
+        listener: &std::net::TcpListener,
+    ) -> std::io::Result<(std::net::TcpStream, std::net::SocketAddr)> {
+        let (socket, peer) = listener.accept()?;
+        socket.set_nonblocking(false)?;
+        Ok((socket, peer))
+    }
+}
 
 #[cfg(test)]
 pub(crate) mod testlock {
@@ -322,7 +344,7 @@ pub(crate) fn redact_tokens(m: &str) -> std::borrow::Cow<'_, str> {
 /// the simulator binary (which truncates it at startup), and `src/main.c` on the television — and
 /// the last of those cannot see this module, which is what [`paths::ENV_STEERABLE`] guarantees.
 fn events_log() -> std::path::PathBuf {
-    paths::in_runtime_dir("plxnative-events.log")
+    paths::in_runtime_dir(paths::runtime_file::EVENTS)
 }
 
 fn open_private_log_append(path: &std::path::Path) -> std::io::Result<std::fs::File> {
@@ -346,8 +368,23 @@ fn open_private_log_append(path: &std::path::Path) -> std::io::Result<std::fs::F
     Ok(file)
 }
 
+/// Append one complete record with one [`std::io::Write::write`] call. The event log has several
+/// independently opened `O_APPEND` descriptors; formatting the line and newline separately lets
+/// another thread append between them, gluing two otherwise valid records together.
+fn write_log_line(writer: &mut impl std::io::Write, line: &str) -> std::io::Result<()> {
+    let mut record = Vec::with_capacity(line.len() + 1);
+    record.extend_from_slice(line.as_bytes());
+    record.push(b'\n');
+    match writer.write(&record)? {
+        written if written == record.len() => Ok(()),
+        _ => Err(std::io::Error::new(
+            std::io::ErrorKind::WriteZero,
+            "partial event-log record",
+        )),
+    }
+}
+
 pub(crate) fn log(m: &str) {
-    use std::io::Write;
     // Through the instance root, not a literal: several host simulators run at once, and one
     // shared event log would interleave their lines into something no run can be graded from.
     // On the television the root is `/tmp`, so this is byte-for-byte the path it always was —
@@ -362,7 +399,7 @@ pub(crate) fn log(m: &str) {
     // A compile-time no-op without the `lab-diagnostics` feature — see `crate::lab`.
     lab::record(&line);
     if let Ok(mut f) = open_private_log_append(&p) {
-        let _ = writeln!(f, "{line}");
+        let _ = write_log_line(&mut f, &line);
     }
 }
 
@@ -460,7 +497,7 @@ mod redact_tests {
 
 #[cfg(test)]
 mod private_log_tests {
-    use super::open_private_log_append;
+    use super::{open_private_log_append, write_log_line};
     use std::io::Write;
     use std::os::unix::fs::{symlink, PermissionsExt};
 
@@ -490,6 +527,30 @@ mod private_log_tests {
         let _ = std::fs::remove_file(sink);
         let _ = std::fs::remove_file(victim);
         let _ = std::fs::remove_dir(dir);
+    }
+
+    #[test]
+    fn each_log_line_is_one_newline_terminated_write() {
+        #[derive(Default)]
+        struct Sink {
+            calls: usize,
+            bytes: Vec<u8>,
+        }
+        impl std::io::Write for Sink {
+            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+                self.calls += 1;
+                self.bytes.extend_from_slice(bytes);
+                Ok(bytes.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+
+        let mut sink = Sink::default();
+        write_log_line(&mut sink, "install: id=com.beb.plxnative.debug").unwrap();
+        assert_eq!(sink.calls, 1);
+        assert_eq!(sink.bytes, b"install: id=com.beb.plxnative.debug\n");
     }
 }
 

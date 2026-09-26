@@ -1,13 +1,13 @@
-//! serde response DTOs — only the fields the app consumes. Everything is
-//! `#[serde(default)]` to mirror the "all optional" reality of PMS JSON (a trimmed
-//! response never fails to deserialize). `kind` renames the JSON `type` field (a Rust
-//! keyword). These are read-only: the app's own view structs are populated *from* them.
+//! serde response DTOs — only the fields the app consumes. The top-level `MediaContainer` is
+//! required; fields inside it default to mirror the "all optional" reality of PMS JSON (a trimmed
+//! container does not fail to deserialize). `kind` renames the JSON `type` field (a Rust keyword).
+//! These are read-only: the app's own view structs are populated *from* them.
 use serde::Deserialize;
 
 /// `{ "MediaContainer": … }` — every list/detail response.
 #[derive(Deserialize, Default)]
 pub struct Envelope {
-    #[serde(rename = "MediaContainer", default)]
+    #[serde(rename = "MediaContainer")]
     pub media_container: MediaContainer,
 }
 
@@ -228,7 +228,8 @@ impl ShowLangPrefs {
         if a.is_none() && s.is_none() && m.is_none() {
             return None;
         }
-        let lang = |v: Option<&str>| v.filter(|v| !v.is_empty()).map(str::to_string);
+        // `""` and `"-1"` are both "Account default" — unset as far as this struct is concerned
+        let lang = |v: Option<&str>| v.filter(|v| !v.is_empty() && *v != "-1").map(str::to_string);
         Some(ShowLangPrefs {
             audio: lang(a),
             subtitle: lang(s),

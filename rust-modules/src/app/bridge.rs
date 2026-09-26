@@ -659,6 +659,22 @@ impl Bridge {
             Delivery::Screen(ScreenEvent::App(AppMsg::Library(command)))));
     }
 
+    /// The Library page's focused grid cell, `(row, col)`, if focus is on its grid.
+    pub(crate) fn library_grid_position(d: &Dispatcher<AppHost>) -> Option<(usize, usize)> {
+        let entry = d.nav.top_page()?;
+        let page = entry.inst.as_ref().and_then(|instance| instance.screen.as_any())
+            .and_then(|page| page.downcast_ref::<crate::screens::library::LibraryScreen>())?;
+        page.grid_position(d.input.engine.current(InputOwner::Entry(entry.id)))
+    }
+
+    /// The Library page's focused hub-shelf card, `(shelf, col)`, if focus is on a shelf.
+    pub(crate) fn library_shelf_position(d: &Dispatcher<AppHost>) -> Option<(usize, usize)> {
+        let entry = d.nav.top_page()?;
+        let page = entry.inst.as_ref().and_then(|instance| instance.screen.as_any())
+            .and_then(|page| page.downcast_ref::<crate::screens::library::LibraryScreen>())?;
+        page.shelf_position(d.input.engine.current(InputOwner::Entry(entry.id)))
+    }
+
     pub(crate) fn library_card_focused(d: &Dispatcher<AppHost>) -> bool {
         let Some(entry) = d.nav.top_page() else { return false };
         let Some(page) = entry.inst.as_ref().and_then(|instance| instance.screen.as_any())
@@ -825,7 +841,7 @@ impl Bridge {
         // Retain data-dependent boot intentions until the first catalog arrives. A command
         // is addressed only after the Home body exists; no UI state is mutated by this queue.
         while let Some(command) = self.home_commands.front().copied() {
-            if !ready && matches!(command, HomeCmd::FocusGrid { .. } | HomeCmd::SelectHero(_) | HomeCmd::Flip(_) | HomeCmd::ItemMenu) {
+            if !ready && matches!(command, HomeCmd::FocusGrid { .. } | HomeCmd::SelectHero(_) | HomeCmd::PinHero(_) | HomeCmd::Flip(_) | HomeCmd::ItemMenu) {
                 break;
             }
             self.home_commands.pop_front();
@@ -1303,7 +1319,13 @@ impl Rig<AppHost> for Bridge {
                 hubs: self.hubs.view(), listing: self.listing.view(), directory: self.directory.view(),
                 section_hubs: self.section_hubs.view(), search: self.search.view(), metadata: self.stores.metadata_view(), person: self.stores.person_view(), session: &self.playback,
             }, &self.measure);
-            return self.session.step(event, &cx, fx);
+            let handled = self.session.step(event, &cx, fx);
+            // #132: the owner logs nothing, and the Profiles screen cannot see a read-out that
+            // existed before it mounted — so the one step that ENTERED it is announced here.
+            if let Some(line) = crate::auth::owner::roster_readout_entered(&publication, &self.session.publication()) {
+                crate::log(&line);
+            }
+            return handled;
         }
         let store = match msg {
             AppMsg::Store(cmd) => cmd.store(),
@@ -1884,7 +1906,12 @@ fn frame_ingest(
     let report = d.frame_with(rig, tick, inputs, results, tap, false);
     d.prune(&report.unmounted);
     rig.sync_host(d);
-    if report.presented {
+    // On the simulator, a frame the video plane alone presented is not reported as damage: the
+    // loop's gate presents it on its own video-plane term anyway, and the report would keep the
+    // settled-capture clock (`ui::idle::last_change_ms`) from ever seeing a paused player at rest
+    // (`FrameReport::video_only`). The television keeps the unconditional report it always had.
+    let video_only = cfg!(feature = "hostsim") && report.video_only;
+    if report.presented && !video_only {
         // The dispatcher's gate wants a frame: the loop's gate presents it. While a surface is up
         // this bump is the PANEL's — `take_page_damage` subtracts the panel's claims BY COUNT, and
         // a page's own landings reach `ui::idle` from the pumps outside this frame (the poster
@@ -2360,6 +2387,11 @@ pub(crate) fn open_item_menu(d: &mut Dispatcher<AppHost>, arg: crate::screens::r
     d.request(MachineId::Nav, NavOp::Present(AppArg::ItemMenu(arg)));
 }
 
+/// Is a Library Sort/Filter/Sources menu up (any phase)?
+pub(crate) fn library_menu_up(d: &Dispatcher<AppHost>) -> bool {
+    surface_up(d, |a| matches!(a, AppArg::LibraryMenu(_)))
+}
+
 /// Is the item menu up (any phase)?
 pub(crate) fn item_menu_up(d: &Dispatcher<AppHost>) -> bool {
     surface_up(d, |a| matches!(a, AppArg::ItemMenu(_)))
@@ -2708,12 +2740,20 @@ pub(crate) fn open_detail(
     sid: crate::plex::ServerId, rk: &str, season: Option<std::os::raw::c_int>,
     ret: Option<ReturnState<u32, PageMemory>>,
 ) {
+    use crate::ui::screen::ScreenArg;
+    let arg = AppArg::Content(ContentArg::Detail { sid, rk: rk.to_string() });
+    // The page is already on its way (a second press inside the push's dip-out): the pending push
+    // is inert against its twin (`NavStack::is_inert`) and its prepared body has spent its seed,
+    // so a seed written now would only linger for some later, unseeded mount of this item. The
+    // player's `enter_player` answers the same question the same way.
+    if d.nav.tabs.stack.pending_dest().is_some_and(|pending| pending.same_instance(&arg)) {
+        return;
+    }
     let spot = crate::metadata::Spot {
         season: season.map(|s| s as i64),
         ..Default::default()
     };
     rig.seed_detail(sid, rk, spot);
-    let arg = AppArg::Content(ContentArg::Detail { sid, rk: rk.to_string() });
     match ret {
         Some(ret) => nav_push_with_return(d, arg, ret),
         None => nav_push(d, arg),

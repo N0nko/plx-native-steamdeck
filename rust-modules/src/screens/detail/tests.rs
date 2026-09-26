@@ -197,6 +197,37 @@ fn clear() {
     });
 }
 
+#[test]
+fn companion_busy_snapshot_is_reobserved_after_returning_to_detail() {
+    let sid = ServerId::default();
+    let part = "/library/parts/123/a/file.mkv";
+    let guard = install(Detail {
+        sid, rk: "42".into(), part: part.into(),
+        versions: vec![crate::metadata::MediaVersion {
+            part_count: 1,
+            source: crate::media_version::Candidate { part_key: part.into(), ..Default::default() },
+            ..Default::default()
+        }],
+        ..Default::default()
+    });
+    let mut screen = bare(&guard, sid, "42");
+    let key = crate::media_companion::Key::new(sid, "42", part).unwrap();
+    let mut snapshot = crate::media_companion::Snapshot::unavailable(key, "Checking");
+    snapshot.busy = true;
+    screen.companion = Some(snapshot);
+    screen.companion_profile = crate::plex::session::current_gen();
+    screen.companion_at = Some(0);
+    let (_, effects) = step(&mut screen, &ScreenEvent::Tick(crate::ui::machine::Tick {
+        ms: 2000, dt_us: 16_667,
+    }), None);
+    assert!(effects.iter().any(|e| matches!(&e.fx,
+        Fx::App(AppFx::Companion(crate::media_companion::Request {
+            action: crate::media_companion::Action::Observe, ..
+        }))
+    )), "a covered page must recover a busy snapshot even if its reply went to another page");
+    clear();
+}
+
 fn step(
     screen: &mut DetailScreen,
     event: &ScreenEvent<TestHost>,

@@ -269,15 +269,16 @@ pub(crate) struct PlaybackSession {
     stream_acodec: String,
     /// Direct-play source video frame rate (0 = unknown/transcode → omit from the Load esInfo).
     stream_fps: f64,
-    /// The direct-played file's own Dolby Vision layering, carried for one consumer: the Load
-    /// payload's `DolbyHdrInfo` node ([`crate::metadata::Dovi::presentation`]). Rides the session
-    /// exactly like `stream_fps` and for the same reason — an audio-track switch tears the engine
-    /// down and rebuilds the payload from here, and a payload that lost the node mid-film would
-    /// put the rest of the picture up in the wrong colours.
+    /// The direct-played file's raw Dolby Vision layering, retained for diagnostics. The Load
+    /// payload consumes `stream_dv_decision` below: re-evaluating this record after a late probe
+    /// would make a reload describe a different route from the one which passed the gate.
     ///
     /// `Dovi::NONE` on every transcode and remux: what arrives then is the server's output, and
     /// the only DV file that reaches those paths is one we refused to declare in the first place.
     stream_dovi: crate::metadata::Dovi,
+    /// Capability and presentation frozen when `stream_dovi` entered this physical route. An
+    /// audio switch, reload, Original recovery and rollback all copy this beside the raw record.
+    stream_dv_decision: crate::metadata::DvDecision,
     /// **Does the audio elementary stream we are feeding carry Dolby Atmos?** The Load payload's
     /// `contents.immersive` node turns on it ([`crate::player::engine`]).
     ///
@@ -326,6 +327,11 @@ pub(crate) struct PlaybackSession {
     /// This session is a hero preview. Skips watch-state writes and must not be repaired onto
     /// the player route.
     preview: bool,
+    /// This session was RESOLVED for a hero preview. Installed with `preview` by [`apply_plan`]
+    /// and, unlike it, never cleared by the preview machinery: `preview` tracks whether the
+    /// machine still owns the engine, this says what the session may write. See
+    /// [`preview_request`].
+    resolved_as_preview: bool,
 }
 
 impl PlaybackSession {
@@ -371,6 +377,7 @@ impl PlaybackSession {
         stream_acodec: String::new(),
         stream_fps: 0.0,
         stream_dovi: crate::metadata::Dovi::NONE,
+        stream_dv_decision: crate::metadata::DvDecision::NONE,
         stream_immersive: false,
         title: [0; 128],
         ctxline: [0; 96],
@@ -378,6 +385,7 @@ impl PlaybackSession {
         queue: Vec::new(),
         now_ms: 0,
         preview: false,
+        resolved_as_preview: false,
     };
 }
 
@@ -438,6 +446,7 @@ impl PlaybackSession {
             stream_acodec,
             stream_fps,
             stream_dovi,
+            stream_dv_decision,
             stream_immersive,
             title,
             ctxline,
@@ -445,6 +454,7 @@ impl PlaybackSession {
             now_ms,
             queue: _,
             preview: _,
+            resolved_as_preview,
         } = self;
         PlaybackSession {
             cur_version: *cur_version,
@@ -486,6 +496,7 @@ impl PlaybackSession {
             stream_acodec: stream_acodec.clone(),
             stream_fps: *stream_fps,
             stream_dovi: *stream_dovi,
+            stream_dv_decision: *stream_dv_decision,
             stream_immersive: *stream_immersive,
             title: *title,
             ctxline: *ctxline,
@@ -494,6 +505,7 @@ impl PlaybackSession {
             queue: Vec::new(),
             // A screen copy is not the live preview. The loop reads the real session.
             preview: false,
+            resolved_as_preview: *resolved_as_preview,
         }
     }
 }
@@ -699,6 +711,7 @@ struct AppliedRouteProjection {
     stream_acodec: String,
     stream_fps: f64,
     stream_dovi: crate::metadata::Dovi,
+    stream_dv_decision: crate::metadata::DvDecision,
     stream_immersive: bool,
 }
 
@@ -719,6 +732,7 @@ fn route_projection(ps: &PlaybackSession) -> AppliedRouteProjection {
         stream_acodec: s.stream_acodec.clone(),
         stream_fps: s.stream_fps,
         stream_dovi: s.stream_dovi,
+        stream_dv_decision: s.stream_dv_decision,
         stream_immersive: s.stream_immersive,
     }
 }
@@ -739,6 +753,7 @@ fn install_route_projection(ps: &mut PlaybackSession, projection: &AppliedRouteP
         s.stream_acodec = projection.stream_acodec.clone();
         s.stream_fps = projection.stream_fps;
         s.stream_dovi = projection.stream_dovi;
+        s.stream_dv_decision = projection.stream_dv_decision;
         s.stream_immersive = projection.stream_immersive;
     } };
 }
@@ -3025,6 +3040,7 @@ pub(crate) fn arm_auto_fixture(
             acodec: "aac".into(),
             fps: 0.0,
             dovi: crate::metadata::Dovi::NONE,
+            dv_decision: crate::metadata::DvDecision::NONE,
             immersive: false,
             audio_sid: 0,
             audio_ordinal: None,
@@ -3197,6 +3213,7 @@ fn install_auto_hls(
             s.stream_acodec.clone(),
             s.stream_fps,
             s.stream_dovi,
+            s.stream_dv_decision,
             s.stream_immersive,
         )
     };
@@ -3212,7 +3229,8 @@ fn install_auto_hls(
             s.stream_acodec = previous.7.clone();
             s.stream_fps = previous.8;
             s.stream_dovi = previous.9;
-            s.stream_immersive = previous.10;
+            s.stream_dv_decision = previous.10;
+            s.stream_immersive = previous.11;
         } };
     };
     { let s = &mut *ps; {
@@ -3228,7 +3246,7 @@ fn install_auto_hls(
         s.stream_vcodec = "h264".into();
         s.stream_acodec = "aac".into();
         s.stream_fps = 0.0;
-        s.stream_dovi = crate::metadata::Dovi::NONE;
+        clear_output_dv(s);
         s.stream_immersive = false;
     } };
     let finish = |ps: &mut PlaybackSession, url: String| {
@@ -3357,6 +3375,7 @@ pub(crate) fn recover_auto_to_original_for(
             s.stream_acodec = candidate.acodec.clone();
             s.stream_fps = candidate.fps;
             s.stream_dovi = candidate.dovi;
+            s.stream_dv_decision = candidate.dv_decision;
             s.stream_immersive = candidate.immersive;
         } };
         crate::player::set_audio_track(candidate.audio_ordinal.unwrap_or(-1));
@@ -3450,6 +3469,7 @@ struct PendingOriginal {
     stream_acodec: String,
     stream_fps: f64,
     stream_dovi: crate::metadata::Dovi,
+    stream_dv_decision: crate::metadata::DvDecision,
     stream_immersive: bool,
     /// A manual Original pick can adopt an automatic trial without issuing a second Load. The
     /// first decoded frame then transfers the applied contract to Manual and invalidates the
@@ -3517,6 +3537,7 @@ fn snapshot_route(ps: &PlaybackSession, encoder: String, offset_secs: i64) -> Pe
         stream_acodec: s.stream_acodec.clone(),
         stream_fps: s.stream_fps,
         stream_dovi: s.stream_dovi,
+        stream_dv_decision: s.stream_dv_decision,
         stream_immersive: s.stream_immersive,
         adopted_by_user: false,
         charge_visible_switch_on_commit: false,
@@ -3683,6 +3704,7 @@ pub(crate) fn rollback_original_recovery(ps: &mut PlaybackSession) -> Option<Ori
         s.stream_acodec = pending.stream_acodec.clone();
         s.stream_fps = pending.stream_fps;
         s.stream_dovi = pending.stream_dovi;
+        s.stream_dv_decision = pending.stream_dv_decision;
         s.stream_immersive = pending.stream_immersive;
     } };
     if let Some(rung) = restored_hls {
@@ -3920,6 +3942,27 @@ pub(crate) fn stream_dovi(ps: &PlaybackSession) -> crate::metadata::Dovi {
         crate::metadata::Dovi::NONE
     }
 }
+/// The capability and presentation frozen into this installed route. Unlike the raw DOVI metadata,
+/// this is the value the Load payload must consume without consulting the live capability cache.
+pub(crate) fn stream_dv_presentation(ps: &PlaybackSession) -> crate::metadata::DvPresentation {
+    if ps.stream_vcodec.eq_ignore_ascii_case("hevc") {
+        ps.stream_dv_decision.presentation
+    } else {
+        crate::metadata::DvPresentation::NotDv
+    }
+}
+
+pub(crate) fn stream_dv_decision(ps: &PlaybackSession) -> crate::metadata::DvDecision {
+    ps.stream_dv_decision
+}
+
+/// Server output (HLS encode, progressive encode or container remux) carries no client-frozen
+/// source declaration. Centralizing the paired reset prevents a future route mutation from
+/// clearing the raw metadata while leaving a stale `Declare` behind for Load.
+fn clear_output_dv(session: &mut PlaybackSession) {
+    session.stream_dovi = crate::metadata::Dovi::NONE;
+    session.stream_dv_decision = crate::metadata::DvDecision::NONE;
+}
 /// Is the audio being fed a Dolby Atmos stream? — the Load payload's `contents.immersive` node.
 /// See [`PlaybackSession::stream_immersive`].
 pub(crate) fn stream_immersive(ps: &PlaybackSession) -> bool {
@@ -4019,14 +4062,65 @@ pub(crate) fn set_stream_declaration(
     fps: f64,
     dovi: crate::metadata::Dovi,
     immersive: bool,
-) {
+) -> bool {
+    set_stream_declaration_with_capability(
+        ps,
+        vc,
+        ac,
+        fps,
+        dovi,
+        immersive,
+        crate::webos::caps::capability(),
+    )
+}
+
+fn set_stream_declaration_with_capability(
+    ps: &mut PlaybackSession,
+    vc: &str,
+    ac: &str,
+    fps: f64,
+    dovi: crate::metadata::Dovi,
+    immersive: bool,
+    capability: crate::webos::caps::DvCapability,
+) -> bool {
+    let decision = crate::metadata::DvDecision {
+        capability,
+        presentation: dovi.presentation(
+            !crate::metadata::dv_withheld(),
+            capability,
+            vc.eq_ignore_ascii_case("hevc"),
+        ),
+    };
+    if decision.presentation.refusal().is_some() {
+        crate::player::log(&format!(
+            "playurl: refusing Dolby Vision declaration capability={} presentation={}",
+            decision.capability.label(),
+            decision.presentation.label(),
+        ));
+        return false;
+    }
     { let s = &mut *ps; {
         s.stream_vcodec = vc.to_owned();
         s.stream_acodec = ac.to_owned();
         s.stream_fps = fps;
         s.stream_dovi = dovi;
+        s.stream_dv_decision = decision;
         s.stream_immersive = immersive;
     } }
+    true
+}
+
+#[cfg(test)]
+pub(crate) fn set_stream_declaration_for_test(
+    ps: &mut PlaybackSession,
+    vc: &str,
+    ac: &str,
+    fps: f64,
+    dovi: crate::metadata::Dovi,
+    immersive: bool,
+    capability: crate::webos::caps::DvCapability,
+) -> bool {
+    set_stream_declaration_with_capability(ps, vc, ac, fps, dovi, immersive, capability)
 }
 
 // (`set_source_codecs` stood here: a two-line setter for `src_vcodec`/`src_acodec` whose one
@@ -4168,7 +4262,7 @@ pub(crate) fn scrobble_stop(
     final_report: Option<(String, i64, i64)>,
     report_th: Option<std::thread::JoinHandle<()>>,
 ) {
-    if ps.preview {
+    if preview_request(ps) {
         return;
     }
     let (logical_session, pq, pqi) = (sess(ps), pq_id(ps), pq_item_id(ps));
@@ -4656,6 +4750,12 @@ pub(crate) fn quality() -> Quality {
 /// sessions: their missing field resolves to Original but remains missing until the user makes an
 /// explicit choice, so a future Auto-ready build still cannot reinterpret that old install.
 pub(crate) fn restore_quality(q: Quality) {
+    // `QUALITY` is a process global `quality()` reads without taking any lock, so a test that
+    // writes it without `testlock::serial()` lands the write mid some OTHER test's read —
+    // `on_deck_hevc_p5_preview_uses_the_selected_episodes_codec` flaked exactly this way. Same
+    // guard as the plex server registry (`plex::servers::register_with_client_id`).
+    #[cfg(test)]
+    crate::testlock::assert_held("the playback quality ceiling (restore_quality)");
     QUALITY.store(supported_quality(q).index(), Ordering::Relaxed);
 }
 
@@ -4683,6 +4783,9 @@ pub(crate) fn restore_quality(q: Quality) {
 fn persist_quality_choice(q: Quality) -> Quality {
     let q = supported_quality(q);
     crate::player::report::note_quality_selected_for(playback_trace_generation(), q);
+    // See `restore_quality`: the same process global, the same lock requirement in tests.
+    #[cfg(test)]
+    crate::testlock::assert_held("the playback quality ceiling (persist_quality_choice)");
     QUALITY.store(q.index(), Ordering::Relaxed);
     // A session write is a read-modify-write under the session lock: changing this preference
     // must not overwrite a roster refresh, a profile switch, or another profile's recents.
@@ -5214,11 +5317,20 @@ impl ResolveEnv {
             src_kbps: resolve_src_kbps(meta.current(), sid, rk),
             omit_queue_continuous: false,
             preview: false,
+            #[cfg(test)]
+            dv_capability: None,
         }
     }
 }
 
 pub(crate) fn playback_preview(d: &crate::metadata::Detail) -> Option<Preview> {
+    playback_preview_with_capability(d, None)
+}
+
+fn playback_preview_with_capability(
+    d: &crate::metadata::Detail,
+    capability: Option<crate::webos::caps::DvCapability>,
+) -> Option<Preview> {
     // A SHOW's container carries no file of its own, so the page answers for the episode its Play
     // button would start — the one the hero is already about. Its frame size and audio list are
     // the show Detail's, which `fetch_item_streams` backfilled from that same episode.
@@ -5226,12 +5338,20 @@ pub(crate) fn playback_preview(d: &crate::metadata::Detail) -> Option<Preview> {
         Some(ep) => (ep.part.as_str(), ep.vcodec.as_str()),
         None => (d.part.as_str(), d.vcodec.as_str()),
     };
+    let presentation = match capability {
+        Some(capability) => d.dovi.presentation(
+            !crate::metadata::dv_withheld(),
+            capability,
+            vcodec.eq_ignore_ascii_case("hevc"),
+        ),
+        None => d.dovi.presentation_now(vcodec.eq_ignore_ascii_case("hevc")),
+    };
     let p = playback_preview_of(
         part,
         vcodec,
         d.width,
         d.height,
-        d.dovi.presentation_now(),
+        presentation,
         &d.audio,
     )?;
     // The user's quality ceiling is the LAST gate `build_stream` applies, so it is the last one
@@ -5252,6 +5372,14 @@ pub(crate) fn playback_preview(d: &crate::metadata::Detail) -> Option<Preview> {
         Preview::Remux if !policy.remux => Preview::Converts,
         _ => p,
     })
+}
+
+#[cfg(test)]
+pub(crate) fn playback_preview_with_capability_for_test(
+    d: &crate::metadata::Detail,
+    capability: crate::webos::caps::DvCapability,
+) -> Option<Preview> {
+    playback_preview_with_capability(d, Some(capability))
 }
 
 static PLAY_GEN: AtomicU32 = AtomicU32::new(0);
@@ -5319,6 +5447,19 @@ pub(crate) fn is_preview(ps: &PlaybackSession) -> bool {
 
 pub(crate) fn clear_preview(ps: &mut PlaybackSession) {
     ps.preview = false;
+}
+
+/// Was the installed session resolved for a hero preview? Unlike [`is_preview`], which the
+/// preview machinery clears as it retires the session, this is fixed at landing and only the next
+/// landing replaces it — so no teardown bookkeeping can turn a trailer into a playback.
+///
+/// **The one gate on every account write a session makes**: the timeline lease
+/// ([`begin_timeline_reporting`]) and the stop scrobble ([`scrobble_stop`]) both ask it, as do the
+/// pump's failure arms before any Original→HLS rescue. Read from the INSTALLED session rather
+/// than from `request`: a preview requested while a film's engine is still live replaces
+/// `request` at the press, and that film's final stop must still be reported.
+pub(crate) fn preview_request(ps: &PlaybackSession) -> bool {
+    ps.preview || ps.resolved_as_preview
 }
 
 /// Attach the UI's resume point to the resolve currently in flight.
@@ -5777,7 +5918,7 @@ pub(crate) fn pump_play(ps: &mut PlaybackSession, meta: &mut crate::stores::meta
     // Warm the next episode's still NOW rather than at first draw. The URL has been known since
     // this plan resolved — tens of minutes before the credits — and the fetch is async, so touching
     // it here costs nothing and spares the control a skeleton for one image-transcode round trip at
-    // exactly the moment it appears in front of the user. `warm_tex`, not `resolve_tex`: this wants
+    // exactly the moment it appears in front of the user. `warm_tex`, not `resolve_tex_wh_on`: this wants
     // the fetch and nothing else, and a slot warmed tens of minutes early must NOT be carrying the
     // evict-protection a draw takes (see `ui::tex::warm_on`). At the tile's OWN 480×270 —
     // `(server, path, w, h, png)` IS the store key, so a warm at any other size buys nothing.
@@ -5914,6 +6055,7 @@ fn apply_plan(ps: &mut PlaybackSession, meta: &mut crate::stores::metadata::Meta
             stream_acodec,
             stream_fps: plan.fps,
             stream_dovi: plan.dovi,
+            stream_dv_decision: plan.dv_decision,
             stream_immersive: plan.immersive,
             title,
             ctxline,
@@ -5923,6 +6065,7 @@ fn apply_plan(ps: &mut PlaybackSession, meta: &mut crate::stores::metadata::Meta
             // contents and must not rewind the stamp `Player::set_now` wrote this iteration.
             now_ms,
             preview,
+            resolved_as_preview: preview,
         };
     } };
     if let (crate::plex::TranscodeDelivery::FixedHls { .. }, Some(rung)) = (
@@ -6041,7 +6184,7 @@ fn prepare_original_remux(
         s.stream_vcodec = output_codecs.0.clone();
         s.stream_acodec = output_codecs.1.clone();
         s.stream_fps = 0.0;
-        s.stream_dovi = crate::metadata::Dovi::NONE;
+        clear_output_dv(s);
         s.stream_immersive = false;
     } };
     crate::player::log(&format!(
@@ -6167,7 +6310,7 @@ fn retranscode_as(ps: &mut PlaybackSession, expected: &WorkerTicket, offset_secs
         s.stream_vcodec = output_codecs.0.clone();
         s.stream_acodec = output_codecs.1.clone();
         s.stream_fps = 0.0;
-        s.stream_dovi = crate::metadata::Dovi::NONE;
+        clear_output_dv(s);
         s.stream_immersive = false;
     } };
     crate::player::log(&format!(
@@ -6303,6 +6446,10 @@ pub(crate) fn commit_subtitle_selection(ps: &mut PlaybackSession, sub_idx: i32, 
 /// remains in `PlayerControl`, so a later in-place ABR commit changes the wire session and this
 /// projection under one lock without touching main-thread-only `Session`.
 pub(crate) fn begin_timeline_reporting(ps: &PlaybackSession) -> Option<TimelineLease> {
+    // A trailer never writes watch state, whatever became of its preview flag.
+    if preview_request(ps) {
+        return None;
+    }
     let projection = TimelineProjection {
         sid: cur_sid(ps),
         rating_key: cur_rk(ps),

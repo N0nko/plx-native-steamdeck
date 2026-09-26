@@ -337,7 +337,7 @@
   {
     "group": "2-search-discover",
     "id": "filter-roundtrip",
-    "title": "Repeated results \u2192 filters \u2192 results navigation without a focus trap"
+    "title": "Repeated results → filters → results navigation without a focus trap"
   },
   {
     "group": "3-playback-details-watchlist",
@@ -413,5 +413,15 @@
     "group": "1-home-movies-tv",
     "id": "library-rail-hygiene",
     "title": "No Recently Watched or single-title actor/director shelves; Continue Watching and collections preserved; sparse genre/top-movie recommendations"
+  },
+  {
+    "group": "3-playback-details-watchlist",
+    "id": "next-episode-hud",
+    "title": "Compact next episode control before credits"
+  },
+  {
+    "group": "3-playback-details-watchlist",
+    "id": "next-episode-handoff",
+    "title": "Next episode saves outgoing progress and starts queued successor"
   }
 ]

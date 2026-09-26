@@ -532,14 +532,18 @@ fn finish_preview_open_failure(
     ps: &mut crate::route::PlaybackSession,
     pa: &mut super::adapter::PlayerAdapter,
 ) {
+    // Already retired, and its Load has not returned yet: `preview::after_pump` finishes it.
+    // The failure flag stays set until then, so this arm is reached every frame in between.
+    if crate::player::preview::abandoning() {
+        return;
+    }
     let seam_absent = cfg!(feature = "hostsim") && !crate::dev::flag("clocksink");
-    super::engine::stop_bufferfeed(ps, pa);
     if seam_absent {
         crate::player::preview::note_admission_refused();
     } else {
         crate::player::preview::note_failed(601);
     }
-    crate::route::clear_preview(ps);
+    crate::player::preview::retire(ps, pa, "open failed");
 }
 
 /// Recover either kind of failed Original open and return the reload position in nanoseconds.
@@ -657,7 +661,7 @@ pub(crate) fn pump(ps: &mut crate::route::PlaybackSession, pa: &mut super::adapt
             crate::audio_local::failed();
             crate::route::note_local_audio_failure(ps);
         }
-        if crate::route::is_preview(ps) {
+        if crate::route::preview_request(ps) {
             finish_preview_open_failure(ps, pa);
             return;
         }
@@ -715,7 +719,7 @@ pub(crate) fn pump(ps: &mut crate::route::PlaybackSession, pa: &mut super::adapt
     // flag. Acquire is the matching hand-off; `error_now` can then report the transaction cause
     // instead of racing it into the generic producer bucket.
     if SHARED.demux_io_failed.load(Acquire) {
-        if crate::route::is_preview(ps) {
+        if crate::route::preview_request(ps) {
             finish_preview_open_failure(ps, pa);
             return;
         }
@@ -732,7 +736,7 @@ pub(crate) fn pump(ps: &mut crate::route::PlaybackSession, pa: &mut super::adapt
         return;
     }
     if SHARED.demux_failed.load(Acquire) && SHARED.frames.load(Relaxed) == 0 {
-        if crate::route::is_preview(ps) {
+        if crate::route::preview_request(ps) {
             finish_preview_open_failure(ps, pa);
             return;
         }
