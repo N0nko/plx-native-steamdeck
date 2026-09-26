@@ -1226,6 +1226,7 @@ pub(crate) unsafe fn construct(
         bridge,
         // Every dev-trigger arm's own state (spec: `dev/scenarios.rs`'s module doc).
         scenarios: crate::dev::scenarios::Scenarios {
+            subtitle_search_tried: false,
             pick_user,
             home_osc_last,
             hero_osc_last,

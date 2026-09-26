@@ -584,6 +584,11 @@ impl Client {
         self.body_2xx_bulk(path_no_token, &[])
     }
 
+    /// Small on-demand subtitle catalog: JSON and the ordinary bounded control timeout.
+    pub(super) fn subtitle_json(&self, path: &str) -> Option<Vec<u8>> {
+        self.body_2xx(path, Method::Get, &[ACCEPT_JSON])
+    }
+
     /// A size-bounded body on either transport, with a finite stalled-transfer timeout.
     pub(super) fn get_sidecar_bytes(&self, path_no_token: &str) -> Option<Vec<u8>> {
         if !self.may_send() { return None; }

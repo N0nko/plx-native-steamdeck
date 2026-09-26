@@ -461,6 +461,7 @@ pub(crate) fn commit_track(
 ) {
     use crate::ui::track_menu::TrackCommit;
     match commit {
+        TrackCommit::FindSubtitles => {}, // navigation is handled by player_requests below
         TrackCommit::Audio { ordinal, codec, stream_id } =>
             crate::route::commit_audio_selection(ps, ordinal, &codec, stream_id),
         TrackCommit::Subtitle { render_ordinal, stream_id, sidecar_key } => {
@@ -495,6 +496,12 @@ pub(crate) fn player_requests(
     use crate::screens::registry::PlayerReq;
     for req in reqs {
         match req {
+            PlayerReq::FindSubtitles(arg) => {
+                pages.nav.next_style = if arg.playing { crate::ui::containers::modal::Style::PlayerPanel { survives_failure: false } }
+                    else { crate::ui::containers::modal::Style::Alert };
+                pages.request(crate::ui::machine::MachineId::Nav,
+                    crate::ui::machine::NavOp::Present(crate::screens::registry::AppArg::Subtitles(arg)));
+            }
             PlayerReq::RepairSandbox => {
                 if ps.jail_load_blocked {
                     pa.repair_sandbox(repair, crate::webos::jail_blocks_native_video());
@@ -530,6 +537,16 @@ pub(crate) fn player_requests(
             // `repause_at` is an `App` field, which is exactly why this is a request.
             PlayerReq::CommitSeek(ns) => commit_seek(ns, repause_at),
             PlayerReq::More(action) => apply_more_action(ps, pa, bridge, action),
+            PlayerReq::CommitTrack(crate::ui::track_menu::TrackCommit::FindSubtitles) => {
+                if let Some(item) = bridge.metadata_view().playing() {
+                    if let Some(version) = &item.version {
+                        pages.nav.next_style = crate::ui::containers::modal::Style::PlayerPanel { survives_failure: false };
+                        pages.request(crate::ui::machine::MachineId::Nav, crate::ui::machine::NavOp::Present(
+                            crate::screens::registry::AppArg::Subtitles(crate::screens::registry::SubtitleArg {
+                                sid:item.sid, rk:item.rk.clone(), part:version.source.part_key.clone(), playing:true })));
+                    }
+                }
+            }
             PlayerReq::CommitTrack(commit) => commit_track(ps, commit),
             PlayerReq::ArmInfoPress => {
                 press.begin_ctl(now);

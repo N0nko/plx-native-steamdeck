@@ -423,5 +423,30 @@
     "group": "3-playback-details-watchlist",
     "id": "next-episode-handoff",
     "title": "Next episode saves outgoing progress and starts queued successor"
+  },
+{
+    "id": "subtitle-download-entry",
+    "group": "3-playback-details-watchlist",
+    "title": "Download subtitle picker from selected version and playback menu"
+  },
+  {
+    "id": "subtitle-search-language",
+    "group": "3-playback-details-watchlist",
+    "title": "Language selection including English and Lithuanian"
+  },
+  {
+    "id": "subtitle-search-results",
+    "group": "3-playback-details-watchlist",
+    "title": "Provider results, no matches and retryable errors"
+  },
+  {
+    "id": "subtitle-search-back",
+    "group": "3-playback-details-watchlist",
+    "title": "Back closes search without affecting playback or starting a download"
+  },
+  {
+    "id": "subtitle-download-playback",
+    "group": "3-playback-details-watchlist",
+    "title": "Explicit download, delayed attachment, selected file, direct-play captions and seeking — requires playback verification"
   }
 ]

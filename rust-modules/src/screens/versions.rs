@@ -280,7 +280,7 @@ impl VersionsScreen {
                 .map_or(0, |r| r.audio.len() + r.subs.len())
     }
     fn row_count(&self) -> usize {
-        self.companion_offset() + if self.target().is_some() { 2 } else { 0 }
+        self.companion_offset() + if self.target().is_some() { 3 } else { 0 }
     }
     fn sync_choice(&mut self, meta: crate::metadata::MetadataView<'_>) -> bool {
         let next = self
@@ -433,6 +433,9 @@ impl VersionsScreen {
                     ),
             );
         }
+        if self.target().is_some() {
+            sections.push(Section::new("More subtitles").row(Row::new("Download subtitles…")));
+        }
         self.table.compact = false;
         let max = self.row_count().saturating_sub(1) as i32;
         self.table
@@ -486,6 +489,13 @@ impl VersionsScreen {
     /// are exact-Part scoped, and are re-authorized by the resource adapter's fresh observation.
     fn commit<H: AppLike>(&mut self, elem: u32, fx: &mut Effects<'_, H>) {
         if !self.active {
+            return;
+        }
+        if elem as usize == self.companion_offset() + 2 {
+            if let Some(row) = self.selected_row() {
+                fx.push(Fx::App(AppFx::Player(crate::screens::registry::PlayerReq::FindSubtitles(
+                    crate::screens::registry::SubtitleArg { sid:row.sid, rk:row.rk.clone(), part:row.part.clone(), playing:false }))));
+            }
             return;
         }
         if (elem as usize) < self.rows.len() {

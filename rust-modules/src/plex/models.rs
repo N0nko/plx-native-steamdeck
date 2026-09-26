@@ -410,6 +410,8 @@ impl Metadata {
 
 #[derive(Deserialize, Default)]
 pub struct Media {
+    #[serde(default, deserialize_with = "de_i64")]
+    pub id: i64,
     #[serde(rename = "videoCodec", default)]
     pub video_codec: String,
     #[serde(rename = "audioCodec", default)]

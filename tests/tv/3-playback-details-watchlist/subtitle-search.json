@@ -1,0 +1,133 @@
+{
+  "group": "3-playback-details-watchlist",
+  "steps": [
+    {
+      "before": "(?:(?:search|detail)/)?versions",
+      "covers": [
+        "subtitle-download-entry"
+      ],
+      "name": "01-download-subtitles",
+      "settle": 2,
+      "keys": [
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "DOWN",
+        "OK"
+      ],
+      "after": ".*subtitle_search"
+    },
+    {
+      "name": "02-lithuanian-language",
+      "covers": [
+        "subtitle-search-language"
+      ],
+      "before": ".*subtitle_search",
+      "after": ".*subtitle_search",
+      "keys": [
+        "OK"
+      ]
+    },
+    {
+      "before": ".*subtitle_search",
+      "covers": [
+        "subtitle-search-results"
+      ],
+      "name": "03-search-results",
+      "settle": 12,
+      "keys": [
+        "DOWN",
+        "OK"
+      ],
+      "after": ".*subtitle_search"
+    },
+    {
+      "name": "04-back-to-versions",
+      "covers": [
+        "subtitle-search-back"
+      ],
+      "before": ".*subtitle_search",
+      "after": "(?:(?:search|detail)/)?versions",
+      "keys": [
+        "BACK"
+      ]
+    }
+  ],
+  "description": "Start in Play Version. Navigation/search only: never auto-selects a provider result or starts playback."
+}

@@ -137,9 +137,24 @@ fn single_version_still_exposes_the_companion_section() {
     let owner = owner(vec![version(11, 0)]);
     let p = panel(&owner);
     assert_eq!(p.rows.len(), 1);
-    assert_eq!(p.row_count(), 5);
-    assert_eq!(p.table.sections.len(), 3);
+    assert_eq!(p.row_count(), 6);
+    assert_eq!(p.table.sections.len(), 4);
     assert!(p.companion.is_none());
+}
+
+#[test]
+fn subtitle_search_uses_the_highlighted_file_without_starting_playback() {
+    let _guard = crate::testlock::serial();
+    let owner = owner(vec![version(11, 0), version(22, 1)]);
+    let mut p = panel(&owner);
+    run(&mut p, &owner, ScreenEvent::Mount);
+    p.focus_row(1);
+    let row = p.companion_offset() as u32 + 2;
+    let events = run(&mut p, &owner, ScreenEvent::Activate(row));
+    assert!(events.iter().any(|event| matches!(&event.fx,
+        Fx::App(AppFx::Player(crate::screens::registry::PlayerReq::FindSubtitles(arg)))
+            if arg.sid == sid() && arg.rk == "42" && arg.part == "/library/parts/22/stamp/file.mkv" && !arg.playing)));
+    assert!(p.active);
 }
 #[test]
 fn activating_a_version_reports_the_exact_host_server_item_and_part_once() {

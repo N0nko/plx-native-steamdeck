@@ -2483,6 +2483,7 @@ pub(crate) unsafe fn report(app: &mut App, fr: &mut Frame) {
                 | AppArg::AltSources(_)
             | AppArg::CatalogDetails(_)
             | AppArg::Versions(_)
+            | AppArg::Subtitles(_)
                 | AppArg::TracksPanel(_)
                 | AppArg::AboutPanel
                 | AppArg::PersonBio => crate::focusprobe::Screen::Home,
@@ -2881,6 +2882,7 @@ mod lifecycle_regression_tests {
             t0: Default::default(),
             instr: crate::diag::heartbeat::Instruments::new(false, 22.0),
             scenarios: crate::dev::scenarios::Scenarios {
+                subtitle_search_tried: false,
                 pick_user: Default::default(),
                 home_osc_last: Default::default(),
                 hero_osc_last: Default::default(),

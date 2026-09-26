@@ -32,6 +32,7 @@ use crate::ui::machine::{
     Canon, Chrome, Cx, Effects, EntryId, Host, InstanceId, LogicalState, ScreenId,
 };
 use crate::ui::screen::{Mounter, ReturnState, Screen};
+pub(crate) use crate::screens::subtitles::SubtitleArg;
 
 /// The application's effects (spec §3.1). `Store` since phase 4; `Consent` and `Loop` since 5b.
 pub(crate) enum AppFx {
@@ -109,6 +110,7 @@ pub(crate) struct ItemMenuReq {
 /// So the panel decides and the loop performs, exactly as `LibraryReq` does for the Library.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum PlayerReq {
+    FindSubtitles(SubtitleArg),
     /// Accepted only after the owned player confirmation. Never emitted by boot or Play.
     RepairSandbox,
     /// A transport key FELL THROUGH the panel (§ `overlay_transport_key_tests`): a viewer holding
@@ -1318,6 +1320,7 @@ mod tests {
 /// `decision-alert`, `settings-*`) never press.
 #[derive(Clone, PartialEq, Eq)]
 pub(crate) enum AppArg {
+    Subtitles(SubtitleArg),
     LibraryMenu(LibraryMenuArg),
     /// The profile menu (`screens::account_menu`), presented on the shared `ModalStack` over
     /// whichever bar-wearing page the chip was pressed on. **It carries nothing**, and that is the
@@ -1393,7 +1396,7 @@ pub(crate) enum AppArg {
 pub(crate) const ARG_SHAPE: &str = "AppArg{Login,Profiles,Onboard,Home,Library,Search,Player,Content:{Detail{sid:u32,rk:str},Person{sid:u32,key:str,guid:str,name:str,thumb:str},Filmography{sid:u32,key:str}},Settings:SettingsPage{Root,Favourites,Privacy,Legal,About,Document(u8),Preview(u8),ConsentStage(u8)},FirstRunConsent(u8),LibraryMenu{host:u32,target:{epoch:u32,sid:u32,section:u64},kind:u32,anchor:[u32;4]},\
      PlayerOverlay{Tracks(tab:i32),Info,Chapters,More(quality:bool)},\
      AltSources{host:u32,sid:u32,rk:str,anchor:[u32;4]},\
-     Versions{host:u32,sid:u32,rk:str,anchor:[u32;4]},CatalogDetails{catalog_id:str,title:str,person:str,department:str,role:str,year:i32},TracksPanel{page:i32},AboutPanel,PersonBio,AccountMenu,\
+     Versions{host:u32,sid:u32,rk:str,anchor:[u32;4]},Subtitles{sid:u32,rk:str,part:str,playing:bool},CatalogDetails{catalog_id:str,title:str,person:str,department:str,role:str,year:i32},TracksPanel{page:i32},AboutPanel,PersonBio,AccountMenu,\
      ItemMenu{sid:u32,rk:str,kind:{Card{from_deck:bool,type:u32},Episode{mark:u32},Season{mark:u32}},\
      host:u32,focus:Option<{entry:u32,elem:u32}>,anchor:[u32;4],loaded_episode:bool,from_home:bool}}";
 
@@ -1404,6 +1407,7 @@ impl LogicalState for AppArg {
             Self::PlayerOverlay(arg) => { c.u32(5); arg.write(c); }
             Self::AltSources(arg) => { c.u32(6); arg.write(c); }
             Self::Versions(arg) => { c.u32(12); arg.write(c); }
+            Self::Subtitles(arg) => { c.u32(14); arg.write(c); }
             Self::CatalogDetails(arg) => { c.u32(13); arg.write(c); }
             Self::TracksPanel(arg) => { c.u32(7); arg.write(c); }
             // 10, after the two menus' 8 and 9: a canon tag is a surface's identity in a recorded
@@ -1459,6 +1463,7 @@ impl crate::ui::screen::ScreenArg for AppArg {
             | AppArg::AltSources(_)
             | AppArg::CatalogDetails(_)
             | AppArg::Versions(_)
+            | AppArg::Subtitles(_)
             | AppArg::TracksPanel(_)
             | AppArg::AboutPanel
             | AppArg::PersonBio => Chrome::None,
@@ -1473,6 +1478,7 @@ impl crate::ui::screen::ScreenArg for AppArg {
             AppArg::PlayerOverlay(_) => 16,
             AppArg::AltSources(_) => 17,
             AppArg::Versions(_) => 23,
+            AppArg::Subtitles(_) => 25,
             AppArg::CatalogDetails(_) => 24,
             AppArg::TracksPanel(_) => 18,
             // 21, not a vacated id: allocated forward, so a retired identity is never handed to
@@ -1616,6 +1622,7 @@ where
             AppArg::Versions(arg) => Box::new(
                 crate::screens::versions::VersionsScreen::new(entry, arg.clone(), H::metadata(cx)),
             ),
+            AppArg::Subtitles(arg) => Box::new(crate::screens::subtitles::SubtitleScreen::new(entry, arg.clone())),
             AppArg::TracksPanel(arg) => Box::new(
                 crate::screens::tracks_panel::TracksPanelScreen::new(entry, *arg),
             ),
@@ -1786,6 +1793,10 @@ pub(crate) fn every_surface_arg() -> Vec<AppArg> {
             host: crate::ui::machine::InstanceId(1), sid: crate::plex::ServerId::UNSET,
             rk: "1".into(), anchor: [0; 4],
         }),
+        AppArg::Subtitles(SubtitleArg {
+            sid: crate::plex::ServerId::UNSET, rk: "42".into(),
+            part: "/library/parts/7/file.mkv".into(), playing: false,
+        }),
         AppArg::CatalogDetails(CatalogDetailsArg {
             catalog_id: "catalog-1".into(), title: "Catalog credit".into(), person: "Performer".into(),
             department: "Acting".into(), role: String::new(), year: 2020,
@@ -1816,6 +1827,7 @@ pub(crate) fn every_surface_arg() -> Vec<AppArg> {
             | AppArg::PlayerOverlay(_)
             | AppArg::Settings(_)
             | AppArg::FirstRunConsent(_) => {}
+            AppArg::Subtitles(_) => {}
             // The eight PAGE variants. Named rather than swept into a `_`, so the exhaustiveness
             // above is real and a new SURFACE variant cannot land in a catch-all.
             AppArg::Login
@@ -1879,6 +1891,7 @@ pub(crate) const SCREEN_SHAPES: &[&str] = &[
     crate::screens::person_bio::SHAPE,
     crate::screens::versions::SHAPE[0],
     crate::screens::versions::SHAPE[1],
+    crate::screens::subtitles::SHAPE,
     crate::screens::catalog_details::SHAPE,
 ];
 
@@ -1951,8 +1964,8 @@ pub(crate) const SCREEN_SHAPES: &[&str] = &[
 /// Owned catalog/discovery/keyboard state changes the shape. Old replay fixtures must be
 /// re-recorded; this pin is measured by the integration's Rust schema regression test.
 #[cfg(test)]
-// Discovery now hashes retained context branches and their two-second dwell state.
-const SCREEN_SHAPES_PIN: u64 = 0xb73741e06a1fc78b;
+// On-demand subtitle search adds an exact-Part argument and owned result/pending state.
+const SCREEN_SHAPES_PIN: u64 = 0x23412ed21c4b9dab;
 
 #[cfg(test)]
 mod arg_tests {

@@ -124,6 +124,7 @@ pub(crate) struct Scenarios {
     pub(crate) play_await: Option<(crate::plex::ServerId, String, u32)>,
     pub(crate) menu_tried: bool,
     pub(crate) menupick_tried: bool,
+    pub(crate) subtitle_search_tried: bool,
     /// dev: the row `/tmp/plxnative-menupick` still owes the track menu — see `App.menupick_row`'s
     /// old doc: the panel opens and is picked on separate frames, so the pick is carried here until
     /// the surface it names exists.
@@ -1406,6 +1407,18 @@ pub(crate) unsafe fn each_frame(app: &mut App, fr: &mut Frame) -> bool {
     autopause_arm(app, fr);
     menu_arm(app, fr);
     menupick_arm(app, fr);
+    if !app.scenarios.subtitle_search_tried && fr.now.wrapping_sub(app.t0) > 1500 {
+        app.scenarios.subtitle_search_tried = true;
+        if crate::dev::flag("subtitle-search") {
+            let arg = app.bridge.metadata_view().current().map(|d| crate::screens::registry::SubtitleArg {
+                sid:d.sid, rk:d.rk.clone(), part:d.part.clone(), playing:false,
+            }).unwrap_or(crate::screens::registry::SubtitleArg {
+                sid:crate::plex::ServerId::UNSET, rk:"42".into(), part:"/library/parts/7/file.mkv".into(), playing:false,
+            });
+            app.pages.nav.next_style = crate::ui::containers::modal::Style::Alert;
+            app.pages.request(crate::ui::machine::MachineId::Nav, crate::ui::machine::NavOp::Present(AppArg::Subtitles(arg)));
+        }
+    }
     marker_arm(app, fr);
     if crate::app::bridge::player(&app.pages).is_some() {
         failure_fixture(&mut app.player.session);

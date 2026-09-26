@@ -517,6 +517,20 @@
       }
     },
     {
+      "name": "subtitle-search-panel",
+      "tier": "ui",
+      "route": "home",
+      "overlay": "subtitle_search",
+      "loop_floor": 30,
+      "run_secs": 8,
+      "warmup_s": 4,
+      "comment": "Synthetic subtitle results: inspect compact panel, release labels, language navigation and Back. Never selects a provider result or downloads household subtitles.",
+      "triggers": {
+        "plxnative-subtitle-search": true,
+        "plxnative-subtitle-results-fixture": true
+      }
+    },
+    {
       "name": "page-panel",
       "tier": "ui",
       "route": "detail",

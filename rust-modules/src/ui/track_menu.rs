@@ -51,6 +51,7 @@ pub(crate) struct TrackMenuState {
 /// panel cannot distinguish from "unchanged" without knowing what the renderer currently has).
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum TrackCommit {
+    FindSubtitles,
     Audio { ordinal: c_int, codec: String, stream_id: i64 },
     /// `sidecar_key` is `Some` when the pick is an EXTERNAL text subtitle the client can draw
     /// on direct play (`metadata::Stream::sidecar_renderable`): it has no demuxer ordinal
@@ -128,7 +129,7 @@ impl TrackMenuState {
         if tab == 0 {
             n_audio(meta)
         } else {
-            visible_subs(ps, meta).len() as c_int + 1 + SubtitleTone::LADDER.len() as c_int
+            visible_subs(ps, meta).len() as c_int + 2 + SubtitleTone::LADDER.len() as c_int
         }
     }
     /// the table row that should be focused when entering `tab` (its active selection)
@@ -231,6 +232,8 @@ impl TrackMenuState {
             // a row of the Color section: no track changes, so no `TrackCommit::Subtitle` — that
             // one always republishes, and re-committing the track would re-burn a transcode
             Some(TrackCommit::SubtitleTone(tone))
+        } else if self.tone_base.is_some_and(|base| sel == base + SubtitleTone::LADDER.len() as i32) {
+            Some(TrackCommit::FindSubtitles)
         } else {
             // row 0 = Off = -1; else map the visible row back to its subs-list index
             let vis = visible_subs(ps, meta);
@@ -369,12 +372,13 @@ impl TrackMenuState {
             self.tone_base = None;
             self.table.set_sections(vec![self.build_audio(meta)], sel, slide);
         } else {
-            // TWO sections, and `TableView::sel` is one flat index over both (`more_menu`'s
-            // contract): the tones start where the track rows end.
+            // Selection is flat across tracks, colors and downloads. The colors start
+            // where the track rows end.
             let subs = self.build_subs(ps, meta);
             let tones = self.build_tones();
-            self.table.set_sections(vec![subs, tones], sel, slide);
-            self.tone_base = Some(self.table.n_rows() - SubtitleTone::LADDER.len() as c_int);
+            self.tone_base = Some(visible_subs(ps, meta).len() as i32 + 1);
+            self.table.set_sections(vec![subs, tones,
+                Section::new("More subtitles").row(Row::new("Download subtitles…"))], sel, slide);
         }
     }
 
@@ -826,6 +830,8 @@ mod tests {
             menu.on_ok(&ps, store.view()),
             Some(TrackCommit::SubtitleTone(SubtitleTone::LADDER[0]))
         );
+        menu.focus_row(3 + SubtitleTone::LADDER.len() as i32);
+        assert_eq!(menu.on_ok(&ps, store.view()), Some(TrackCommit::FindSubtitles));
     }
 
     /// **Position is the join, so an unnamed track must occupy a slot rather than be skipped.**
