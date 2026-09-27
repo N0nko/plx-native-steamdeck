@@ -112,7 +112,7 @@ impl CatalogDetailsScreen {
             let y=self.full_layout(measure).actions;
             let library_w=crate::ui::widgets::Button::pill_w_measured(c"Open in Library",theme::size::CAPTION,true,false,measure);
             if elem==LIBRARY {Rect::new(FULL_X,y,library_w,64.0)}
-            else {Rect::new(FULL_X+if self.has_local(){library_w+56.0}else{58.0},y,64.0,64.0)}
+            else {Rect::new(FULL_X+if self.has_local(){library_w+32.0}else{0.0},y,64.0,64.0)}
         } else {
             let r=self.panel();
             let height=buttons.len() as f32*80.0-16.0;
@@ -571,5 +571,8 @@ mod layout_tests {
         assert!(long.actions>short.actions);
         assert!(long.cast>=long.actions+140.0);
         assert!(long.cast+48.0+crate::ui::card_row::RowStyle::CAST.h+80.0<1030.0);
+        screen.state.as_mut().unwrap().local=None;
+        assert_eq!(screen.button_rect(WATCHLIST,&measure).x,FULL_X,
+            "standalone Watchlist must align with the description, not float to its right");
     }
 }

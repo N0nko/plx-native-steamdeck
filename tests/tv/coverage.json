@@ -523,5 +523,10 @@
     "group": "2-search-discover",
     "id": "discovery-person-filmography",
     "title": "Discovery cast opens shared person profile, library titles and full filmography"
+  },
+  {
+    "id": "glass-material-experiment",
+    "group": "2-search-discover",
+    "title": "Shared native glass: refraction, rim highlight, readable labels and navigation pacing"
   }
 ]

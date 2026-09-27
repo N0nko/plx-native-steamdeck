@@ -51,6 +51,10 @@
 // PRECISION: every coordinate chain is highp, for the reason fs_src.frag's note spells out — fp16
 // on a card-sized quad is off by ~half a texel, and here that error IS the refraction offset, so a
 // mediump lens would ripple along a straight edge instead of bending evenly.
+// 2026-09-27 native material experiment. Set to 0 for the checkpoint material.
+// Independent GLES adaptation of curved refraction / dispersion / grazing reflection;
+// no browser filters, extra blur pass, render target or sharp-source copy.
+#define PLX_LIQUID_GLASS_EXPERIMENT 1
 precision mediump float;
 varying highp vec2 v_cuv; // where this fragment sits in the snapshot
 varying highp vec2 v_p;   // panel-local pixel coords, for the SDF
@@ -195,9 +199,27 @@ void main(){
   }
   highp float t = clamp(1.0 + d / u_bevel, 0.0, 1.0); // 0 at the bevel's inner edge, 1 at the rim
   highp float lens = t * t;
+#if PLX_LIQUID_GLASS_EXPERIMENT
+  // Air -> glass, n=1.45. A quarter-circle bevel supplies the incident normal.
+  // Normalize the transmitted bend to retain the existing maximum sample margin.
+  highp float eta = 1.0 / 1.45;
+  highp float incidentZ = sqrt(max(1.0 - t * t, 0.0));
+  highp float transmittedZ = sqrt(max(1.0 - eta * eta * t * t, 0.0));
+  lens *= (transmittedZ - eta * incidentZ) / sqrt(1.0 - eta * eta);
+#endif
   highp vec2 nrm = sdBoxNormal(v_p, u_ch, u_iradius);
   highp vec2 push = nrm * (lens * u_lens);
   vec3 rgb = srcRGB(v_cuv + push * u_uvpx);
+#if PLX_LIQUID_GLASS_EXPERIMENT
+  // Dispersion is confined to the narrow rim of the light-blur material. Deep
+  // menus keep their identical multi-tap source. Preserve PageDip source alpha.
+  if (u_deep.x == 0.0 && u_lens > 0.0) {
+    highp vec2 split = nrm * (0.6 * lens) * u_uvpx;
+    highp vec2 bent = v_cuv + push * u_uvpx;
+    rgb.r = mix(u_source_ground.r, texture2D(u_tex, bent + split).r, u_source_alpha);
+    rgb.b = mix(u_source_ground.b, texture2D(u_tex, bent - split).b, u_source_alpha);
+  }
+#endif
   if (u_sharpw > 0.0) {
     // The quad's own 0..1 coordinate, recovered from the panel-local pixels the SDF already uses:
     // `vs_img.vert` builds both from the same `a_pos`, so this needs no second varying and cannot
@@ -238,6 +260,13 @@ void main(){
   // are read in, and the reason this surface is now the only one of its shape.
   vec4 sc = mix(u_scrim_top, u_scrim_bot, clamp(v_p.y / u_ch.y * 0.5 + 0.5, 0.0, 1.0));
   rgb = mix(rgb, sc.rgb, sc.a * (1.0 - t * u_rimclear));
+#if PLX_LIQUID_GLASS_EXPERIMENT
+  // Reflection belongs above the body tint. Fifth-power grazing falloff keeps
+  // the readable interior unchanged and avoids a broad grey halo.
+  float grazing = t * t; grazing *= grazing * t;
+  float catchLight = 0.25 + 0.75 * max(dot(nrm, u_light.xy), 0.0);
+  rgb = mix(rgb, u_edge.rgb, 0.18 * grazing * catchLight);
+#endif
   // A LERP, not an addition, and that is the whole of why a DARK edge can exist at all. The rim was
   // `rgb += rimcol * weight`, which can only ever ADD light: a near-black rim added near-nothing, so
   // the light material simply had no edge once the black ring that had been standing in for one was

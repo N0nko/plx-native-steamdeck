@@ -1,0 +1,59 @@
+{
+  "group": "2-search-discover",
+  "description": "Start on a populated search row. Repeat on checkpoint and experiment at the same poster. Navigation only; inspect glass during motion and native heartbeat pacing. Idle FPS is not performance.",
+  "steps": [
+    {
+      "name": "01-glass-motion",
+      "before": "search(/none)?",
+      "after": "search(/none)?",
+      "keys": [
+        "RIGHT",
+        "RIGHT",
+        "RIGHT",
+        "RIGHT",
+        "RIGHT",
+        "LEFT",
+        "LEFT",
+        "LEFT",
+        "LEFT",
+        "LEFT",
+        "RIGHT",
+        "RIGHT",
+        "RIGHT",
+        "RIGHT",
+        "RIGHT",
+        "LEFT",
+        "LEFT",
+        "LEFT",
+        "LEFT",
+        "LEFT",
+        "RIGHT",
+        "RIGHT",
+        "RIGHT",
+        "RIGHT",
+        "RIGHT",
+        "LEFT",
+        "LEFT",
+        "LEFT",
+        "LEFT",
+        "LEFT",
+        "RIGHT",
+        "RIGHT",
+        "RIGHT",
+        "RIGHT",
+        "RIGHT",
+        "LEFT",
+        "LEFT",
+        "LEFT",
+        "LEFT",
+        "LEFT"
+      ],
+      "gap": 0.08,
+      "settle": 1,
+      "covers": [
+        "glass-material-experiment"
+      ],
+      "review": "Inspect top glass for smooth curved rim, subtle colour separation and crisp text. Compare sustained-motion heartbeat samples with checkpoint; no extra full-screen blur."
+    }
+  ]
+}
