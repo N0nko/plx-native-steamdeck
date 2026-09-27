@@ -1,0 +1,11 @@
+# Keyboard glass and director credits
+
+Checkpoint: 664c89a3. Its scoped Details layout validation remains unchanged; native The Middle season navigation measured 59–61 FPS after that fix, compared with 22–23 FPS before it. Those are representative short production samples, not guarantees for every scene.
+
+Both keyboards use grouped shared Buttons. Only the opaque focused plate is painted below the shared glass source, allowing neighboring keys to refract its light. Its normal scale, shadow and opacity remain; the plate is not drawn twice. All labels stay above the source. The full and T9 grids share one source each, invalidate it when focus moves and reuse it at rest. Key labels are static and the group uses bounded stack storage rather than allocating strings for every key on every draw. Input geometry and T9 mappings are unchanged.
+
+The reference was rechecked at https://github.com/nikdelvin/liquid-glass/blob/main/src/utils/liquidGlass.ts: it displaces RGB channels separately. Our native shader already did so on the light-blur rim. The offset increases from 2.2 to 4.0 authored pixels to make the separation more visible after blur. This changes the existing sample coordinates only: no new texture, blur pass, sharp-source copy or channel fetch. Flat interiors and text remain unchanged. Deep-blur materials still use their existing path. This is an independent adaptation, not copied browser code or a claim of Apple equivalence.
+
+Details reuse their existing people column above Starring. Supplied movie, episode and series directors are shown, using crew Director entries when needed and removing blank/duplicate names. A show displaying on-deck episode prose labels show-level credits Series directed by. Writer-only series metadata is labeled Written by, not inferred to mean Created by. No added API requests or metadata fields; absent credits have no heading. Existing crew tiles still open the shared person page.
+
+Fixtures: tests/tv/2-search-discover/keyboard-glass.json and tests/tv/3-playback-details-watchlist/director-credits.json. Source tests cover shared-source refresh/rest, focused-plate draw identity, truthful credit scope and missing metadata. Final device observations, exact release checks and deployment hashes belong in the private local artifact run's RESULT.md; this note does not claim those pending results.

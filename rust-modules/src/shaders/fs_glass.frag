@@ -211,10 +211,12 @@ void main(){
   highp vec2 push = nrm * (lens * u_lens);
   vec3 rgb = srcRGB(v_cuv + push * u_uvpx);
 #if PLX_LIQUID_GLASS_EXPERIMENT
-  // Dispersion is confined to the narrow rim of the light-blur material. Deep
-  // menus keep their identical multi-tap source. Preserve PageDip source alpha.
+  // Dispersion is confined to the narrow rim of the light-blur material. Use a
+  // four-authored-pixel channel offset to expose the split after source blur.
+  // Keep the same two channel fetches; no extra blur/copy or coloured text.
+  // Deep menus keep their multi-tap source. Preserve PageDip source alpha.
   if (u_deep.x == 0.0 && u_lens > 0.0) {
-    highp vec2 split = nrm * (2.2 * lens) * u_uvpx;
+    highp vec2 split = nrm * (4.0 * lens) * u_uvpx;
     highp vec2 bent = v_cuv + push * u_uvpx;
     rgb.r = mix(u_source_ground.r, texture2D(u_tex, bent + split).r, u_source_alpha);
     rgb.b = mix(u_source_ground.b, texture2D(u_tex, bent - split).b, u_source_alpha);

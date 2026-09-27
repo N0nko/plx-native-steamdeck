@@ -1367,5 +1367,15 @@ fn controls<H:SearchLike>(screen:&SearchScreen,f:&mut DrawFrame<'_, '_, H>){
         f.stop(p,Stop{key:screen.key(elem),rect,rest_rect:rect,clip,hover:Hover::Focus,activate:Activate::Immediate});
     };
     if screen.filters_visible() {for (i,label) in ["Top Results","Movies","TV Shows"].iter().enumerate(){draw(super::keypad::FILTER_BASE+i as u32,label,screen.filter_rect(i,At::Drawn),screen.filter==i);}}
-    if screen.keypad_open {for i in 0..super::keypad::len(screen.numeric){draw(super::keypad::BASE+i as u32,&super::keypad::label(i,screen.numeric),super::keypad::rect(i,screen.numeric),false);}}
+    if screen.keypad_open {
+        let focused = f.cx.focus.current.filter(|key| key.entry == screen.entry)
+            .and_then(|key| key.elem.checked_sub(keypad::BASE))
+            .map(|index| index as usize).filter(|&index| index < keypad::len(screen.numeric));
+        keypad::draw(p, screen.numeric, focused);
+        for i in 0..keypad::len(screen.numeric) {
+            let rect = keypad::rect(i, screen.numeric);
+            f.stop(p, Stop { key: screen.key(keypad::BASE + i as u32), rect, rest_rect: rect,
+                clip, hover: Hover::Focus, activate: Activate::Immediate });
+        }
+    }
 }

@@ -570,6 +570,15 @@ impl Sources {
             .map(|i| i.bytes())
             .sum()
     }
+    /// Commit the declared source identity without a GPU image for source-scheduling tests.
+    #[cfg(test)]
+    pub(crate) fn retain_declared_for_test(&mut self) {
+        for entry in self.entries.values_mut() {
+            entry.valid = true;
+            entry.captured_prefix = entry.prefix.clone();
+            entry.captured_layers = self.layers.clone();
+        }
+    }
     pub fn finish(&mut self) {
         // Covered sources remain discoverable while their live draws are culled by a held page.
         let layers = &self.layers;
@@ -1008,6 +1017,34 @@ mod tests {
             crate::gfx::GlassFace::NONE,
             crate::ui::theme::Material::UltraThin
         ));
+    }
+    #[test]
+    fn grouped_focus_draws_the_identical_scaled_faded_plate_once_below_its_label() {
+        use crate::ui::{widgets::{Button, ControlStyle}, theme, Env, Painter, View};
+        let _guard = crate::testlock::serial();
+        let declared = |grouped| {
+            let sources = Rc::new(RefCell::new(Sources::default()));
+            sources.borrow_mut().begin(vec![]);
+            {
+                let _walk = discover(sources.clone());
+                let p = Painter::root().translate(17.0, 23.0).alpha(0.6);
+                let button = Button::new(c"Focus".as_ptr(), theme::size::LABEL,
+                    Rect::new(100.0, 300.0, 120.0, 48.0))
+                    .style(ControlStyle::Glass).focused(true).scale(1.03);
+                if grouped { Button::draw_group(std::iter::once(&button), p); }
+                else { button.draw(&Env::inert(), p); }
+            }
+            let paints = sources.borrow().paints.clone();
+            paints
+        };
+        let ordinary = declared(false);
+        let grouped = declared(true);
+        assert!(!ordinary.is_empty());
+        assert!(ordinary == grouped, "grouping must neither duplicate nor alter focused plate/shadow/label draw arguments");
+        assert!(grouped.iter().filter(|p| p.values.first() != Some(&100)).all(|p| p.z == Z::PAGE),
+            "the plate and its shadow must illuminate the material source");
+        assert!(grouped.iter().filter(|p| p.values.first() == Some(&100)).all(|p| p.z > Z::PAGE),
+            "glyphs stay above the source");
     }
     fn commit(s: &Rc<RefCell<Sources>>) {
         let mut s = s.borrow_mut();

@@ -503,18 +503,37 @@ pub(crate) fn hero_widths(
     }
 }
 
+/// Prefer the item's supplied directors for both movies and series. A show's on-deck prose
+/// describes an episode, but these credits still belong to the series. Writer[] is a writing
+/// credit, never evidence that somebody created the series.
 pub(crate) fn hero_credit(d: &Detail) -> Option<(&'static str, Vec<&str>)> {
-    if d.is_show {
-        let names: Vec<&str> = d
-            .crew
-            .iter()
-            .filter(|credit| credit.role.contains("Writer"))
-            .map(|credit| credit.tag.as_str())
-            .collect();
-        return (!names.is_empty()).then_some(("Created by", names));
+    fn names<'a>(values: impl Iterator<Item = &'a str>) -> Vec<&'a str> {
+        let mut out = Vec::new();
+        for name in values.map(str::trim).filter(|name| !name.is_empty()) {
+            if !out.contains(&name) {
+                out.push(name);
+            }
+        }
+        out
     }
-    let names: Vec<&str> = d.directors.iter().map(String::as_str).collect();
-    (!names.is_empty()).then_some(("Directed by", names))
+    let series_over_episode = d.is_show && hero_episode(d).is_some();
+    let directors = names(d.directors.iter().map(String::as_str).chain(
+        d.crew.iter()
+            .filter(|credit| credit.role.split(',').any(|role| role.trim() == "Director"))
+            .map(|credit| credit.tag.as_str()),
+    ));
+    if !directors.is_empty() {
+        return Some((if series_over_episode { "Series directed by" } else { "Directed by" }, directors));
+    }
+    if d.is_show {
+        let writers = names(d.crew.iter()
+            .filter(|credit| credit.role.split(',').any(|role| role.trim() == "Writer"))
+            .map(|credit| credit.tag.as_str()));
+        return (!writers.is_empty()).then_some((
+            if series_over_episode { "Series written by" } else { "Written by" }, writers,
+        ));
+    }
+    None
 }
 
 pub(crate) fn has_people(d: &Detail) -> bool {
@@ -1294,8 +1313,71 @@ mod tests {
         };
         assert_eq!(
             hero_credit(&show),
-            Some(("Created by", vec!["Kerry Ehrin"]))
+            Some(("Directed by", vec!["Pilot Director"]))
         );
+    }
+
+    #[test]
+    fn director_credit_is_visible_for_a_series_and_scoped_above_episode_prose() {
+        let mut show = Detail {
+            is_show: true,
+            directors: vec!["Jane Director".into()],
+            crew: vec![crate::metadata::Cast {
+                tag: "Sam Writer".into(), role: "Writer".into(), thumb: String::new(),
+                id: 0, tag_key: String::new(),
+            }],
+            ..Default::default()
+        };
+        assert_eq!(hero_credit(&show), Some(("Directed by", vec!["Jane Director"])));
+        show.on_deck = Some(Episode { resume_ms: 1, ..Default::default() });
+        assert!(hero_episode(&show).is_some());
+        assert_eq!(hero_credit(&show), Some(("Series directed by", vec!["Jane Director"])),
+            "show-level credits must not claim to direct the on-deck episode");
+    }
+
+    #[test]
+    fn director_credit_preserves_movie_and_leaf_episode_names_without_blank_or_duplicate_entries() {
+        for kind in ["movie", "episode"] {
+            let d = Detail { kind: kind.into(),
+                directors: vec!["  Jane Director  ".into(), String::new(), " ".into(), "Jane Director".into()],
+                ..Default::default() };
+            assert_eq!(hero_credit(&d), Some(("Directed by", vec!["Jane Director"])));
+            assert!(has_people(&d), "the existing people column must remain visible");
+        }
+        let absent = Detail { is_show: true, directors: vec![" ".into()], ..Default::default() };
+        assert_eq!(hero_credit(&absent), None);
+        assert!(!has_people(&absent));
+    }
+
+    #[test]
+    fn writer_only_series_metadata_is_not_presented_as_a_creator_or_director() {
+        let mut show = Detail {
+            is_show: true,
+            crew: vec![crate::metadata::Cast {
+                tag: "Sam Writer".into(), role: "Writer".into(), thumb: String::new(),
+                id: 0, tag_key: String::new(),
+            }],
+            ..Default::default()
+        };
+        assert_eq!(hero_credit(&show), Some(("Written by", vec!["Sam Writer"])));
+        show.on_deck = Some(Episode { resume_ms: 1, ..Default::default() });
+        assert_eq!(hero_credit(&show), Some(("Series written by", vec!["Sam Writer"])));
+    }
+
+    #[test]
+    fn director_credit_reuses_the_existing_person_action_and_combined_role() {
+        let d = Detail {
+            directors: vec!["Jane Director".into()],
+            crew: vec![crate::metadata::Cast {
+                tag: "Jane Director".into(), role: "Director, Writer".into(), thumb: "headshot".into(),
+                id: 42, tag_key: "person-guid".into(),
+            }],
+            ..Default::default()
+        };
+        assert_eq!(hero_credit(&d), Some(("Directed by", vec!["Jane Director"])));
+        assert!(matches!(super::super::cast::action(&d, super::super::cast::elem(0).unwrap()),
+            super::super::cast::Action::OpenPerson { key, guid, name, .. }
+                if key == "42" && guid == "person-guid" && name == "Jane Director"));
     }
 
     #[test]

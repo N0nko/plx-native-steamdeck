@@ -1,0 +1,15 @@
+{
+  "group": "3-playback-details-watchlist",
+  "description": "Start at the top of a movie or episode Details page with known Plex Director metadata. Repeat for a series supplying Director metadata and for missing/Writer-only credits; do not activate playback or account actions.",
+  "steps": [
+    {
+      "name": "01-director-credit",
+      "before": "detail(/none)?",
+      "after": "detail(/none)?",
+      "keys": [],
+      "settle": 1,
+      "covers": ["director-credits", "about-cast"],
+      "review": "People column above Starring shows supplied director names without overlap. A series credit is explicitly scoped to the series when the hero shows an episode synopsis. Writer-only metadata says Written by, never invents a creator/director. Missing credits omit the heading. Existing crew tiles still open the shared person page."
+    }
+  ]
+}

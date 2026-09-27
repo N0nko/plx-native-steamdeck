@@ -1,0 +1,24 @@
+{
+  "group": "2-search-discover",
+  "description": "Start in Search with the full keyboard open and A focused. Arrow-only motion for material inspection; numeric 0/1 only adds and removes a space to enter T9. Collect production timing separately without captures.",
+  "steps": [
+    {
+      "name": "01-letters-neighbor-glow",
+      "before": "search(/none)?",
+      "keys": ["RIGHT", "RIGHT", "DOWN"],
+      "settle": 0.4,
+      "after": "search(/none)?",
+      "covers": ["keyboard-neighbor-reflections", "letters", "2-unified-liquid-glass"],
+      "review": "White focused key reflects into nearby idle keys. Labels stay crisp above the source, no broad bloom, no ghost key after movement. Inspect modest RGB separation at contrasting curved edges."
+    },
+    {
+      "name": "02-t9-neighbor-glow",
+      "before": "search(/none)?",
+      "keys": ["0", "1", "RIGHT", "DOWN"],
+      "settle": 0.4,
+      "after": "search(/none)?",
+      "covers": ["keyboard-neighbor-reflections", "t9", "2-unified-liquid-glass"],
+      "review": "T9 has the same shared glass and neighboring focus reflection. Query is empty after 1 deletes the space; ABC remains bottom-left. Compare active-motion p50/p95/p99 separately; a settled capture cannot prove performance."
+    }
+  ]
+}

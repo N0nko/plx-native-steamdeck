@@ -553,5 +553,15 @@
     "group": "3-playback-details-watchlist",
     "id": "season-glass-frame-times",
     "title": "Long-season navigation: layout validation cost, reflected neighboring light, smooth fade and production frame-time distribution"
+  },
+  {
+    "group": "2-search-discover",
+    "id": "keyboard-neighbor-reflections",
+    "title": "Full and T9 keyboards reflect the white focused key into adjacent glass keys; edge colour separation and moving frame times"
+  },
+  {
+    "group": "3-playback-details-watchlist",
+    "id": "director-credits",
+    "title": "Movie, episode and supplied series director credits; writer-only fallback correctly labeled; missing credits leave no empty heading"
   }
 ]

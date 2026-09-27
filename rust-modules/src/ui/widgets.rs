@@ -6814,6 +6814,30 @@ pub(crate) fn draw_control_face(
 }
 impl View for Button {
     fn draw(&self, _e: &Env, p: Painter) {
+        self.draw_layer(p, false);
+    }
+}
+impl Button {
+    /// Draw a control group whose neighboring glass reflects its opaque focused face.
+    /// The face uses the exact plate/scale/cascade of the ordinary draw, once, below the
+    /// shared material band. Labels stay above it. Replaying a cloneable iterator avoids
+    /// a collection allocation; translucent focused faces and countdown sweeps keep their normal path.
+    pub(crate) fn draw_group<'a>(buttons: impl Iterator<Item = &'a Self> + Clone, p: Painter) {
+        for button in buttons.clone().filter(|button| button.focus_ground()) {
+            let face = button.style.face(button.focused, button.ground, button.palette);
+            button.plate(p, button.frame.scaled(button.scale), face);
+        }
+        for button in buttons {
+            button.draw_layer(p, button.focus_ground());
+        }
+    }
+
+    fn focus_ground(&self) -> bool {
+        let face = self.style.face(self.focused, self.ground, self.palette);
+        self.focused && self.progress.is_none() && face.top[3] >= 0.98 && face.body[3] >= 0.98
+    }
+
+    fn draw_layer(&self, p: Painter, grounded_focus: bool) {
         let _material = crate::ui::frame::backdrop::controls();
         let r = self.frame.scaled(self.scale);
         let face = self.style.face(self.focused, self.ground, self.palette);
@@ -6830,7 +6854,9 @@ impl View for Button {
         // ground has nothing to separate. `theme::CONTROL_CAST_FOCUS` is what the design system
         // asks for, and it is still ONE elevation for the family: the resting control casts
         // nothing, which is the half of that rule worth keeping.
-        self.plate(p, r, face);
+        if !grounded_focus {
+            self.plate(p, r, face);
+        }
         // center the [icon + gap + label] group in the pill; the label sits on the pill centre by
         // its cap band, so descenders (the g's in "From Beginning") don't drag the caps upward
         let ty = crate::text::text_vcenter_y(self.sz, 1, r.y + r.h * 0.5);
