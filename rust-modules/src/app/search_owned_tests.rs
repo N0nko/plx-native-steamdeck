@@ -1071,7 +1071,7 @@ fn catalog_library_action_opens_exact_detail_without_watchlist_or_play(){
  let mut rig=Bridge::for_test(||0);let entry=EntryId(81);let instance=InstanceId(82);
  let parts=CxParts{tick:tick(0),press:Default::default(),focus:Default::default(),owner:InputOwner::Entry(entry)};
  let split=rig.split();let cx=parts.cx::<AppHost>(split.views,split.measure);
- let id="0123456789abcdef01234567".to_owned();let mut screen=crate::screens::catalog_details::CatalogDetailsScreen::new(entry,crate::screens::registry::CatalogDetailsArg{catalog_id:id.clone(),title:"Exact title".into(),person:String::new(),department:String::new(),role:String::new(),inline:None,poster:None,year:2026});
+ let id="0123456789abcdef01234567".to_owned();let mut screen=crate::screens::catalog_details::CatalogDetailsScreen::new(entry,crate::screens::registry::CatalogDetailsArg{catalog_id:id.clone(),title:"Exact title".into(),person:String::new(),department:String::new(),role:String::new(),inline:None,poster:None,host_glass:false,year:2026});
  let mut present=Present::new();let mut out=Vec::new();
  {let mut fx=Effects::new(&mut out,MachineId::Instance(instance),&mut present);screen.step(&ScreenEvent::Mount,&cx,&mut fx);}
  out.clear();
@@ -1079,7 +1079,7 @@ fn catalog_library_action_opens_exact_detail_without_watchlist_or_play(){
  {let mut fx=Effects::new(&mut out,MachineId::Instance(instance),&mut present);screen.step(&ScreenEvent::Activate(2),&cx,&mut fx);}
  assert!(out.is_empty(),"pending catalog data must not expose a library action");
  {let mut fx=Effects::new(&mut out,MachineId::Instance(instance),&mut present);
- screen.step(&ScreenEvent::App(crate::screens::registry::AppMsg::Catalog(crate::catalog_action::Snapshot{id,profile:crate::plex::session::current_gen(),title:"Exact title".into(),summary:String::new(),year:2026,watchlisted:Some(false),busy:false,failed:false,poster:None,ratings:Vec::new(),trailer:None,kind:String::new(),facts:String::new(),genres:String::new(),cast:String::new(),backdrop:None,local:Some((crate::plex::ServerId::UNSET,"server-key-42".into()))})),&cx,&mut fx);
+ screen.step(&ScreenEvent::App(crate::screens::registry::AppMsg::Catalog(crate::catalog_action::Snapshot{id,profile:crate::plex::session::current_gen(),title:"Exact title".into(),summary:String::new(),year:2026,watchlisted:Some(false),busy:false,failed:false,poster:None,ratings:Vec::new(),trailer:None,kind:String::new(),facts:String::new(),genres:String::new(),cast:String::new(),credits:Vec::new(),backdrop:None,local:Some((crate::plex::ServerId::UNSET,"server-key-42".into()))})),&cx,&mut fx);
  screen.step(&ScreenEvent::Activate(2),&cx,&mut fx);}
  assert!(out.iter().any(|e|matches!(&e.fx,Fx::App(AppFx::Content(crate::screens::registry::ContentReq::Present(crate::screens::registry::ContentArg::Detail{rk,..}))) if rk=="server-key-42")));
  assert!(!out.iter().any(|e|matches!(&e.fx,Fx::App(AppFx::Catalog(_))|Fx::App(AppFx::Content(crate::screens::registry::ContentReq::Play{..})))));
@@ -1106,7 +1106,7 @@ fn inline_catalog_full_details_back_returns_to_card_before_dismissal() {
  let mut rig=Bridge::for_test(||0);let entry=EntryId(81);let instance=InstanceId(82);
  let parts=CxParts{tick:tick(0),press:Default::default(),focus:Default::default(),owner:InputOwner::Entry(entry)};
  let split=rig.split();let cx=parts.cx::<AppHost>(split.views,split.measure);
- let mut screen=crate::screens::catalog_details::CatalogDetailsScreen::new(entry,crate::screens::registry::CatalogDetailsArg{catalog_id:"0123456789abcdef01234567".into(),title:"Exact title".into(),person:String::new(),department:String::new(),role:String::new(),inline:Some([100,420]),poster:None,year:2026});
+ let mut screen=crate::screens::catalog_details::CatalogDetailsScreen::new(entry,crate::screens::registry::CatalogDetailsArg{catalog_id:"0123456789abcdef01234567".into(),title:"Exact title".into(),person:String::new(),department:String::new(),role:String::new(),inline:Some([100,420]),poster:None,host_glass:false,year:2026});
  let mut present=Present::new();let mut out=Vec::new();
  {let mut fx=Effects::new(&mut out,MachineId::Instance(instance),&mut present);screen.step(&ScreenEvent::Mount,&cx,&mut fx);}
  let compact=screen.place(&4,&cx,At::SpringTarget).unwrap().rect;
@@ -1123,4 +1123,49 @@ fn inline_catalog_full_details_back_returns_to_card_before_dismissal() {
  {let mut fx=Effects::new(&mut out,MachineId::Instance(instance),&mut present);screen.step(&ScreenEvent::Input(back),&cx,&mut fx);}
  assert!(out.iter().any(|e|matches!(&e.fx,Fx::Nav(NavOp::Dismiss(id)) if *id==entry)));
  assert!(!out.iter().any(|e|matches!(&e.fx,Fx::App(AppFx::Catalog(_))|Fx::App(AppFx::Content(_)))));
+}
+
+#[test]
+fn catalog_preview_waits_for_expansion_and_dwell_and_uses_preview_transport() {
+ let _serial=crate::testlock::serial();let session=crate::plex::session::TempSession::new("catalog-preview");session.watching("synthetic");
+ crate::player::preview::reset_for_test();
+ crate::plex::session::set_trailer_autoplay(true);
+ let mut rig=Bridge::for_test(||0);let entry=EntryId(81);let instance=InstanceId(82);
+ let parts=CxParts{tick:tick(0),press:Default::default(),focus:crate::ui::machine::FocusRead{current:Some(FocusKey{entry,elem:4}),..Default::default()},owner:InputOwner::Entry(entry)};
+ let split=rig.split();let cx=parts.cx::<AppHost>(split.views,split.measure);
+ let id="0123456789abcdef01234567".to_owned();
+ let mut screen=crate::screens::catalog_details::CatalogDetailsScreen::new(entry,crate::screens::registry::CatalogDetailsArg{catalog_id:id.clone(),title:"Title".into(),person:String::new(),department:String::new(),role:String::new(),inline:Some([100,420]),poster:None,host_glass:false,year:2026});
+ let request=crate::catalog_action::Request{id,profile:crate::plex::session::current_gen(),desired:None};
+ let mut state=crate::catalog_action::Snapshot::pending(&request);state.busy=false;
+ state.trailer=Some(crate::plex::catalog::Trailer{key:"catalog-part".into(),title:"Trailer".into()});
+ state.credits=vec![crate::catalog_action::Credit{tag:"Actor".into(),tag_key:"person-guid".into(),..Default::default()}];
+ let mut present=Present::new();let mut out=Vec::new();
+ let long=crate::ui::machine::Tick{ms:2500,dt_us:2_500_000};
+ {let mut fx=Effects::new(&mut out,MachineId::Instance(instance),&mut present);
+ screen.step(&ScreenEvent::Mount,&cx,&mut fx);
+ screen.step(&ScreenEvent::App(crate::screens::registry::AppMsg::Catalog(state)),&cx,&mut fx);
+ screen.step(&ScreenEvent::Tick(long),&cx,&mut fx);}
+ assert!(!out.iter().any(|e|matches!(&e.fx,Fx::App(AppFx::Content(crate::screens::registry::ContentReq::PreviewStart{..})))));
+ assert!(screen.place(&100,&cx,At::Drawn).is_none());out.clear();
+ crate::plex::session::set_trailer_autoplay(false);
+ {let mut fx=Effects::new(&mut out,MachineId::Instance(instance),&mut present);screen.step(&ScreenEvent::Activate(3),&cx,&mut fx);}
+ assert!(out.iter().any(|e|matches!(&e.fx,Fx::App(AppFx::Content(crate::screens::registry::ContentReq::Play{play:crate::screens::registry::PlayIntent::Item{rk,part,context,..},..})) if rk.is_empty() && part=="catalog-part" && context==crate::metadata::TRAILER_CONTEXT)),"explicit trailer remains available with background autoplay disabled");
+ crate::plex::session::set_trailer_autoplay(true);out.clear();
+ {let mut fx=Effects::new(&mut out,MachineId::Instance(instance),&mut present);
+ screen.step(&ScreenEvent::Activate(4),&cx,&mut fx);screen.step(&ScreenEvent::Tick(tick(1)),&cx,&mut fx);}
+ assert!(!out.iter().any(|e|matches!(&e.fx,Fx::App(AppFx::Content(crate::screens::registry::ContentReq::PreviewStart{..})))));
+ assert!(screen.place(&3,&cx,At::Drawn).is_none(),"expanded view uses Up preview instead of a trailer button");
+ assert!(screen.place(&100,&cx,At::Drawn).is_some());out.clear();
+ {let mut fx=Effects::new(&mut out,MachineId::Instance(instance),&mut present);screen.step(&ScreenEvent::Tick(long),&cx,&mut fx);}
+ assert!(out.iter().any(|e|matches!(&e.fx,Fx::App(AppFx::Content(crate::screens::registry::ContentReq::PreviewStart{rk,part,..})) if rk.is_empty() && part=="catalog-part")));
+ assert!(!out.iter().any(|e|matches!(&e.fx,Fx::App(AppFx::Content(crate::screens::registry::ContentReq::Play{..})))));
+ crate::player::preview::force_playing_for_test();out.clear();
+ {let mut fx=Effects::new(&mut out,MachineId::Instance(instance),&mut present);
+ screen.step(&ScreenEvent::Input(script_key(Key::Up,tick(2)).remove(0)),&cx,&mut fx);
+ screen.step(&ScreenEvent::Input(script_key(Key::Back,tick(3)).remove(0)),&cx,&mut fx);}
+ assert!(screen.place(&100,&cx,At::Drawn).is_some(),"first Back collapses preview, preserving full details");
+ out.clear();
+ {let mut fx=Effects::new(&mut out,MachineId::Instance(instance),&mut present);screen.step(&ScreenEvent::Cover,&cx,&mut fx);}
+ assert!(out.iter().any(|e|matches!(&e.fx,Fx::App(AppFx::Content(crate::screens::registry::ContentReq::PreviewStop)))));
+ crate::player::preview::reset_for_test();
 }

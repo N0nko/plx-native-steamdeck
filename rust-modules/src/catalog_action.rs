@@ -23,6 +23,7 @@ pub(crate) struct Snapshot {
     pub facts: String,
     pub genres: String,
     pub cast: String,
+    pub credits: Vec<Credit>,
     pub backdrop: Option<(crate::plex::ServerId, String)>,
 }
 impl Snapshot {
@@ -41,7 +42,10 @@ impl Snapshot {
             ratings: Vec::new(),
             trailer: None,
             kind: String::new(), facts: String::new(), genres: String::new(),
-            cast: String::new(), backdrop: None,
+            cast: String::new(), credits: Vec::new(), backdrop: None,
         }
     }
 }
+
+#[derive(Clone, Debug, Default)]
+pub(crate) struct Credit {pub tag:String,pub role:String,pub thumb:String,pub tag_key:String}

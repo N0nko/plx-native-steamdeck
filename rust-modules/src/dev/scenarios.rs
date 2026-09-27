@@ -1413,7 +1413,7 @@ pub(crate) unsafe fn each_frame(app: &mut App, fr: &mut Frame) -> bool {
             app.pages.nav.next_style = crate::ui::containers::modal::Style::Alert;
             app.pages.request(crate::ui::machine::MachineId::Nav, crate::ui::machine::NavOp::Present(AppArg::CatalogDetails(
                 crate::screens::registry::CatalogDetailsArg { catalog_id:"5d776cac47dd6e001f6ee059".into(),
-                    title:"Dune".into(), person:String::new(), department:String::new(), role:String::new(), inline:Some([410,420]), poster:None, year:2021 })));
+                    title:"Dune".into(), person:String::new(), department:String::new(), role:String::new(), inline:Some([410,420]), host_glass:false, poster:None, year:2021 })));
         }
         if crate::dev::flag("subtitle-search") {
             let arg = app.bridge.metadata_view().current().map(|d| crate::screens::registry::SubtitleArg {

@@ -100,8 +100,8 @@ impl Glass {
 /// Never a blank, and never the frost alone — [`theme::PANEL_FROST_TOP`] is only legal over the
 /// field it is frosting.
 ///
-/// **Glass is chrome-only now**: the top bar's standing track and the profile chip's capsule still
-/// sample a live blur, because the page under them moves; nothing that is a popover does.
+/// Live chrome and frozen inline-card glass are separate from this sampled panel ground.
+
 pub(crate) fn panel_ground(
     p: Painter,
     r: Rect,
@@ -7359,3 +7359,15 @@ mod hero_scrim_tests;
 #[cfg(test)]
 #[path = "widgets_art_crop_tests.rs"]
 mod art_crop_tests;
+
+/// Inline expansions belong to the host page, below the surfaces band. The frozen host
+/// captures this glass once; it does not add a live blur pass to every modal frame.
+pub(crate) fn inline_card_ground(p: Painter, r: Rect) {
+    let face=crate::gfx::GlassFace {scrim_top:theme::INLINE_GLASS_TOP,scrim_bot:theme::INLINE_GLASS_BOT,
+        rim:theme::GLASS_RIM,rim_lit:theme::GLASS_RIM_LIGHT,rim_w:1.0};
+    if !Glass::DYNAMIC_BACKDROP.backdrop(p,r,0.0,theme::ALERT_PANEL_RAD,theme::TEXT_PRIMARY,
+        crate::gfx::GlassRim::Standing,face,theme::Material::Regular) {
+        p.rect_rimmed(r,theme::ALERT_PANEL_RAD,theme::PANEL_TOP,theme::PANEL_BOT,
+            theme::GLASS_RIM,theme::GLASS_RIM_LIGHT[3]-theme::GLASS_RIM[3]);
+    }
+}

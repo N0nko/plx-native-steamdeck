@@ -1799,7 +1799,7 @@ pub(crate) fn every_surface_arg() -> Vec<AppArg> {
         }),
         AppArg::CatalogDetails(CatalogDetailsArg {
             catalog_id: "catalog-1".into(), title: "Catalog credit".into(), person: "Performer".into(),
-            department: "Acting".into(), role: String::new(), year: 2020, inline:None, poster:None,
+            department: "Acting".into(), role: String::new(), year: 2020, inline:None, host_glass:false, poster:None,
         }),
         AppArg::TracksPanel(crate::screens::tracks_panel::TracksPanelArg { page: 1 }),
         AppArg::AboutPanel,
@@ -1965,7 +1965,8 @@ pub(crate) const SCREEN_SHAPES: &[&str] = &[
 /// re-recorded; this pin is measured by the integration's Rust schema regression test.
 #[cfg(test)]
 // Inline catalog anchor, full-detail mode and enriched metadata extend recorded state.
-const SCREEN_SHAPES_PIN: u64 = 0xdd90a34eb19c168e;
+// Catalog cast/preview state and restored Search inline viewport.
+const SCREEN_SHAPES_PIN: u64 = 0x769ce4c44c0a4181;
 
 #[cfg(test)]
 mod arg_tests {

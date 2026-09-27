@@ -41,6 +41,7 @@ impl Controller {
                         (!meta.studio.is_empty()).then(|| meta.studio.clone()),
                     ].into_iter().flatten().collect::<Vec<_>>().join(" · ");
                     reply.genres = meta.genre.iter().map(|t| t.tag.as_str()).filter(|s|!s.is_empty()).collect::<Vec<_>>().join(" · ");
+                    reply.credits = meta.role.iter().take(32).map(|p|crate::catalog_action::Credit {tag:p.tag.clone(),role:p.role.clone(),thumb:p.thumb.clone(),tag_key:p.tag_key.clone()}).collect();
                     reply.cast = meta.role.iter().take(12).map(|t|t.tag.as_str()).filter(|s|!s.is_empty()).collect::<Vec<_>>().join(" · ");
                     if let Some(sid) = crate::plex::server_ids().next() {
                         let item = crate::pms::parse_item(&meta, sid);

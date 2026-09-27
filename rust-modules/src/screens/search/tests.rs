@@ -1157,3 +1157,23 @@ fn inline_catalog_expansion_preserves_other_rows_and_restores_search_geometry() 
     assert_eq!((actual.x,actual.y,actual.w,actual.h),(before.x,before.y,before.w,before.h));
     assert_eq!(screen.scroll_target,scroll);
 }
+
+#[test]
+fn inline_catalog_lower_shelf_moves_with_its_panel_and_restores_scroll() {
+    let _serial=crate::testlock::serial();
+    let mut fixture=Fixture::new();
+    let mut rows=vec![shelf(Kind::Movie,"row",4),shelf(Kind::Show,"tv",4)];
+    for item in &mut rows[1].items {if let Item::Media(m)=item {*item=Item::Catalog(m.clone());}}
+    fixture.query("ab").shelves(rows);
+    let mut screen=fixture.screen(); let elem=screen.rows[1].elems[1];
+    let before=screen.row_rect(1,1,At::Drawn);let scroll=(screen.scroll.pos,screen.scroll_target);
+    let (_,out,_)=deliver(&mut screen,&fixture,Some(FocusKey{entry:ENTRY,elem}),ScreenEvent::Activate(elem));
+    let panel=out.iter().find_map(|s|if let Fx::App(AppFx::Content(crate::screens::registry::ContentReq::Panel(crate::screens::registry::ContentPanel::CatalogDetails(arg))))=&s.fx {Some(arg)} else {None}).unwrap();
+    let y=panel.inline.unwrap()[1] as f32;
+    assert!((screen.row_rect(1,1,At::Drawn).y-y).abs()<1.0,"card and shelf must move together");
+    assert!((screen.row_rect(1,0,At::Drawn).y-y).abs()<1.0);
+    assert_eq!(crate::screens::registry::CatalogDetailsArg::INLINE_H,crate::ui::consts::CARD_H);
+    deliver(&mut screen,&fixture,Some(FocusKey{entry:ENTRY,elem}),ScreenEvent::Uncover);
+    assert_eq!((screen.scroll.pos,screen.scroll_target),scroll);
+    assert_eq!(screen.row_rect(1,1,At::Drawn).y,before.y);
+}

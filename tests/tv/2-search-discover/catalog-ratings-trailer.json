@@ -1,6 +1,6 @@
 {
   "group": "2-search-discover",
-  "description": "Start on an inline catalog card with information focused. Read-only navigation; never activate Watchlist or playback.",
+  "description": "Start on an inline catalog card, information focused. Read-only navigation; expanded autoplay obeys trailer settings. Never activate Watchlist or feature playback.",
   "steps": [
     {
       "name": "01-catalog-ratings",
@@ -12,7 +12,7 @@
         "catalog-ratings-trailer",
         "catalog-inline-full"
       ],
-      "review": "Provider ratings use library presentation; omit absent providers. Trailer only appears when Plex supplies a supported trailer. Open in Library requires an exact local match."
+      "review": "Card matches neighboring poster height. Frosted glass and rim separate it from the row; outlined/filled bookmark shows known Watchlist state. Available ratings and local-only library action remain."
     },
     {
       "name": "02-catalog-buttons",
@@ -28,7 +28,7 @@
       "covers": [
         "catalog-ratings-trailer"
       ],
-      "review": "Button focus, ratings, summary and Back hint fit without overlap. Explicit trailer playback is a separate authorized device check."
+      "review": "Compact icon controls focus without resizing the card or overlapping adjacent shelves."
     },
     {
       "name": "03-catalog-full",
@@ -37,11 +37,27 @@
       "keys": [
         "OK"
       ],
-      "settle": 2,
+      "settle": 8,
       "covers": [
         "catalog-inline-full"
       ],
-      "review": "Information target opens full details with provided synopsis, ratings, genres and cast; optional missing fields are omitted."
+      "review": "Full details show headshot cast shelf. Supported trailer starts asynchronously in background; Up promotes it, Back returns to details. No expanded Trailer button."
+    },
+    {
+      "name": "04-catalog-cast",
+      "before": ".*catalog.*",
+      "after": ".*catalog.*",
+      "keys": [
+        "DOWN",
+        "RIGHT",
+        "LEFT",
+        "UP"
+      ],
+      "settle": 1,
+      "covers": [
+        "catalog-inline-full"
+      ],
+      "review": "Cast shelf scrolls horizontally; Up returns to actions. No Watchlist mutation."
     },
     {
       "name": "04-catalog-back-inline",

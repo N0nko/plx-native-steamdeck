@@ -460,6 +460,9 @@ pub const PLANE_COVER: [f32; 4] = SURFACE_APP;
 pub const CLEAR_RGB: (f32, f32, f32) = (SURFACE_APP[0], SURFACE_APP[1], SURFACE_APP[2]);
 /// OLED-black ground for startup and cinematic catalog details, without a gray wash.
 pub const CINEMA_GROUND: [f32; 4] = BLACK;
+/// Frost on an inline expanded card, composited inside its refracting glass face.
+pub const INLINE_GLASS_TOP: [f32; 4] = with_a(BLACK, 0.30);
+pub const INLINE_GLASS_BOT: [f32; 4] = with_a(BLACK, 0.52);
 /// Opaque menu panel / fade mask / badge knockout interior.
 pub const SURFACE_PANEL: [f32; 4] = NEUTRAL_650;
 /// Near-opaque sheet/card gradient — top stop. [`SURFACE_PANEL`]'s own stop at .985, so the sheet

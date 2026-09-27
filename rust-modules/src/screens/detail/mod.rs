@@ -13,7 +13,7 @@ mod hero;
 mod related;
 mod season;
 mod section;
-mod trailer;
+use crate::ui::trailer;
 #[cfg(test)]
 mod tests;
 
@@ -2003,6 +2003,8 @@ impl<H: ContentLike + crate::screens::registry::MetadataLike> Screen<H> for Deta
                 .unwrap_or_default(),
             self.preview_extra(meta).map(|e| e.title.as_str()).unwrap_or_default(),
             crate::player::preview::paused(),
+            crate::player::playpos_ns(),
+            crate::player::duration_ns(),
             measure,
         );
 

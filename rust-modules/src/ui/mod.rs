@@ -43,6 +43,7 @@ pub(crate) mod hit; // RESTRUCTURE (spec §7.6): the double-buffered hit map and
 pub mod hero_logo; // the ONE clearLogo sizing rule + its fallback-to-title band (both heroes, the compact title)
 pub mod landing_hero; // shared landing hero geometry and scrim curve, also read by route/legibility checks
 pub mod icons;
+pub(crate) mod trailer; // Shared background-trailer transport and remote key policy.
 pub mod idle; // whole-FRAME present gating: a screen with nothing moving on it stops repainting
 pub mod info_panel;
 #[cfg(test)]

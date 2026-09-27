@@ -189,6 +189,8 @@ pub enum Icon {
     Crowd,
     /// User-supplied popcorn mark, reserved for Get Ready (never audience ratings).
     ReadyStore,
+    Watchlist,
+    WatchlistFill,
 }
 
 /// **Where a mark's INK sits inside its 24-unit viewBox**, as `(left, right)` fractions — and
@@ -265,6 +267,8 @@ fn src(id: Icon) -> &'static str {
         Icon::TomatoHollow => include_str!("../../../assets/icons/tomato-hollow.svg"),
         Icon::Crowd => include_str!("../../../assets/icons/crowd.svg"),
         Icon::ReadyStore => include_str!("../../../assets/icons/readystore.svg"),
+        Icon::Watchlist => include_str!("../../../assets/icons/watchlist.svg"),
+        Icon::WatchlistFill => include_str!("../../../assets/icons/watchlist-fill.svg"),
     }
 }
 

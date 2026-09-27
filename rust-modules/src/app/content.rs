@@ -557,7 +557,7 @@ pub(crate) fn content_requests(app: &mut App, fr: &Frame) {
                     continue;
                 }
                 if !matches!(
-                    crate::player::preview::request_start(sid, &rk, fr.now),
+                    crate::player::preview::request_start(sid, if rk.is_empty() { &part } else { &rk }, fr.now),
                     crate::player::preview::Start::Accepted
                 ) {
                     continue;

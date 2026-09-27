@@ -1,0 +1,82 @@
+{
+  "group": "3-playback-details-watchlist",
+  "description": "Start on expanded catalog details with a known supported trailer already playing behind the hero, action focused. Preview-only: no feature playback, Watchlist or library mutations. Requires device video-plane and audio review.",
+  "steps": [
+    {
+      "name": "01-catalog-background",
+      "keys": [],
+      "before": ".*catalog.*",
+      "after": ".*catalog.*",
+      "settle": 2,
+      "covers": [
+        "catalog-background-preview"
+      ],
+      "review": "Trailer behind expanded hero/cast; configured background volume, default 50%."
+    },
+    {
+      "name": "02-catalog-promote",
+      "keys": [
+        "UP"
+      ],
+      "before": ".*catalog.*",
+      "after": ".*catalog.*",
+      "settle": 2,
+      "covers": [
+        "catalog-background-preview"
+      ],
+      "review": "Only shared trailer HUD remains; preview pipeline volume 100%."
+    },
+    {
+      "name": "03-catalog-pause",
+      "keys": [
+        "OK"
+      ],
+      "before": ".*catalog.*",
+      "after": ".*catalog.*",
+      "settle": 2,
+      "covers": [
+        "catalog-background-preview"
+      ],
+      "review": "Trailer pauses without opening feature playback."
+    },
+    {
+      "name": "04-catalog-resume",
+      "keys": [
+        "OK"
+      ],
+      "before": ".*catalog.*",
+      "after": ".*catalog.*",
+      "settle": 2,
+      "covers": [
+        "catalog-background-preview"
+      ],
+      "review": "Trailer resumes; seek/HUD remains the shared preview transport."
+    },
+    {
+      "name": "05-catalog-collapse",
+      "keys": [
+        "BACK"
+      ],
+      "before": ".*catalog.*",
+      "after": ".*catalog.*",
+      "settle": 2,
+      "covers": [
+        "catalog-background-preview"
+      ],
+      "review": "Expanded details and cast return; configured background volume restored."
+    },
+    {
+      "name": "06-catalog-return-inline",
+      "keys": [
+        "BACK"
+      ],
+      "before": ".*catalog.*",
+      "after": ".*catalog.*",
+      "settle": 2,
+      "covers": [
+        "catalog-background-preview"
+      ],
+      "review": "Inline card returns in the same shelf and trailer stops; no image overlay left behind."
+    }
+  ]
+}

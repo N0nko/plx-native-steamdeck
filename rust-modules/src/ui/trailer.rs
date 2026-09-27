@@ -31,9 +31,9 @@ use crate::ui::player_hud::{LINGER_MS, PLAY_MARK_MS};
 /// servers". The extra's own title wins only when it says something the kicker doesn't already,
 /// compared trimmed and case-insensitively so "trailer"/"Trailer "/"TRAILER" all count as the same
 /// non-information while "Official Trailer" or "Teaser 2" do not.
-pub(super) fn transport_title<'a>(film_title: &'a str, extra_title: &'a str) -> &'a str {
+pub(crate) fn transport_title<'a>(film_title: &'a str, extra_title: &'a str) -> &'a str {
     let trimmed = extra_title.trim();
-    if trimmed.is_empty() || trimmed.eq_ignore_ascii_case(crate::metadata::TRAILER_CONTEXT) {
+    if trimmed.is_empty() || trimmed.eq_ignore_ascii_case("trailer") {
         film_title
     } else {
         extra_title
@@ -44,7 +44,7 @@ pub(super) fn transport_title<'a>(film_title: &'a str, extra_title: &'a str) -> 
 /// the mode CONSUMES: a key with no arm here is not the trailer's and falls through to the page's
 /// ordinary handling (EXIT above all — see `screens::player`'s same carve-out).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub(super) enum TrailerKey {
+pub(crate) enum TrailerKey {
     /// OK and PLAYPAUSE: pause a playing trailer, resume a paused one.
     Toggle,
     /// the remote's dedicated PLAY / PAUSE keys, which are each one direction of that toggle
@@ -76,7 +76,7 @@ pub(super) enum TrailerKey {
 /// process-wide breaker for every later item. `player::preview::seek` closes that hazard with its
 /// own admitted-reload accounting rather than this key ladder routing around it — see
 /// `player/preview.rs`'s module doc for the budget/breaker rules a commit now goes through.
-pub(super) fn trailer_key(
+pub(crate) fn trailer_key(
     key: crate::ui::machine::Key,
     sym: u32,
     wcode: u32,
@@ -108,14 +108,14 @@ pub(super) fn trailer_key(
 /// hero focused — the exact state UP acts on. It leaves on promotion (the mode it advertises is
 /// now on), on the picture going away, and when focus walks off the hero row, because UP means
 /// something else there.
-pub(super) fn hint_shown(picture: bool, promoted: bool, hero_active: bool) -> bool {
+pub(crate) fn hint_shown(picture: bool, promoted: bool, hero_active: bool) -> bool {
     picture && !promoted && hero_active
 }
 
 /// PURE: is the trailer transport on screen? The player HUD's own rule
 /// (`screens::player::input::hud_visible`): inside the linger deadline, or PAUSED — a paused
 /// picture with no chrome at all says nothing about why it stopped.
-pub(super) fn controls_shown(full_trailer: bool, now: u32, until: u32, paused: bool) -> bool {
+pub(crate) fn controls_shown(full_trailer: bool, now: u32, until: u32, paused: bool) -> bool {
     full_trailer && (paused || now < until)
 }
 
@@ -124,12 +124,12 @@ pub(super) fn controls_shown(full_trailer: bool, now: u32, until: u32, paused: b
 /// close to the owner's ask of "roughly 60-70%" (0.72; its own doc calls 0.60 the floor that still
 /// clears 3:1 everywhere). Reused rather than a fresh magic float: the hint is exactly the case
 /// that token exists for, one more line sitting on the video.
-pub(super) const HINT_ALPHA_PEAK: f32 = theme::SCRIM_TEXT_A;
+pub(crate) const HINT_ALPHA_PEAK: f32 = theme::SCRIM_TEXT_A;
 /// The quieter alpha the hint eases down to once it has stood for one [`LINGER_MS`] without going
 /// away — half of [`HINT_ALPHA_PEAK`], so it stays legible but stops competing for attention once
 /// the viewer has had time to read it. A fraction of the peak rather than a second independent
 /// float, so retuning the peak keeps the two in proportion.
-pub(super) const HINT_ALPHA_REST: f32 = HINT_ALPHA_PEAK * 0.5;
+pub(crate) const HINT_ALPHA_REST: f32 = HINT_ALPHA_PEAK * 0.5;
 
 /// PURE: what the hint's eased alpha should be chasing this frame.
 ///
@@ -139,7 +139,7 @@ pub(super) const HINT_ALPHA_REST: f32 = HINT_ALPHA_PEAK * 0.5;
 /// [`HINT_ALPHA_REST`] once [`LINGER_MS`] has passed, the same beat the transport's own controls
 /// linger for. `hint=false` always wins to 0.0 regardless of `elapsed_ms`, which only ever has a
 /// stale reading in that case (the caller clears it on the same edge).
-pub(super) fn hint_alpha_target(hint: bool, elapsed_ms: Option<u32>) -> f32 {
+pub(crate) fn hint_alpha_target(hint: bool, elapsed_ms: Option<u32>) -> f32 {
     if !hint {
         0.0
     } else if elapsed_ms.is_some_and(|ms| ms >= LINGER_MS) {
@@ -152,17 +152,17 @@ pub(super) fn hint_alpha_target(hint: bool, elapsed_ms: Option<u32>) -> f32 {
 /// The full-trailer transport's own animation state. Presentation only — like the rest of the
 /// page's preview scalars it is not hashed into `LogicalState`.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub(super) struct Transport {
+pub(crate) struct Transport {
     /// The auto-hide DEADLINE in `Tick::ms`, not a countdown — the player HUD's idiom
     /// (`PlayerScreen::hud.until`), and the one `ci/check-deps.sh`'s `dt` gate requires of an
     /// animator here: absolute clock readings, never a per-frame delta accumulated into state.
     until_ms: u32,
     /// the transport's eased alpha
-    pub(super) alpha: f32,
+    pub(crate) alpha: f32,
     /// the UP hint's eased alpha — eases toward [`HINT_ALPHA_PEAK`] on appearing, then toward the
     /// quieter [`HINT_ALPHA_REST`] once it has stood for one [`LINGER_MS`] without going away, and
     /// toward 0 the moment [`hint_shown`] turns false. See [`hint_alpha_target`].
-    pub(super) hint: f32,
+    pub(crate) hint: f32,
     /// When the hint most recently transitioned false→true, so [`hint_alpha_target`] can tell how
     /// long it has been continuously up. `None` while it is down.
     hint_since: Option<u32>,
@@ -197,7 +197,7 @@ pub(super) struct Transport {
 }
 
 impl Transport {
-    pub(super) const IDLE: Self = Self {
+    pub(crate) const IDLE: Self = Self {
         until_ms: 0,
         alpha: 0.0,
         hint: 0.0,
@@ -215,7 +215,7 @@ impl Transport {
     };
 
     /// A key arrived: put the controls back on screen for a full linger.
-    pub(super) fn reveal(&mut self) {
+    pub(crate) fn reveal(&mut self) {
         self.until_ms = self.now_ms.wrapping_add(LINGER_MS);
     }
 
@@ -223,7 +223,7 @@ impl Transport {
     /// belongs to a session the viewer has stopped looking at, and any scrub gesture in flight is
     /// abandoned uncommitted — leaving it live would keep [`step_scrub_hold`](Self::step_scrub_hold)
     /// firing in the background after the page nobody is looking at has already collapsed.
-    pub(super) fn dismiss(&mut self) {
+    pub(crate) fn dismiss(&mut self) {
         self.until_ms = 0;
         self.play_at = None;
         self.cancel_scrub();
@@ -232,13 +232,13 @@ impl Transport {
     /// Is a scrub gesture (held or a tap awaiting its debounce) in progress right now? What
     /// [`draw`](Self::draw) reads to decide whether the playbar/read-out follow the preview
     /// instead of the live position.
-    pub(super) fn scrubbing(&self) -> bool {
+    pub(crate) fn scrubbing(&self) -> bool {
         self.scrub_ns >= 0
     }
 
     /// Discard the gesture without committing — a refused seek (budget spent, or the mode ending
     /// mid-hold) leaves playback exactly where it already was.
-    pub(super) fn cancel_scrub(&mut self) {
+    pub(crate) fn cancel_scrub(&mut self) {
         self.scrub_ns = -1;
         self.scrub_dir = 0;
         self.scrub_hold = false;
@@ -252,7 +252,7 @@ impl Transport {
     /// is `player::duration_ns()`, `live_ns` is `player::playpos_ns()` — passed in rather than
     /// read here so this stays a pure function of state the caller already has, like the rest of
     /// this type.
-    pub(super) fn scrub_fresh(&mut self, fwd: bool, now: u32, dur_ns: i64, live_ns: i64) {
+    pub(crate) fn scrub_fresh(&mut self, fwd: bool, now: u32, dur_ns: i64, live_ns: i64) {
         if dur_ns <= 0 {
             return;
         }
@@ -276,7 +276,7 @@ impl Transport {
     }
 
     /// A hardware auto-repeat while a direction is held: port of the HUD's `key_scrub_repeat`.
-    pub(super) fn scrub_repeat(&mut self, now: u32) {
+    pub(crate) fn scrub_repeat(&mut self, now: u32) {
         if self.scrub_dir != 0 && !self.scrub_hold {
             self.scrub_hold = true;
             self.scrub_hold_since = now;
@@ -293,7 +293,7 @@ impl Transport {
     /// target once `SCRUB_LOST_MS` has passed with no repeat (a dropped keyup, exactly as the
     /// HUD's own safety commit exists for); `None` otherwise. The caller asks `player::preview` to
     /// seek there — this type only tracks the gesture, it does not perform the seek.
-    pub(super) fn step_scrub_hold(&mut self, now: u32, dur_ns: i64) -> Option<i64> {
+    pub(crate) fn step_scrub_hold(&mut self, now: u32, dur_ns: i64) -> Option<i64> {
         if self.scrub_dir == 0 || !self.scrub_hold {
             return None;
         }
@@ -322,7 +322,7 @@ impl Transport {
     /// Key-up: a hold commits at once; a plain tap arms the debounce instead, so a rapid burst
     /// coalesces into one seek — the HUD's own `key_scrub_release`, minus the `reveal`-only-press
     /// case it needs and this transport does not (see [`scrub_fresh`](Self::scrub_fresh)'s doc).
-    pub(super) fn scrub_release(&mut self, now: u32) -> Option<i64> {
+    pub(crate) fn scrub_release(&mut self, now: u32) -> Option<i64> {
         if self.scrub_dir == 0 {
             return None;
         }
@@ -343,7 +343,7 @@ impl Transport {
     /// The tap debounce, stepped every frame — the HUD's own `step_tap_commit`. Fires once
     /// `commit_at` has passed, returning the target to commit; a pending commit whose gesture was
     /// cancelled in the meantime (`scrub_ns` already `-1`) simply retires with nothing to give.
-    pub(super) fn step_tap_commit(&mut self, now: u32) -> Option<i64> {
+    pub(crate) fn step_tap_commit(&mut self, now: u32) -> Option<i64> {
         if self.scrub_commit_at == 0 || now.wrapping_sub(self.scrub_commit_at) >= 0x8000_0000 {
             return None;
         }
@@ -355,7 +355,7 @@ impl Transport {
     /// Is the linger still running? Read by the page's own tests instead of the deadline, which
     /// says nothing without the clock reading it was taken from.
     #[cfg(test)]
-    pub(super) fn revealed(&self) -> bool {
+    pub(crate) fn revealed(&self) -> bool {
         self.now_ms < self.until_ms
     }
 
@@ -363,7 +363,7 @@ impl Transport {
     /// outside this module and so cannot read the private `scrub_ns` field directly. Only
     /// meaningful while [`scrubbing`](Self::scrubbing) is true.
     #[cfg(test)]
-    pub(super) fn preview_ns_for_test(&self) -> i64 {
+    pub(crate) fn preview_ns_for_test(&self) -> i64 {
         self.scrub_ns
     }
 
@@ -371,7 +371,7 @@ impl Transport {
     /// TRUE while the transport is up over a running trailer — the clocks and the playbar advance
     /// every frame — and false once it has faded out, so a hidden transport does not hold the
     /// frame gate open.
-    pub(super) fn update(
+    pub(crate) fn update(
         &mut self,
         now: u32,
         dt: f32,
@@ -405,8 +405,8 @@ impl Transport {
         // reappearance starts a fresh peak rather than resuming an old one.
         self.hint_since = hint.then(|| self.hint_since.unwrap_or(now));
         let hint_elapsed = self.hint_since.map(|since| now.wrapping_sub(since));
-        let moved = super::ease(&mut self.alpha, f32::from(shown), dt)
-            | super::ease(&mut self.hint, hint_alpha_target(hint, hint_elapsed), dt);
+        let moved = ease(&mut self.alpha, f32::from(shown), dt)
+            | ease(&mut self.hint, hint_alpha_target(hint, hint_elapsed), dt);
         // A visible transport over a RUNNING trailer is a moving clock and a moving playbar, so it
         // owes the frame gate a report even when no alpha changed this tick. A paused one is
         // static and deliberately owes nothing.
@@ -421,7 +421,7 @@ impl Transport {
     /// the player HUD's pointer drag.
     ///
     /// [`transport_mark`]: crate::ui::player_hud::transport_mark
-    pub(super) fn mark(&self, paused: bool, live_ns: i64) -> TransportMark {
+    pub(crate) fn mark(&self, paused: bool, live_ns: i64) -> TransportMark {
         let scrubbing = self.scrubbing();
         crate::ui::player_hud::transport_mark(
             paused,
@@ -443,12 +443,14 @@ impl Transport {
     /// back to the live position the instant the gesture ends (commit or cancel alike): a commit's
     /// own `engine::arm_seek` republishes the live position at the target immediately, so there is
     /// no frame where the two disagree.
-    pub(super) fn draw(
+    pub(crate) fn draw(
         &self,
         p: Painter,
         film_title: &str,
         extra_title: &str,
         paused: bool,
+        live_ns: i64,
+        dur_ns: i64,
         measure: &dyn crate::ui::machine::Measure,
     ) {
         if self.alpha <= 0.01 {
@@ -462,16 +464,15 @@ impl Transport {
         if let Ok(title) = CString::new(transport_title(film_title, extra_title)) {
             crate::ui::player_hud::draw_title(
                 p,
-                crate::ui::player_hud::Kicker::Context(crate::metadata::TRAILER_CONTEXT_C.as_ptr()),
+                crate::ui::player_hud::Kicker::Context(c"Trailer".as_ptr()),
                 title.as_ptr(),
             );
         }
-        let live_ns = crate::player::playpos_ns();
         crate::ui::player_hud::draw_playbar(
             p,
             Playbar {
                 pos_ns: if self.scrubbing() { self.scrub_ns } else { live_ns },
-                dur_ns: crate::player::duration_ns(),
+                dur_ns,
                 // The trailer's playbar is not FOCUSABLE and a pointer cannot drag it — the tick
                 // knob everywhere else on this transport is a read-out — but LEFT/RIGHT do move
                 // it now, same as the player HUD's own scrubber.
@@ -490,7 +491,7 @@ impl Transport {
     /// line's own centre (the logo/title row) rather than sitting under the action row, so the
     /// hint reads as a third element on that line — logo, hint, whatever else shares it — and not
     /// as page furniture pushed down over the video.
-    pub(super) fn draw_hint(&self, p: Painter, cy: f32, measure: &dyn crate::ui::machine::Measure) {
+    pub(crate) fn draw_hint(&self, p: Painter, cy: f32, measure: &dyn crate::ui::machine::Measure) {
         if self.hint <= 0.01 {
             return;
         }
@@ -503,7 +504,7 @@ impl Transport {
 /// Where the hint's LEFT edge lands for a line `width` wide, so the whole line is horizontally
 /// centred on the screen. Split out from [`Transport::draw_hint`] so the centring itself is
 /// host-testable without a `Measure` or a live draw.
-pub(super) fn hint_cx(width: f32) -> f32 {
+pub(crate) fn hint_cx(width: f32) -> f32 {
     (consts::SCR_W - width) * 0.5
 }
 
@@ -513,7 +514,7 @@ pub(super) fn hint_cx(width: f32) -> f32 {
 /// top or bottom is what keeps a taller glyph+label stack from growing down over the video: a
 /// `KeyHint` is already vertically symmetric about its own `cy` ([`KeyHint::draw`]'s contract), so
 /// handing it the row's centre is the whole fix.
-pub(super) fn hint_cy(row_top: f32, row_h: f32) -> f32 {
+pub(crate) fn hint_cy(row_top: f32, row_h: f32) -> f32 {
     row_top + row_h * 0.5
 }
 
@@ -894,4 +895,9 @@ mod tests {
             t.hint
         );
     }
+}
+
+fn ease(value: &mut f32, target: f32, dt: f32) -> bool {
+ let next=*value+(target-*value)*(dt/0.35).clamp(0.0,1.0);
+ let moved=(next-*value).abs()>0.001;*value=next;moved
 }

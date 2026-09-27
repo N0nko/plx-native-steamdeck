@@ -27,10 +27,10 @@ table in §1, §8.3, §8.4, the goal's bullet 4 and the third decision bullet):
   go with it.
 - Background autoplay gained a hint — an up-chevron key cap reading "`[^] Full screen`" (glyph
   first, no `Press`/`for` filler — shortened 2026-09-17) under the action row
-  (`screens::detail::trailer::hint_shown`), fading in with the picture and out on promotion or
+  (`ui::trailer::hint_shown`), fading in with the picture and out on promotion or
   collapse.
 
-The current record is `rust-modules/src/screens/detail/trailer.rs`, `player/preview.rs`'s module
+The current record is `rust-modules/src/ui/trailer.rs`, `player/preview.rs`'s module
 doc and `hero.rs`'s `focusable`/`visible_ctls`.
 
 **Status (2026-09-15): implemented.** All host-testable pieces below landed
