@@ -171,7 +171,6 @@ pub(crate) fn draw(
             .mix(fm, sm)
             .draw(&env, p.alpha(if metrics.missing.get(index)==Some(&true) && focused!=Some(index) {0.5} else {1.0}));
     }
-    tabs.draw_light(p, 0.0, ROW_H, pop);
     let _ = (selected, focused);
 }
 

@@ -1274,7 +1274,7 @@ mod tests {
     }
 
     #[test]
-    fn performance_season_focus_does_not_refilter_the_scene() {
+    fn season_focus_light_remains_in_the_neighboring_glass_source() {
         use crate::ui::{widgets::{TabStrip, TabGround, SelMark}, Painter, theme};
         let _guard = crate::testlock::serial();
         let sources = Rc::new(RefCell::new(Sources::default()));
@@ -1291,11 +1291,10 @@ mod tests {
                     let _band = controls();
                     declare_glass(p, Rect::new(x, 300.0, 130.0, 60.0));
                 }
-                tabs.draw_light(p, 300.0, 60.0, 1.0);
             }
             sources.borrow_mut().resolve();
-            assert_eq!(sources.borrow().jobs().len(), usize::from(frame == 0),
-                "moving the season focus must reuse the artwork filter");
+            assert_eq!(sources.borrow().jobs().len(), 1,
+                "neighboring glass must reflect the moving white focus capsule");
             commit(&sources);
         }
     }

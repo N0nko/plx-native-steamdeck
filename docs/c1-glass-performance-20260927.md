@@ -6,9 +6,9 @@ Baseline: e058703d, stable release on the test TV. The Middle season-row arrow s
 Raw account-bearing logs are private in the artifact directory.
 
 Changes:
-- The shared tab-strip focus/selection paint now belongs to its controls' backdrop band.
-  Focus motion no longer invalidates the cached artwork filter. A single analytic soft
-  light preserves illumination around the cursor without a scene capture.
+- Owner review rejected excluding focus from the glass source and the broad analytic
+  bloom. Restored the original white cursor inside the source: neighboring buttons
+  refract its light again, accepting that this requires fresh filtering during motion.
 - Plated tabs fade their whole optical material beneath the arriving white capsule;
   fading only the scrim left full-strength refraction that disappeared on the last frame.
   The glass rim now obeys cascade opacity too: at coverage .1, rim weight .2 and
@@ -19,7 +19,8 @@ Changes:
 - Detail layout measurements survive unchanged ticks; the existing content stamp and
   store invalidations still detect changed text, seasons and other geometry inputs.
 
-Regression tests were observed failing before each fix. TV fixtures are maintained under
+The hero and layout regression tests were observed failing before each fix. The glass
+regression now explicitly preserves the owner-preferred neighboring reflection. TV fixtures are maintained under
 1-home-movies-tv/glass-performance.json and 3-playback-details-watchlist/glass-performance.json.
 The timing sample is separate from captures and stack profiling. Stack samples used target
 symbols only because the sampler reported a local binary mismatch; no file/line or profile

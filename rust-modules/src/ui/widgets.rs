@@ -4703,9 +4703,8 @@ impl TabStrip {
     /// Call this BEFORE the pill loop: the capsules are the pills' ground, and a label drawn under an
     /// opaque focus capsule is a label nobody can read.
     pub(crate) fn draw(&self, p: Painter, top: f32, h: f32, ground: TabGround) {
-        // The cursor is light ON the controls, not changing artwork underneath them.
-        // Keeping it in their band avoids refiltering the scene on every spring step.
-        let _material = crate::ui::frame::backdrop::controls();
+        // Keep the bright cursor in the scene sampled by neighboring glass. The
+        // owner prefers this refracted light to a cheaper composited halo.
         let cap = |c: &Capsule, col: [f32; 4], rim: Option<[f32; 4]>, scale: f32, cast: bool| {
             let (x, w) = c.span();
             let a = c.alpha();
@@ -4792,20 +4791,6 @@ impl TabStrip {
             TabGround::Tracked { .. } => cap(&self.foc, crate::ui::ACCENT, None, 1.0, false),
         }
     }
-    /// Draw the cursor's diffuse reflection after the plates. A refractive plate
-    /// replaces its framebuffer pixels, so light beneath it would be covered up.
-    /// Cut out the cursor itself to keep its dark label and white fill unchanged.
-    pub(crate) fn draw_light(&self, p: Painter, top: f32, h: f32, pop: f32) {
-        let _material = crate::ui::frame::backdrop::controls();
-        let (x, w) = self.foc.span();
-        let a = self.foc.alpha();
-        if a > 0.004 && w > 0.5 {
-            let r = Rect::new(x, top, w, h).scaled(pop);
-            p.alpha(a).shadow_outside(r, r.h * 0.5, theme::CONTROL_LIGHT_REACH,
-                0.0, theme::CONTROL_LIGHT);
-        }
-    }
-
     /// The `(focus, selected)` mixes pill `pill` (content-space `(x, w)`) should ink itself with —
     /// hand straight to [`TabPill::mix`].
     pub(crate) fn mixes(&self, pill: (f32, f32)) -> (f32, f32) {
