@@ -1,0 +1,24 @@
+{
+  "group": "3-playback-details-watchlist",
+  "description": "Start on a movie or series Details page with Play focused and known selected media. Repeat with multiple versions and paired companion controls available, disabled, and busy. Arrow keys only; no playback, repair, preparation or watch-state writes.",
+  "steps": [
+    {
+      "name": "01-play-neighbor-light",
+      "before": "detail(/none)?",
+      "after": "detail(/none)?",
+      "keys": [],
+      "settle": 1,
+      "covers": ["detail-action-neighbor-reflections", "3-unified-liquid-glass"],
+      "review": "The white Play face illuminates neighboring action glass. Labels and icons stay sharp; only one shared capture supplies the row. The resting frame stops refreshing."
+    },
+    {
+      "name": "02-action-row-traverse",
+      "before": "detail(/none)?",
+      "after": "detail(/none)?",
+      "keys": ["RIGHT", "RIGHT", "RIGHT", "RIGHT", "RIGHT", "LEFT", "LEFT"],
+      "settle": 1,
+      "covers": ["detail-action-neighbor-reflections"],
+      "review": "Play Version, Repair, Get Ready and the remaining action discs reflect the focused face into neighbors while preserving label unfurl, geometry and dimmed disabled states. Repeat moving arrows while collecting uninstrumented frame-time spikes; screenshots alone do not establish pacing."
+    }
+  ]
+}

@@ -703,7 +703,8 @@ pub(crate) fn layer(z: Z, shared: bool) -> Scope {
     Scope(old)
 }
 /// Controls in the same structural segment share ONE scene capture. Scope the whole widget,
-/// including text, above its source so focus/label changes never invalidate sibling backdrops.
+/// including text, above its source so label changes do not invalidate sibling backdrops.
+/// Groups may place their focused face below this band so neighboring glass reflects that light.
 /// The halfway slot preserves the existing 16-bit snapshot boundaries and 24-bit page bands.
 /// Re-entry is idempotent (a control can contain another control).
 pub(crate) fn controls() -> Scope {
@@ -1045,6 +1046,46 @@ mod tests {
             "the plate and its shadow must illuminate the material source");
         assert!(grouped.iter().filter(|p| p.values.first() == Some(&100)).all(|p| p.z > Z::PAGE),
             "glyphs stay above the source");
+    }
+    #[test]
+    fn grouped_disc_preserves_unfurl_scale_and_disabled_alpha_without_duplicating_its_face() {
+        use crate::ui::{widgets::{CircleButton, ControlButton}, Env, Painter, View};
+        let _guard = crate::testlock::serial();
+        for unfurl in [0.0, 0.5, 1.0] {
+            for focused in [false, true] {
+                for alpha in [1.0, crate::ui::theme::COMPANION_DISABLED_ALPHA] {
+                    let declared = |grouped| {
+                        let sources = Rc::new(RefCell::new(Sources::default()));
+                        sources.borrow_mut().begin(vec![]);
+                        {
+                            let _walk = discover(sources.clone());
+                            let p = Painter::root().translate(17.0, 23.0).alpha(alpha);
+                            let circle = CircleButton::new(c"".as_ptr())
+                                .icon(crate::ui::icons::Icon::Repair)
+                                .frame(Rect::new(100.0, 300.0, CircleButton::cap_w(60.0, unfurl, 140.0), 60.0))
+                                .label(c"Repair".as_ptr(), unfurl).focused(focused).scale(1.03);
+                            if grouped {
+                                let button = ControlButton::Disc(circle);
+                                ControlButton::draw_group(std::iter::once((&button, p)));
+                            } else {
+                                circle.draw(&Env::inert(), p);
+                            }
+                        }
+                        let paints = sources.borrow().paints.clone();
+                        paints
+                    };
+                    let ordinary = declared(false);
+                    let grouped = declared(true);
+                    assert!(!ordinary.is_empty());
+                    assert!(ordinary == grouped,
+                        "unfurl={unfurl}, focused={focused}, alpha={alpha}: grouping must preserve each draw exactly once");
+                    assert_eq!(grouped.iter().any(|paint| paint.z == Z::PAGE), focused,
+                        "only the focused face should reach the source, at its actual disabled/page alpha");
+                    assert!(grouped.iter().filter(|p| p.values.first() == Some(&100)).all(|p| p.z > Z::PAGE),
+                        "the unfurling label remains sharp above the material source");
+                }
+            }
+        }
     }
     fn commit(s: &Rc<RefCell<Sources>>) {
         let mut s = s.borrow_mut();

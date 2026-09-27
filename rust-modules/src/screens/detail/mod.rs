@@ -44,7 +44,7 @@ use crate::ui::screen::{
     Step, Stop,
 };
 use crate::ui::widgets::{
-    AmbientWash, Button, CircleButton, ControlGround, ControlPalette, CtlPop, PosterMark, TabStrip,
+    AmbientWash, Button, CircleButton, ControlButton, ControlGround, ControlPalette, CtlPop, PosterMark, TabStrip,
 };
 use crate::ui::{hero_alpha, theme, Env, Painter, Rect, Spring, View};
 use std::borrow::Cow;
@@ -2395,6 +2395,9 @@ impl DetailScreen {
         } else {
             ControlGround::Keyed
         };
+        // Preserve the exact pill/disc geometry and per-control disabled painter, but put the
+        // focused face below the row's shared glass source so adjacent actions reflect it.
+        let mut buttons: [Option<(ControlButton, Painter)>; 8] = std::array::from_fn(|_| None);
         for (i, ctl) in controls[..n].iter().copied().enumerate() {
             let rect = hero::hero_btn_rect_at(set, i, y, widths);
             let focused = current == Some(ctl.elem());
@@ -2405,8 +2408,8 @@ impl DetailScreen {
                 _=>true,
             };
             let p=if available {p}else{p.alpha(theme::COMPANION_DISABLED_ALPHA)};
-            match ctl {
-                hero::HeroCtl::Play => Button::new(
+            let button = match ctl {
+                hero::HeroCtl::Play => ControlButton::Pill(Button::new(
                     hero::hero_pill_label(set.restart).as_ptr(),
                     theme::size::BODY,
                     rect,
@@ -2415,17 +2418,15 @@ impl DetailScreen {
                 .focused(focused)
                 .palette(palette)
                 .ground(ground)
-                .scale(scale)
-                .draw(&Env::inert(), p),
+                .scale(scale)),
                 hero::HeroCtl::Alt => {
                     let label = hero::ALT_LABEL;
-                    Button::new(label.as_ptr(), theme::size::BODY, rect)
+                    ControlButton::Pill(Button::new(label.as_ptr(), theme::size::BODY, rect)
                         .trailing_icon(crate::ui::icons::Icon::ChevronDown)
                         .focused(focused)
                         .palette(palette)
                         .ground(ground)
-                        .scale(scale)
-                        .draw(&Env::inert(), p)
+                        .scale(scale))
                 }
                 ctl => {
                     let icon = match ctl {
@@ -2448,10 +2449,12 @@ impl DetailScreen {
                     if let Some((slot, label)) = hero::disc_verb(ctl, self.named_show(meta)) {
                         button = button.label(label.as_ptr(), self.disc_unfurl[slot].pos);
                     }
-                    button.draw(&Env::inert(), p);
+                    ControlButton::Disc(button)
                 }
-            }
+            };
+            buttons[i] = Some((button, p));
         }
+        ControlButton::draw_group(buttons.iter().flatten().map(|(button, p)| (button, *p)));
     }
 
     fn draw_compact_title(&self, p: Painter, d: &Detail, hero_visible: f32, measure: &dyn crate::ui::machine::Measure) {
@@ -3761,10 +3764,14 @@ impl DetailScreen {
  fn companion_action<H:ContentLike>(&mut self,ctl:hero::HeroCtl,meta:crate::metadata::MetadataView<'_>,fx:&mut Effects<'_,H>){
   use crate::media_companion::{Action,Request};
   let action=if ctl==hero::HeroCtl::Repair{Action::Repair}else{Action::Prepare};
+  if self.companion_profile!=crate::plex::session::current_gen(){return;}
   let Some(key)=self.companion_target(meta)else{return;};
   let Some(state)=self.companion.as_mut().filter(|s|s.key==key && !s.busy)else{return;};
   if !(if action==Action::Repair{state.can_repair}else{state.can_prepare}){return;}
-  if self.companion_confirm==Some(action){self.companion_confirm=None;state.busy=true;state.label="Requesting".into();fx.push(Fx::App(AppFx::Companion(Request{key,action})));}
+  // Repair is the explicit request to replace/upgrade this file. Submit on the
+  // first click; a second confirmation looked like a non-working button. Keep
+  // Get Ready's existing confirmation and the adapter's typed single-flight path.
+  if action==Action::Repair || self.companion_confirm==Some(action){self.companion_confirm=None;state.busy=true;state.label="Requesting".into();fx.push(Fx::App(AppFx::Companion(Request{key,action})));}
   else{self.companion_confirm=Some(action);}
   fx.invalidate(Provenance::Input);
  }

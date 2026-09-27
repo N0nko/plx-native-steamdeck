@@ -2632,6 +2632,25 @@ impl CircleButton {
 }
 impl View for CircleButton {
     fn draw(&self, _e: &Env, p: Painter) {
+        self.draw_layer(p, false);
+    }
+}
+impl CircleButton {
+    fn focus_ground(&self) -> bool {
+        let face = self.style.face(self.focused, self.ground, self.palette);
+        self.focused && face.top[3] >= 0.98 && face.body[3] >= 0.98
+    }
+
+    fn plate(&self, p: Painter) {
+        let face = self.style.face(self.focused, self.ground, self.palette);
+        let plate = face_box(self.frame.scaled(self.scale));
+        if self.focused {
+            control_cast(p, plate, plate.h * 0.5);
+        }
+        control_rim(p, plate, plate.h * 0.5, face.top, face.body, self.focused, self.ground);
+    }
+
+    fn draw_layer(&self, p: Painter, grounded_focus: bool) {
         let _material = crate::ui::frame::backdrop::controls();
         let base = self.frame;
         let r = base.scaled(self.scale);
@@ -2644,19 +2663,9 @@ impl View for CircleButton {
         // At REST the edge holds it; FOCUS lifts it (`control_cast`). An unfurled disc is a
         // capsule, and `face_box`/`face_outline` pick that up from the shape rather than from a
         // flag — at rest both are no-ops on a circle.
-        let plate = face_box(r);
-        if self.focused {
-            control_cast(p, plate, plate.h * 0.5);
+        if !grounded_focus {
+            self.plate(p);
         }
-        control_rim(
-            p,
-            plate,
-            plate.h * 0.5,
-            face.top,
-            face.body,
-            self.focused,
-            self.ground,
-        );
         // Resolve the unfurl from the FRAME, before anything is placed by it: `cap_label_w` answers
         // `None` for a frame that is not a capsule, and that verdict governs the GLYPH as well as
         // the word. Sliding the icon off the caller's raw `e` was a real defect — a control whose
@@ -6900,6 +6909,33 @@ impl Button {
                 Rect::new(ax, r.y + (r.h - asz) * 0.5, asz, asz),
                 ink,
             );
+        }
+    }
+}
+
+/// A mixed row of ordinary pills and label-unfurling discs. Each item keeps its painter so
+/// disabled alpha, page fades and transforms apply identically to its reflected face and ink.
+/// Values can live in bounded stack storage; the row still uses one shared control source.
+pub(crate) enum ControlButton {
+    Pill(Button),
+    Disc(CircleButton),
+}
+impl ControlButton {
+    pub(crate) fn draw_group<'a>(buttons: impl Iterator<Item = (&'a Self, Painter)> + Clone) {
+        for (button, p) in buttons.clone() {
+            match button {
+                Self::Pill(b) if b.focus_ground() => {
+                    b.plate(p, b.frame.scaled(b.scale), b.style.face(b.focused, b.ground, b.palette));
+                }
+                Self::Disc(b) if b.focus_ground() => b.plate(p),
+                _ => {}
+            }
+        }
+        for (button, p) in buttons {
+            match button {
+                Self::Pill(b) => b.draw_layer(p, b.focus_ground()),
+                Self::Disc(b) => b.draw_layer(p, b.focus_ground()),
+            }
         }
     }
 }

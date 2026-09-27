@@ -563,5 +563,10 @@
     "group": "3-playback-details-watchlist",
     "id": "director-credits",
     "title": "Movie, episode and supplied series director credits; writer-only fallback correctly labeled; missing credits leave no empty heading"
+  },
+  {
+    "group": "3-playback-details-watchlist",
+    "id": "detail-action-neighbor-reflections",
+    "title": "Movie and series action glass reflects focused Play, Play Version, Repair and Get Ready; disabled states, unfurl and shared-source frame times remain intact"
   }
 ]

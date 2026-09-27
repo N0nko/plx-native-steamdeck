@@ -9,6 +9,62 @@ use super::*;
 fn season_hint_has_its_own_space_between_buttons_and_episodes() {
     assert!(TAB_EP_GAP >= 32.0 + theme::space::MD * 2.0);
 }
+
+#[test]
+fn hero_action_glass_reflects_each_focused_control_and_reuses_its_source_at_rest() {
+    use crate::ui::frame::backdrop;
+    use std::{cell::RefCell, rc::Rc};
+    let guard = crate::testlock::serial();
+    let sid = ServerId::default();
+    let part = "/library/parts/123/a/file.mkv";
+    let versions = vec![crate::metadata::MediaVersion {
+        part_count: 1,
+        source: crate::media_version::Candidate { part_key: part.into(), ..Default::default() },
+        ..Default::default()
+    }];
+    for is_show in [false, true] {
+        let mut d = Detail {
+            sid, rk: "42".into(), part: part.into(), versions: versions.clone(), is_show,
+            kind: if is_show { "show" } else { "movie" }.into(),
+            ..Default::default()
+        };
+        if is_show {
+            d.episodes = vec![crate::metadata::Episode {
+                rk: "43".into(), part: part.into(), versions: versions.clone(),
+                ..Default::default()
+            }];
+        }
+        crate::metadata::set_current_for_test(test_store().state_mut(), Some(d));
+        let mut screen = bare(&guard, sid, "42");
+        let key = screen.companion_target(test_store().view()).unwrap();
+        screen.companion = Some(crate::media_companion::Snapshot {
+            key, label: "Streaming".into(), configured: true, busy: false,
+            can_repair: true, can_prepare: true,
+        });
+        screen.companion_profile = crate::plex::session::current_gen();
+        let set = screen.hero_set(test_store().view());
+        assert!(set.versions && set.repair && set.prepare);
+        let sources = Rc::new(RefCell::new(backdrop::Sources::default()));
+        let focus = [hero::HeroCtl::Play, hero::HeroCtl::Versions, hero::HeroCtl::Repair,
+            hero::HeroCtl::Prepare, hero::HeroCtl::Prepare];
+        for (frame, ctl) in focus.into_iter().enumerate() {
+            sources.borrow_mut().begin(vec![]);
+            {
+                let _walk = backdrop::discover(sources.clone());
+                let p = Painter::root();
+                p.rect(Rect::FULL, 0.0, theme::SURFACE_APP, theme::SURFACE_APP, 0.0);
+                let measure = crate::ui::fixture::FixtureMeasure;
+                let context = cx(&measure, Some(ctl.elem()));
+                screen.draw_buttons(p, &context, 500.0, 1.0);
+            }
+            sources.borrow_mut().resolve();
+            assert_eq!(sources.borrow().jobs().len(), usize::from(frame != 4),
+                "show={is_show}, {ctl:?}: the one shared source must follow focus light, then rest");
+            sources.borrow_mut().retain_declared_for_test();
+        }
+        clear();
+    }
+}
 use crate::ui::machine::{Chrome, Host, InputEvent, PressRead, ScreenId};
 use crate::ui::screen::{At, Focusable, ScreenArg};
 
@@ -225,6 +281,103 @@ fn companion_busy_snapshot_is_reobserved_after_returning_to_detail() {
             action: crate::media_companion::Action::Observe, ..
         }))
     )), "a covered page must recover a busy snapshot even if its reply went to another page");
+    clear();
+}
+
+fn companion_action_fixture() -> (crate::testlock::Serial, DetailScreen, crate::media_companion::Key) {
+    let sid = ServerId::default();
+    let part = "/library/parts/123/a/file.mkv";
+    let guard = install(Detail {
+        sid, rk: "42".into(), part: part.into(),
+        versions: vec![crate::metadata::MediaVersion {
+            part_count: 1,
+            source: crate::media_version::Candidate { part_key: part.into(), ..Default::default() },
+            ..Default::default()
+        }],
+        ..Default::default()
+    });
+    let mut screen = bare(&guard, sid, "42");
+    let key = crate::media_companion::Key::new(sid, "42", part).unwrap();
+    screen.companion = Some(crate::media_companion::Snapshot {
+        key: key.clone(), label: "Streaming".into(), configured: true, busy: false,
+        can_repair: true, can_prepare: true,
+    });
+    screen.companion_profile = crate::plex::session::current_gen();
+    (guard, screen, key)
+}
+
+fn companion_requests(effects: &[crate::ui::machine::Stamped<TestHost>]) -> Vec<&crate::media_companion::Request> {
+    effects.iter().filter_map(|effect| match &effect.fx {
+        Fx::App(AppFx::Companion(request)) => Some(request),
+        _ => None,
+    }).collect()
+}
+
+#[test]
+fn companion_repair_first_click_requests_once_and_busy_repeats_do_not_submit() {
+    let (_guard, mut screen, key) = companion_action_fixture();
+    let activate = ScreenEvent::Activate(hero::HeroCtl::Repair.elem());
+    let (_, effects) = step(&mut screen, &activate, Some(hero::HeroCtl::Repair.elem()));
+    let requests = companion_requests(&effects);
+    assert_eq!(requests.len(), 1, "Repair must send the request on the first click");
+    assert_eq!(requests[0].key, key);
+    assert_eq!(requests[0].action, crate::media_companion::Action::Repair);
+    assert!(screen.companion.as_ref().unwrap().busy);
+    assert_eq!(screen.companion.as_ref().unwrap().label, "Requesting");
+    assert_eq!(screen.companion_confirm, None);
+    for _ in 0..3 {
+        let (_, effects) = step(&mut screen, &activate, Some(hero::HeroCtl::Repair.elem()));
+        assert!(companion_requests(&effects).is_empty(), "busy Repair is single-flight");
+    }
+    clear();
+}
+
+#[test]
+fn companion_repair_rejects_unavailable_or_stale_capabilities() {
+    let (_guard, mut screen, _) = companion_action_fixture();
+    let current = screen.companion.clone().unwrap();
+    for case in ["disabled", "busy", "part", "item", "profile", "missing"] {
+        screen.companion = Some(current.clone());
+        screen.companion_profile = crate::plex::session::current_gen();
+        let state = screen.companion.as_mut().unwrap();
+        match case {
+            "disabled" => state.can_repair = false,
+            "busy" => state.busy = true,
+            "part" => state.key.part = "124".into(),
+            "item" => state.key.rk = "43".into(),
+            "profile" => screen.companion_profile = screen.companion_profile.wrapping_add(1),
+            "missing" => screen.companion = None,
+            _ => unreachable!(),
+        }
+        let (_, effects) = step(&mut screen,
+            &ScreenEvent::Activate(hero::HeroCtl::Repair.elem()), Some(hero::HeroCtl::Repair.elem()));
+        assert!(companion_requests(&effects).is_empty(), "{case} capability must not submit");
+        assert_eq!(screen.companion_confirm, None, "{case} capability must not arm a later action");
+    }
+    clear();
+}
+
+#[test]
+fn companion_prepare_retains_confirmation_and_cannot_turn_repair_into_prepare() {
+    let (_guard, mut screen, key) = companion_action_fixture();
+    let activate = ScreenEvent::Activate(hero::HeroCtl::Prepare.elem());
+    let (_, effects) = step(&mut screen, &activate, Some(hero::HeroCtl::Prepare.elem()));
+    assert!(companion_requests(&effects).is_empty());
+    assert_eq!(screen.companion_confirm, Some(crate::media_companion::Action::Prepare));
+    let (_, effects) = step(&mut screen,
+        &ScreenEvent::Activate(hero::HeroCtl::Repair.elem()), Some(hero::HeroCtl::Repair.elem()));
+    let requests = companion_requests(&effects);
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].key, key);
+    assert_eq!(requests[0].action, crate::media_companion::Action::Repair);
+    assert_eq!(screen.companion_confirm, None);
+    screen.companion.as_mut().unwrap().busy = false;
+    let (_, effects) = step(&mut screen, &activate, Some(hero::HeroCtl::Prepare.elem()));
+    assert!(companion_requests(&effects).is_empty());
+    let (_, effects) = step(&mut screen, &activate, Some(hero::HeroCtl::Prepare.elem()));
+    let requests = companion_requests(&effects);
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].action, crate::media_companion::Action::Prepare);
     clear();
 }
 
