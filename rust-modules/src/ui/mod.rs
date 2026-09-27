@@ -1753,12 +1753,9 @@ mod tests {
         assert!(skipped, "an occluded glass is consumed without recording");
     }
 
-    /// …while a glass declared IN the surfaces band still trips the assertion: nothing there is
-    /// ever resolved, so the declaration itself is the bug.
+    /// Modal-band glass is now a supported shared material; it must reach the recorder.
     #[test]
-    #[cfg(debug_assertions)]
-    #[should_panic(expected = "surfaces band")]
-    fn a_glass_in_the_surfaces_band_still_asserts() {
+    fn modal_glass_declarations_are_recorded() {
         use frame::backdrop::{self, Sources, Z};
         use std::{cell::RefCell, rc::Rc};
         let _guard = crate::testlock::serial();
@@ -1766,6 +1763,9 @@ mod tests {
         sources.borrow_mut().begin(vec![]);
         let _walk = backdrop::discover(sources.clone());
         let _surface = backdrop::layer(Z::surface(0), true);
-        let _ = Painter::root().declare(Rect::new(0.0, 0.0, 100.0, 40.0), backdrop::GLASS_COMMAND, |_| {});
+        let mut recorded = false;
+        assert!(Painter::root().declare(Rect::new(0.0, 0.0, 100.0, 40.0),
+            backdrop::GLASS_COMMAND, |_| { recorded = true; }));
+        assert!(recorded, "modal glass must not take the discarded-paint fast path");
     }
 }

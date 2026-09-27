@@ -561,7 +561,6 @@ mod tests {
     }
 }
 
-/// `SDL_webOSGetPanelResolution`, if this SDL has it. Diagnostic only — never a layout input.
 /// ABI from the bundled SDL_video.h; optional read-only lookup adds no firmware import.
 #[repr(C)]
 struct DisplayMode {
@@ -584,6 +583,7 @@ fn log_display_cadence() {
     }
 }
 
+/// `SDL_webOSGetPanelResolution`, if present. Diagnostic only; never a layout input.
 fn panel_resolution() -> Option<(i32, i32)> {
     let h = crate::dynlib::Handle::self_handle();
     let f = h.sym("SDL_webOSGetPanelResolution")?;
