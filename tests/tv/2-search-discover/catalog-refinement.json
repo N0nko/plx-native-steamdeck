@@ -15,7 +15,7 @@
     {
       "name": "02-cast-person",
       "before": "search/catalog_details",
-      "after": "person(/none)?",
+      "after": "search/person",
       "keys": [
         "DOWN",
         "OK"
@@ -28,16 +28,18 @@
     },
     {
       "name": "03-filmography",
-      "before": "person(/none)?",
-      "after": "person(/filmography|/none)?",
+      "before": "search/person",
+      "after": "search/person",
       "keys": [
+        "UP",
+        "DOWN",
         "OK"
       ],
       "settle": 3,
       "covers": [
         "discovery-person-filmography"
       ],
-      "review": "Verify the existing Filmography screen opens with real title posters, not only a matching route."
+      "review": "Verify the existing Filmography screen opens with the real credits list, not only a matching route."
     }
   ]
 }
