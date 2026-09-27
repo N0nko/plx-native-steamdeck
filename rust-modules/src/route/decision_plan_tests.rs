@@ -13,7 +13,13 @@ fn catalog_trailer_uses_captured_account_without_a_pms_queue() {
     assert!(build_stream("", part, "h264", "aac", &env).url.is_empty());
     env.catalog=Some(std::sync::Arc::new(crate::plex::account::AccountClient::new("fixture",Some("captured-profile"))));
     let plan=build_stream("", part, "h264", "aac", &env);
-    assert_eq!(plan.url, format!("https://metadata.provider.plex.tv{part}?X-Plex-Token=captured-profile"));
+    // Exercise the same split/reassembly as the native player, whose legacy
+    // missing-port default is the PMS port, not HTTPS's public-service port.
+    let stream = crate::plex::StreamUrl::parse(&plan.url);
+    assert_eq!(stream.port(), 443);
+    assert!(stream.origin.is_tls());
+    assert_eq!(stream.to_url(), plan.url);
+    assert_eq!(plan.url, format!("https://metadata.provider.plex.tv:443{part}?X-Plex-Token=captured-profile"));
     assert!(plan.pq_id.is_empty() && plan.tsession.is_empty());
     assert_eq!(plan.part_id,0);
     assert!(plan.source_decodable);

@@ -53,7 +53,7 @@ mod trailer_tests {
         }
         let client=AccountClient::new("fixture",Some("private test"));
         let url=client.catalog_trailer_url(&key).unwrap();
-        assert!(url.starts_with("https://metadata.provider.plex.tv/library/metadata/"));
+        assert!(url.starts_with("https://metadata.provider.plex.tv:443/library/metadata/"));
         assert!(url.ends_with("X-Plex-Token=private%20test"));
         assert!(client.catalog_trailer_url("https://evil.test/").is_none());
     }
