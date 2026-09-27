@@ -193,6 +193,11 @@ pub struct AccountClient {
 }
 
 impl AccountClient {
+    pub(crate) fn catalog_trailer_url(&self, key: &str) -> Option<String> {
+        if !super::catalog::valid_trailer_key(key) { return None; }
+        let token = self.token.as_ref().filter(|t| !t.is_empty())?;
+        Some(format!("https://metadata.provider.plex.tv{key}?X-Plex-Token={}", crate::pms::urlenc_str(token)))
+    }
     pub fn new(client_id: &str, token: Option<&str>) -> AccountClient {
         AccountClient {
             client_id: client_id.to_owned(),

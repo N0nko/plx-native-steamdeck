@@ -525,6 +525,8 @@ pub(super) fn up_next_of(r: &crate::plex::QueueRow) -> Option<UpNext> {
 /// It is captured here, at the request, and every PMS call the worker makes is `client_for(sid)`.
 #[derive(Clone, Default)]
 pub(crate) struct ResolveEnv {
+    /// Catalog authority captured when Play is pressed, never re-read on the worker.
+    pub catalog: Option<std::sync::Arc<crate::plex::account::AccountClient>>,
     /// WHICH SERVER this playback's item lives on — the scope for every server-local key the
     /// resolve then uses (`rk`, `Part.key`, `Stream.id`). Not "the current server" (see
     /// [`Session::cur_sid`]): captured on the main thread with everything else here, because the
@@ -760,6 +762,18 @@ pub(crate) struct Plan {
 /// the wrong authority for every id in this function. The server arrives in `env.sid` and the only
 /// client here is `client_for` of it.
 pub(super) fn build_stream(rk: &str, part: &str, vcodec: &str, acodec: &str, env: &ResolveEnv) -> Plan {
+    // Catalog trailers have no server-local rating key, PlayQueue or viewing progress.
+    // Keep them on the ordinary asynchronous resolve/landing and native playback lifecycle.
+    if rk.is_empty() && crate::plex::catalog::valid_trailer_key(part) {
+        return Plan {
+            sid: env.sid,
+            url: env.catalog.as_ref().and_then(|c| c.catalog_trailer_url(part)).unwrap_or_default(),
+            vcodec: "h264".into(), acodec: "aac".into(),
+            src_vcodec: "h264".into(), src_acodec: "aac".into(),
+            source_decodable: true,
+            ..Default::default()
+        };
+    }
     build_stream_with(rk, part, vcodec, acodec, env, crate::metadata::fetch_playing_version)
 }
 

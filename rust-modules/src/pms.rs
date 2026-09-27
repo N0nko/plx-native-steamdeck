@@ -34,7 +34,7 @@ pub(crate) mod initial;
 
 /// Catalog rows Home holds at most, across EVERY source. A hard ceiling on the store the whole
 /// screen indexes into, not a per-server one — see [`allot`] for how the sources divide it.
-const PMS_MAX_MOVIES: usize = 256;
+const PMS_MAX_MOVIES: usize = MAX_SHELVES * MAX_SHELF_ITEMS;
 
 /// Shelves Home holds at most, across every source — the number of rows the grid can actually
 /// address (the owned Home's `MAX_HUBS` is this constant, so the budget can never quietly stop matching
@@ -49,16 +49,28 @@ pub(crate) const MAX_SHELVES: usize = 16;
 /// Cards one shelf holds at most — the number the grid can address (the owned Home's `MAX_ITEMS` is this
 /// constant, for the same reason [`MAX_SHELVES`] is).
 ///
-/// It was unreachable with one server, because `/hubs?count=12` bounds every shelf at 12. The
-/// MERGED deck is what reaches it: three sources' Continue Watching is up to 36 cards, and
-/// the home grid's focus ring and its OK dispatch clamp differently past this number — the ring stops
-/// at the last addressable card while the press opens whatever column the raw index names. Cap the
-/// data and the two can never disagree.
-pub(crate) const MAX_SHELF_ITEMS: usize = 24;
+/// Fetch more candidates than this so removal of duplicate TV containers leaves a useful shelf.
+/// The Home focus/address budget uses this same cap.
+pub(crate) const MAX_SHELF_ITEMS: usize = crate::ui::card_row::MAX_ROW_ITEMS;
 
 /// Items asked of each hub endpoint, per source. `/hubs?count=` is items-per-hub, so this bounds
 /// a shelf, never the number of shelves.
-const HUB_FETCH_COUNT: i64 = 12;
+pub(crate) const HUB_FETCH_COUNT: i64 = 96;
+
+/// Recently Added mixes show/season containers with their own episodes. Keep the
+/// container when it is already present, without hiding independent episodes from other seasons.
+pub(crate) fn shelf_metadata(hub: &crate::plex::Hub) -> Vec<&crate::plex::Metadata> {
+    let recent = hub.hub_identifier.split('.').any(|s| matches!(s, "recent" | "recentlyadded"));
+    let contains = |kind: &str, key: &str| !key.is_empty() && hub.metadata.iter()
+        .any(|m| m.kind == kind && m.rating_key == key && !m.title.is_empty() && !m.thumb.is_empty());
+    let mut seen = std::collections::HashSet::new();
+    hub.metadata.iter().filter(|m| {
+        if recent && ((m.kind == "episode" && (contains("season", &m.parent_rating_key)
+            || contains("show", &m.grandparent_rating_key)))
+            || (m.kind == "season" && contains("show", &m.parent_rating_key))) { return false; }
+        m.rating_key.is_empty() || seen.insert(m.rating_key.as_str())
+    }).collect()
+}
 
 /// A catalog row — owned strings (the old C-ABI fixed `[u8; N]` buffers are gone; no C
 /// consumer remains). Fields pub(crate) so the UI / route / player read them directly.
@@ -820,7 +832,7 @@ fn project(
         if hub.hub_identifier == "home.continue" || hub.hub_identifier == "home.ondeck" {
             continue; // superseded by the dedicated hub above
         }
-        let items: Vec<PmsMovie> = hub.metadata.iter().filter_map(&keep).collect();
+        let items: Vec<PmsMovie> = shelf_metadata(hub).into_iter().filter_map(&keep).collect();
         if items.is_empty() || !keep_library_shelf(&hub.hub_identifier,items.len()) {
             continue;
         }
@@ -2193,6 +2205,25 @@ impl crate::ui::tile::Tile for PmsMovie {
 #[cfg(test)]
 mod library_shelf_policy_tests {
     use super::*;
+    #[test]
+    fn recent_tv_shelves_do_not_repeat_an_episode_beneath_its_season_or_show() {
+        let mc: crate::plex::MediaContainer = serde_json::from_value(serde_json::json!({"Hub":[{
+            "hubIdentifier":"tv.recentlyadded.5", "title":"Recently Added TV", "type":"mixed",
+            "Metadata":[
+                {"ratingKey":"2","type":"season","parentRatingKey":"1","title":"Season 2","thumb":"/2.jpg"},
+                {"ratingKey":"3","type":"episode","parentRatingKey":"2","grandparentRatingKey":"1","title":"Episode 5","thumb":"/3.jpg"},
+                {"ratingKey":"4","type":"episode","parentRatingKey":"5","grandparentRatingKey":"6","title":"Different season","thumb":"/4.jpg"},
+                {"ratingKey":"7","type":"show","title":"Another show","thumb":"/7.jpg"},
+                {"ratingKey":"8","type":"season","parentRatingKey":"7","title":"Season 1","thumb":"/8.jpg"}
+            ]}]})).unwrap();
+        let sid = ServerId::from_raw(1);
+        let home = project(&mc, &crate::plex::MediaContainer::default(), sid);
+        let library = crate::browse::section_hubs::parse_hubs(&mc, sid);
+        for keys in [home.shelves[0].items.iter().map(|m|m.rk.as_str()).collect::<Vec<_>>(),
+                     library[0].items.iter().map(|m|m.rk.as_str()).collect::<Vec<_>>()] {
+            assert_eq!(keys, ["2", "4", "7"]);
+        }
+    }
     #[test]
     fn recently_watched_and_one_title_person_rails_are_omitted_but_deck_and_collections_stay() {
         assert!(!keep_library_shelf("movie.recentlyviewed.6",24));

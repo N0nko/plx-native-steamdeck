@@ -6,6 +6,19 @@ use super::*;
 use super::test_support::*;
 use super::test_support::apply_plan;
 
+#[test]
+fn catalog_trailer_uses_captured_account_without_a_pms_queue() {
+    let part="/library/metadata/5d776cac47dd6e001f6ee059/extras/620427be133b2900559ccaa1/parts/mp4-2500";
+    let mut env=ResolveEnv::default();
+    assert!(build_stream("", part, "h264", "aac", &env).url.is_empty());
+    env.catalog=Some(std::sync::Arc::new(crate::plex::account::AccountClient::new("fixture",Some("captured-profile"))));
+    let plan=build_stream("", part, "h264", "aac", &env);
+    assert_eq!(plan.url, format!("https://metadata.provider.plex.tv{part}?X-Plex-Token=captured-profile"));
+    assert!(plan.pq_id.is_empty() && plan.tsession.is_empty());
+    assert_eq!(plan.part_id,0);
+    assert!(plan.source_decodable);
+}
+
 /// Policy fixture only: production build_stream always fetches fresh metadata. This supplies a
 /// known selected-version snapshot so pre-existing MDE/audio policy tests keep their scope.
 #[cfg(feature = "devtriggers")]

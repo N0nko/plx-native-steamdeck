@@ -1494,7 +1494,7 @@ fn the_home_census_covers_input_motion_and_current_projection() {
     }
     // These extents are part of SHAPE, not merely runtime sequence lengths.
     assert_eq!(HERO_NBTN, 2);
-    assert_eq!(crate::ui::card_row::MAX_ROW_ITEMS, 24);
+    assert_eq!(crate::ui::card_row::MAX_ROW_ITEMS, 48);
 }
 
 #[test]

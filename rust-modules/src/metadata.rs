@@ -1184,7 +1184,7 @@ impl RatingArt {
 /// One review score to badge on the detail hero: the artwork the server named, the score as PMS
 /// normalises it (0–10 for every provider — a 91% tomato arrives as 9.1), and whether PMS filed it
 /// as a critic or an audience score.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 #[derive(serde::Serialize, serde::Deserialize)]
 pub(crate) struct Rating {
     pub(crate) art: RatingArt,
@@ -1197,16 +1197,13 @@ pub(crate) struct Rating {
 /// the superset AND the only form carrying per-score provider identity.
 ///
 /// The flat `rating`/`audienceRating` pair is the fallback for a response that omits the array.
-/// **Today's only caller is `fetch_detail`, and `/library/metadata/{rk}` always sends the array**,
-/// so that branch is reached by nothing but its test right now — it is here because the OTHER
-/// shape is already on the wire and already needed: a section listing sends the flat pair and no
-/// `Rating[]` at all (verified live 2026-07-29), so the moment a grid or the home hero wants a
-/// score, this is the function it will call. In that branch the SLOT is the critic/audience
+/// Library and catalog details share this projection. A section listing can send the flat pair
+/// and no `Rating[]` at all. In that branch the SLOT is the critic/audience
 /// distinction — that is precisely what the two field names mean — since a flat row has no `type`.
 ///
 /// Rows whose artwork cannot be attributed are dropped, as are non-positive scores: PMS omits a
 /// score it does not have, and `de_f64` defaults that to 0.0, so "0.0" means absent, not zero.
-fn convert_ratings(it: &crate::plex::Metadata) -> Vec<Rating> {
+pub(crate) fn convert_ratings(it: &crate::plex::Metadata) -> Vec<Rating> {
     let mut out: Vec<Rating> = if !it.ratings.is_empty() {
         it.ratings
             .iter()

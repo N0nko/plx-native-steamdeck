@@ -1,0 +1,31 @@
+{
+  "group": "2-search-discover",
+  "description": "Start on a catalog details panel with available extras. Read-only navigation; do not activate Watchlist or library playback.",
+  "steps": [
+    {
+      "name": "01-catalog-ratings",
+      "before": ".*catalog.*",
+      "after": ".*catalog.*",
+      "keys": [],
+      "settle": 12,
+      "covers": [
+        "catalog-ratings-trailer"
+      ],
+      "review": "Provider ratings use library presentation; omit absent providers. Trailer only appears when Plex supplies a supported trailer. Open in Library requires an exact local match."
+    },
+    {
+      "name": "02-catalog-buttons",
+      "before": ".*catalog.*",
+      "after": ".*catalog.*",
+      "keys": [
+        "LEFT",
+        "RIGHT"
+      ],
+      "settle": 1,
+      "covers": [
+        "catalog-ratings-trailer"
+      ],
+      "review": "Button focus, ratings, summary and Back hint fit without overlap. Explicit trailer playback is a separate authorized device check."
+    }
+  ]
+}

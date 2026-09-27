@@ -1409,6 +1409,12 @@ pub(crate) unsafe fn each_frame(app: &mut App, fr: &mut Frame) -> bool {
     menupick_arm(app, fr);
     if !app.scenarios.subtitle_search_tried && fr.now.wrapping_sub(app.t0) > 1500 {
         app.scenarios.subtitle_search_tried = true;
+        if crate::dev::flag("catalog-details-fixture") {
+            app.pages.nav.next_style = crate::ui::containers::modal::Style::Alert;
+            app.pages.request(crate::ui::machine::MachineId::Nav, crate::ui::machine::NavOp::Present(AppArg::CatalogDetails(
+                crate::screens::registry::CatalogDetailsArg { catalog_id:"5d776cac47dd6e001f6ee059".into(),
+                    title:"Dune".into(), person:String::new(), department:String::new(), role:String::new(), year:2021 })));
+        }
         if crate::dev::flag("subtitle-search") {
             let arg = app.bridge.metadata_view().current().map(|d| crate::screens::registry::SubtitleArg {
                 sid:d.sid, rk:d.rk.clone(), part:d.part.clone(), playing:false,

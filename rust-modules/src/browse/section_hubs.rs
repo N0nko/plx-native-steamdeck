@@ -61,9 +61,8 @@ use std::panic::catch_unwind;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-/// Items asked for per hub. The server defaults to 6 and honours at least 24 (§3a); it is
-/// items-per-hub and never changes how many hubs come back.
-const HUB_FETCH_COUNT: i64 = 12;
+/// Overfetch before collapsing mixed TV containers; share Home's bounded shelf budget.
+const HUB_FETCH_COUNT: i64 = crate::pms::HUB_FETCH_COUNT;
 
 /// How many shelves a library may draw. Nine is what the dev server's owner arranged and the
 /// endpoint has no documented ceiling, so this bounds a pathological table rather than expressing
@@ -718,9 +717,8 @@ pub(crate) fn parse_hubs(mc: &crate::plex::MediaContainer, sid: ServerId) -> Vec
         if out.len() >= MAX_SHELVES {
             break;
         }
-        let items: Vec<PmsMovie> = hub
-            .metadata
-            .iter()
+        let items: Vec<PmsMovie> = crate::pms::shelf_metadata(hub)
+            .into_iter()
             .filter(|m| !SKIP.contains(&m.kind.as_str()))
             .map(|m| parse_item(m, sid))
             .filter(|m| !m.title.is_empty() && !m.thumb.is_empty())

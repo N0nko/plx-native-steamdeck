@@ -16,6 +16,33 @@
         "library-rail-hygiene"
       ],
       "review": "No Recently Watched row or single-title recommendation row, including cast/director, genre and top-movie recommendations. Recently Added, Continue Watching and explicit collections remain, even if a collection has only one title."
+    },
+    {
+      "name": "02-recently-added-depth",
+      "before": "library",
+      "after": "library",
+      "keys": [
+        "RIGHT",
+        "RIGHT",
+        "RIGHT",
+        "RIGHT",
+        "RIGHT",
+        "RIGHT",
+        "RIGHT",
+        "RIGHT",
+        "RIGHT",
+        "RIGHT",
+        "RIGHT",
+        "RIGHT",
+        "RIGHT",
+        "RIGHT",
+        "RIGHT"
+      ],
+      "settle": 2,
+      "covers": [
+        "shelf-depth-dedup"
+      ],
+      "review": "Setup on Recently Added with >12 eligible items: navigate beyond card 12. Repeat for Home and TV. A season and its contained episodes must not both appear; another season without a container may appear. Maximum 48, fewer when Plex supplies fewer eligible items."
     }
   ]
 }

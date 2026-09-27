@@ -18,7 +18,7 @@ use crate::ui::widgets::{card, Art};
 use crate::ui::{Painter, Rect, Spring};
 use std::os::raw::c_char;
 
-pub(crate) const MAX_ROW_ITEMS: usize = 24; // == home MAX_ITEMS
+pub(crate) const MAX_ROW_ITEMS: usize = 48; // shared with Home/Library data limits
 
 /// The speed above which a scrolling document stops asking for art it does not already have.
 /// A conservative admission policy, not a measured upload cost.

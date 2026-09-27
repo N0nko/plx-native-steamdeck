@@ -27,17 +27,20 @@ impl Controller {
         let (tx, rx) = mpsc::channel();
         let started = crate::task::spawn_small("catalog action", move || {
             let mut reply = Snapshot::pending(&worker);
-            reply.busy = false;
             if worker.profile == crate::plex::session::current_gen() {
-                reply.watchlisted = match worker.desired {
-                    Some(desired) => client.set_watchlisted(&worker.id, desired),
-                    None => client.watchlisted(&worker.id),
-                };
                 if let Some(meta) = client.catalog_detail(&worker.id) {
+                    reply.ratings = crate::metadata::convert_ratings(&meta);
+                    reply.title = meta.title.clone();
+                    reply.summary = meta.summary.clone();
+                    reply.year = meta.year as i32;
                     if let Some(sid) = crate::plex::server_ids().next() {
                         let item = crate::pms::parse_item(&meta, sid);
                         if !item.thumb.is_empty() { reply.poster = Some((sid, item.thumb)); }
                     }
+                    // Paint metadata immediately; library matching, account state and trailers
+                    // are optional background enrichment, never a prerequisite for the panel.
+                    let _ = tx.send(reply.clone());
+                    crate::ui::idle::invalidate();
                     for sid in crate::plex::server_ids() {
                         if worker.profile != crate::plex::session::current_gen() { break; }
                         let Some(server) = crate::plex::client_for(sid) else { continue };
@@ -47,11 +50,16 @@ impl Controller {
                             break;
                         }
                     }
-                    reply.title = meta.title;
-                    reply.summary = meta.summary;
-                    reply.year = meta.year as i32;
+                }
+                if worker.profile == crate::plex::session::current_gen() {
+                    reply.watchlisted = match worker.desired {
+                        Some(desired) => client.set_watchlisted(&worker.id, desired),
+                        None => client.watchlisted(&worker.id),
+                    };
+                    reply.trailer = client.catalog_trailer(&worker.id);
                 }
             }
+            reply.busy = false;
             reply.failed = reply.watchlisted.is_none();
             let _ = tx.send(reply);
             crate::ui::idle::invalidate();
@@ -69,6 +77,12 @@ impl Controller {
         while i < self.pending.len() {
             match self.pending[i].2.try_recv() {
                 Err(TryRecvError::Empty) => i += 1,
+                Ok(reply) if reply.busy => {
+                    if self.pending[i].1.profile == crate::plex::session::current_gen() {
+                        return Some((self.pending[i].0, reply));
+                    }
+                    self.pending.remove(i);
+                }
                 answer => {
                     let (who, req, _) = self.pending.remove(i);
                     if req.profile != crate::plex::session::current_gen() {

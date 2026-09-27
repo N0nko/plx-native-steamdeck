@@ -1964,8 +1964,8 @@ pub(crate) const SCREEN_SHAPES: &[&str] = &[
 /// Owned catalog/discovery/keyboard state changes the shape. Old replay fixtures must be
 /// re-recorded; this pin is measured by the integration's Rust schema regression test.
 #[cfg(test)]
-// On-demand subtitle search adds an exact-Part argument and owned result/pending state.
-const SCREEN_SHAPES_PIN: u64 = 0x23412ed21c4b9dab;
+// Catalog ratings/trailer and 48-cell Home shelf motion extend the recorded state.
+const SCREEN_SHAPES_PIN: u64 = 0x3df23ab9d6425fe0;
 
 #[cfg(test)]
 mod arg_tests {

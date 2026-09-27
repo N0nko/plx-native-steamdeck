@@ -5302,6 +5302,7 @@ impl ResolveEnv {
     fn snapshot(ps: &PlaybackSession, meta: crate::metadata::MetadataView<'_>, sid: ServerId, rk: &str) -> ResolveEnv {
         let s = ps;
         ResolveEnv {
+            catalog: rk.is_empty().then(crate::plex::catalog::active_client).flatten().map(std::sync::Arc::new),
             sid,
             // the cache only counts when it was learned from the server this play is against
             machine_id: if s.machine_sid == sid {

@@ -35,7 +35,7 @@ impl LogicalState for CatalogDetailsArg {
         out.push_str("catalog_credit");
     }
 }
-pub(crate) const SHAPE: &str = "CatalogDetails{watchlist_v3:profile_status_summary_local_sid_rk_poster_sid_thumb,catalog_id:str,title:str,person:str,department:str,role:str,year:i32}";
+pub(crate) const SHAPE: &str = "CatalogDetails{watchlist_v4:profile_status_summary_local_sid_rk_poster_sid_thumb,ratings:[{art:u32,value:f64,critic:bool}],trailer:opt<{key:str,title:str}>,catalog_id:str,title:str,person:str,department:str,role:str,year:i32}";
 pub(crate) struct CatalogDetailsScreen {
     entry: EntryId,
     arg: CatalogDetailsArg,
@@ -44,14 +44,16 @@ pub(crate) struct CatalogDetailsScreen {
 }
 const WATCHLIST: u32 = 1;
 const LIBRARY: u32 = 2;
+const TRAILER: u32 = 3;
 const PANEL: Rect = Rect::new(336.0, 208.0, 1248.0, 664.0);
 const POSTER: Rect = Rect::new(384.0, 256.0, 250.0, 375.0);
 const TEXT_X: f32 = 666.0;
 const TEXT_W: f32 = 870.0;
 const BUTTON_Y: f32 = 720.0;
-fn button_rect(elem: u32, local: bool) -> Rect {
-    let width=if local {568.0}else{1152.0};
-    Rect::new(384.0 + if local && elem==WATCHLIST {584.0}else{0.0}, BUTTON_Y, width, 64.0)
+fn button_rect(elem: u32, buttons: &[u32]) -> Rect {
+    let width=(1152.0 - 16.0 * (buttons.len()-1) as f32) / buttons.len() as f32;
+    let index=buttons.iter().position(|e|*e==elem).unwrap_or(0);
+    Rect::new(384.0 + index as f32 * (width+16.0), BUTTON_Y, width, 64.0)
 }
 impl CatalogDetailsScreen {
     pub(crate) fn new(entry: EntryId, arg: CatalogDetailsArg) -> Self {
@@ -63,6 +65,13 @@ impl CatalogDetailsScreen {
         }
     }
     fn has_local(&self)->bool {self.state.as_ref().is_some_and(|s|s.local.is_some())}
+    fn buttons(&self) -> Vec<u32> {
+        let mut buttons=Vec::new();
+        if self.has_local(){buttons.push(LIBRARY);}
+        if self.state.as_ref().is_some_and(|s|s.trailer.is_some()){buttons.push(TRAILER);}
+        buttons.push(WATCHLIST);
+        buttons
+    }
     fn activate<H:AppLike>(&mut self, elem:u32, fx:&mut Effects<'_,H>) {
         if self.profile!=crate::plex::session::current_gen(){return;}
         let Some(state)=self.state.as_ref().filter(|s|!s.busy) else{return;};
@@ -70,6 +79,16 @@ impl CatalogDetailsScreen {
             if let Some((sid,rk))=&state.local {
                 fx.push(Fx::App(AppFx::Content(crate::screens::registry::ContentReq::Present(
                     crate::screens::registry::ContentArg::Detail{sid:*sid,rk:rk.clone()}))));
+            }
+        } else if elem==TRAILER {
+            if let Some(trailer)=&state.trailer {
+                fx.push(Fx::App(AppFx::Content(crate::screens::registry::ContentReq::Play {
+                    play: crate::screens::registry::PlayIntent::Item {
+                        sid: crate::plex::server_ids().next().unwrap_or(crate::plex::ServerId::UNSET),
+                        rk: String::new(), part: trailer.key.clone(), vcodec: "h264".into(), acodec: "aac".into(),
+                        title: state.title.clone(), context: crate::metadata::TRAILER_CONTEXT.into(),
+                    }, resume_ns: 0,
+                })));
             }
         } else if elem==WATCHLIST {
             let request=crate::catalog_action::Request{id:self.arg.catalog_id.clone(),profile:self.profile,desired:state.watchlisted.map(|v|!v)};
@@ -87,6 +106,9 @@ impl LogicalState for CatalogDetailsScreen {
             c.bool(s.busy).bool(s.failed).str(&s.summary).str(&s.title);
             c.option(s.local.as_ref(),|c,(sid,rk)|{c.u32(sid.raw() as u32).str(rk);});
             c.option(s.poster.as_ref(),|c,(sid,thumb)|{c.u32(sid.raw() as u32).str(thumb);});
+            c.seq(s.ratings.len());
+            for r in &s.ratings { c.u32(r.art as u32).u64(r.value.to_bits()).bool(r.critic); }
+            c.option(s.trailer.as_ref(), |c,t| { c.str(&t.key).str(&t.title); });
             c.option(s.watchlisted, |c, v| {
                 c.bool(v);
             });
@@ -108,6 +130,21 @@ impl<H: AppLike> Machine<H> for CatalogDetailsScreen {
                     desired: None,
                 };
                 self.state = Some(crate::catalog_action::Snapshot::pending(&request));
+                #[cfg(feature="devtriggers")]
+                if crate::dev::flag("catalog-details-fixture") {
+                    let mut state=crate::catalog_action::Snapshot::pending(&request);
+                    state.title="Dune".into(); state.year=2021; state.busy=false; state.watchlisted=Some(false);
+                    state.summary="A young heir travels to the desert planet Arrakis, where rival houses compete for a resource that determines the future of the galaxy.".into();
+                    state.local=Some((crate::plex::ServerId::from_raw(1),"42".into()));
+                    state.ratings=crate::metadata::convert_ratings(&serde_json::from_value(serde_json::json!({"Rating":[
+                        {"image":"imdb://image.rating","value":8.0,"type":"audience"},
+                        {"image":"rottentomatoes://image.rating.ripe","value":8.3,"type":"critic"},
+                        {"image":"rottentomatoes://image.rating.upright","value":9.0,"type":"audience"},
+                        {"image":"themoviedb://image.rating","value":7.8,"type":"audience"}]})).unwrap());
+                    state.trailer=Some(crate::plex::catalog::Trailer {title:"Dune".into(),key:"/library/metadata/5d776cac47dd6e001f6ee059/extras/620427be133b2900559ccaa1/parts/mp4-2500".into()});
+                    self.state=Some(state);
+                } else { fx.push(Fx::App(AppFx::Catalog(request))); }
+                #[cfg(not(feature="devtriggers"))]
                 fx.push(Fx::App(AppFx::Catalog(request)));
                 fx.push(Fx::Deliver(
                     fx.from(),
@@ -156,29 +193,32 @@ impl<H: AppLike> Focusable<H> for CatalogDetailsScreen {
             reachable: AxisMask::BOTH,
             edge: [EdgeRule::Stop; 4],
             extent: Rect::new(384.0,BUTTON_Y,1152.0,64.0),
-            len: if self.has_local(){2}else{1},
+            len: self.buttons().len(),
             elem: ElemKind::Control,
         });
     }
     fn group_of(&self, e: &u32, _: &Cx<'_, H>) -> Option<GroupId> {
-        (*e == WATCHLIST || *e==LIBRARY && self.has_local()).then_some(GroupId(1))
+        self.buttons().contains(e).then_some(GroupId(1))
     }
     fn neighbour(&self, from: FocusKey<u32>, dir: Dir, _: &Cx<'_, H>) -> Step<u32> {
-        if self.has_local() && matches!((from.elem,dir),(WATCHLIST,Dir::Left)|(LIBRARY,Dir::Right)){
-            return Step::Move(FocusKey{entry:self.entry,elem:if from.elem==WATCHLIST{LIBRARY}else{WATCHLIST}});
+        let buttons=self.buttons();
+        if let Some(index)=buttons.iter().position(|e|*e==from.elem) {
+            let next=match dir {Dir::Left=>index.checked_sub(1),Dir::Right=>Some(index+1),_=>None};
+            if let Some(elem)=next.and_then(|i|buttons.get(i)) {return Step::Move(FocusKey{entry:self.entry,elem:*elem});}
         }
         Step::Edge
     }
     fn place(&self, e: &u32, _: &Cx<'_, H>, _: At) -> Option<Placed> {
-        (*e == WATCHLIST || *e==LIBRARY && self.has_local()).then_some(Placed {
-            rect: button_rect(*e,self.has_local()),
-            rest_rect: button_rect(*e,self.has_local()),
+        let buttons=self.buttons();
+        buttons.contains(e).then_some(Placed {
+            rect: button_rect(*e,&buttons),
+            rest_rect: button_rect(*e,&buttons),
             clip: Rect::new(0.0, 0.0, 1920.0, 1080.0),
-            index: Some(if self.has_local() && *e==WATCHLIST {1}else{0}),
+            index: buttons.iter().position(|i|i==e).map(|i|i as u32),
         })
     }
     fn reconcile(&self, want: FocusKey<u32>, _: &Cx<'_, H>) -> FocusKey<u32> {
-        if want.elem==LIBRARY && !self.has_local(){FocusKey{entry:self.entry,elem:WATCHLIST}}else{want}
+        if !self.buttons().contains(&want.elem){FocusKey{entry:self.entry,elem:WATCHLIST}}else{want}
     }
     fn seat(&self, _: GroupId, _: Placed, _: &Cx<'_, H>) -> FocusKey<u32> {
         FocusKey {
@@ -243,13 +283,16 @@ impl<H: AppLike> Screen<H> for CatalogDetailsScreen {
         text(&year, 180.0, theme::size::CAPTION, theme::TEXT_SECONDARY, 1);
         let credit = [&self.arg.person,&self.arg.department,&self.arg.role].into_iter().filter(|s|!s.trim().is_empty()).map(String::as_str).collect::<Vec<_>>().join(" · ");
         if !credit.is_empty(){text(&credit, 220.0, theme::size::CAPTION, theme::TEXT_SECONDARY, 1);}
+        if let Some(state)=&self.state {
+            crate::ui::fmt::draw_ratings(p, &state.ratings, x, r.y+if credit.is_empty(){236.0}else{276.0}, x+w, f.measure);
+        }
         let summary = self
             .state
             .as_ref()
             .map(|s| s.summary.as_str())
             .filter(|s| !s.is_empty())
             .unwrap_or("Catalog information is unavailable.");
-        text(summary, if credit.is_empty(){232.0}else{264.0}, theme::size::BODY, theme::TEXT_READING, 5);
+        text(summary, if credit.is_empty(){282.0}else{322.0}, theme::size::BODY, theme::TEXT_READING, if credit.is_empty(){4}else{3});
         let label = match self.state.as_ref() {
             Some(s) if s.busy => c"Loading…",
             Some(s) if s.failed => c"Retry Watchlist status",
@@ -257,9 +300,10 @@ impl<H: AppLike> Screen<H> for CatalogDetailsScreen {
             _ => c"Add to Watchlist",
         };
         use crate::ui::View;
-        for (elem,label) in [(LIBRARY,c"Open in Library"),(WATCHLIST,label)] {
-        if elem==LIBRARY && !self.has_local(){continue;}
-        let rect=button_rect(elem,self.has_local());
+        let buttons=self.buttons();
+        for elem in buttons.iter().copied() {
+        let label=match elem {LIBRARY=>c"Open in Library",TRAILER=>c"Watch Trailer",_=>label};
+        let rect=button_rect(elem,&buttons);
         crate::ui::widgets::Button::new(label.as_ptr(), theme::size::BODY, rect)
             .focused(f.cx.focus.current.is_some_and(|key|key.entry==self.entry && key.elem==elem))
             .draw(&crate::ui::Env::inert(), p);

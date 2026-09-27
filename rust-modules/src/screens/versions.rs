@@ -438,8 +438,10 @@ impl VersionsScreen {
         }
         self.table.compact = false;
         let max = self.row_count().saturating_sub(1) as i32;
+        // Background status/track refreshes must not reset a scrolled menu to its top.
+        let preserve_motion = self.table.n_rows() > 0;
         self.table
-            .set_sections(sections, selected.clamp(0, max), false);
+            .set_sections(sections, selected.clamp(0, max), preserve_motion);
     }
 
     fn focus_row(&mut self, index: i32) {

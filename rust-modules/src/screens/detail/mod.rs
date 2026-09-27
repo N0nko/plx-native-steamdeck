@@ -2308,31 +2308,8 @@ impl DetailScreen {
     ) {
         let (top, base) = crate::text::text_cap_band(theme::size::LABEL, 1);
         let cy = y + (top + base) * 0.5;
-        let mut x = crate::ui::consts::MARGIN_X;
-        let mut i = 0;
-        while i < d.ratings.len() {
-            let provider = d.ratings[i].art.provider();
-            let end = i + d.ratings[i..].partition_point(|r| r.art.provider() == provider);
-            let scores: Vec<String> = d.ratings[i..end]
-                .iter()
-                .map(|r| crate::ui::fmt::rating_score(r.art, r.value))
-                .collect();
-            let cells: Vec<crate::ui::widgets::RatingCell<'_>> = d.ratings[i..end]
-                .iter()
-                .zip(scores.iter())
-                .map(|(r, score)| crate::ui::widgets::RatingCell {
-                    mark: rating_mark(r.art),
-                    value: score,
-                    suffix: crate::ui::fmt::rating_suffix(r.art),
-                })
-                .collect();
-            let width = crate::ui::widgets::rating_group_w(provider, &cells, measure);
-            if x + width > crate::ui::consts::SCR_W - crate::ui::consts::MARGIN_X {
-                break;
-            }
-            x += crate::ui::widgets::rating_group(p, x, cy, provider, &cells, measure) + 32.0;
-            i = end;
-        }
+        crate::ui::fmt::draw_ratings(p, &d.ratings, crate::ui::consts::MARGIN_X, cy,
+            crate::ui::consts::SCR_W - crate::ui::consts::MARGIN_X, measure);
     }
 
     fn draw_buttons<H: ContentLike + crate::screens::registry::MetadataLike>(&self, p: Painter, cx: &Cx<'_, H>, y: f32, nav_page_alpha: f32) {
@@ -2637,33 +2614,6 @@ fn hero_blurb<'a>(
     )
 }
 
-fn rating_mark(art: crate::metadata::RatingArt) -> &'static [crate::ui::widgets::MarkLayer] {
-    use crate::metadata::RatingArt as A;
-    use crate::ui::icons::Icon;
-    use crate::ui::widgets::MarkLayer;
-    static FRESH: &[MarkLayer] = &[
-        (Icon::Tomato, theme::RATING_FRESH),
-        (Icon::TomatoCalyx, theme::RATING_LEAF),
-    ];
-    static CERTIFIED: &[MarkLayer] = &[
-        (Icon::Tomato, theme::RATING_CERTIFIED),
-        (Icon::TomatoCalyx, theme::RATING_LEAF),
-    ];
-    static ROTTEN: &[MarkLayer] = &[
-        (Icon::TomatoHollow, theme::RATING_MUTED),
-        (Icon::TomatoCalyx, theme::RATING_MUTED),
-    ];
-    static CROWD_UP: &[MarkLayer] = &[(Icon::Crowd, theme::RATING_AUDIENCE)];
-    static CROWD_DOWN: &[MarkLayer] = &[(Icon::Crowd, theme::RATING_MUTED)];
-    match art {
-        A::TomatoFresh => FRESH,
-        A::TomatoCertified => CERTIFIED,
-        A::TomatoRotten => ROTTEN,
-        A::PopcornUpright => CROWD_UP,
-        A::PopcornSpilled => CROWD_DOWN,
-        A::Imdb | A::Tmdb => &[],
-    }
-}
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Located {

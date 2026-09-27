@@ -337,7 +337,7 @@
   {
     "group": "2-search-discover",
     "id": "filter-roundtrip",
-    "title": "Repeated results → filters → results navigation without a focus trap"
+    "title": "Repeated results \u00e2\u2020\u2019 filters \u00e2\u2020\u2019 results navigation without a focus trap"
   },
   {
     "group": "3-playback-details-watchlist",
@@ -424,7 +424,7 @@
     "id": "next-episode-handoff",
     "title": "Next episode saves outgoing progress and starts queued successor"
   },
-{
+  {
     "id": "subtitle-download-entry",
     "group": "3-playback-details-watchlist",
     "title": "Download subtitle picker from selected version and playback menu"
@@ -447,6 +447,26 @@
   {
     "id": "subtitle-download-playback",
     "group": "3-playback-details-watchlist",
-    "title": "Explicit download, delayed attachment, selected file, direct-play captions and seeking — requires playback verification"
+    "title": "Explicit download, delayed attachment, selected file, direct-play captions and seeking \u00e2\u20ac\u201d requires playback verification"
+  },
+  {
+    "group": "1-home-movies-tv",
+    "id": "shelf-depth-dedup",
+    "title": "Up to 48 shelf items; recently added seasons do not repeat their episodes"
+  },
+  {
+    "group": "2-search-discover",
+    "id": "catalog-ratings-trailer",
+    "title": "Available provider ratings and optional catalog trailer"
+  },
+  {
+    "group": "3-playback-details-watchlist",
+    "id": "versions-background-status",
+    "title": "Companion refresh preserves track-list focus and scroll"
+  },
+  {
+    "group": "3-playback-details-watchlist",
+    "id": "torrent-local-status",
+    "title": "Managed torrent files show Local; Repair enabled, Prepare unnecessary"
   }
 ]

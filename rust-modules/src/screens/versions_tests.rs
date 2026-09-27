@@ -156,6 +156,26 @@ fn subtitle_search_uses_the_highlighted_file_without_starting_playback() {
             if arg.sid == sid() && arg.rk == "42" && arg.part == "/library/parts/22/stamp/file.mkv" && !arg.playing)));
     assert!(p.active);
 }
+
+#[test]
+fn background_status_preserves_scrolled_track_list() {
+    let _guard = crate::testlock::serial();
+    let owner = owner((1..25).map(|id| version(id, id - 1)).collect());
+    let mut p = panel(&owner);
+    run(&mut p, &owner, ScreenEvent::Mount);
+    p.table.sel = p.row_count() as i32 - 1;
+    for _ in 0..120 { p.table.update(1.0 / 60.0, p.frame().h); }
+    let scroll = p.table.scroll_pos();
+    assert!(scroll > 100.0);
+    let selected = p.table.sel;
+    let key = p.target().unwrap();
+    run(&mut p, &owner, ScreenEvent::App(AppMsg::Companion(CompanionSnapshot {
+        key, label: "Streaming".into(), configured: true, busy: false,
+        can_repair: true, can_prepare: true,
+    })));
+    assert_eq!(p.table.sel, selected);
+    assert_eq!(p.table.scroll_pos(), scroll, "background status must not reset the viewport");
+}
 #[test]
 fn activating_a_version_reports_the_exact_host_server_item_and_part_once() {
     let _guard = crate::testlock::serial();

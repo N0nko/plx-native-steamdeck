@@ -819,17 +819,15 @@ fn the_row_budget_is_shared_too() {
     reset(&mut o.state, &o.adapter);
 }
 
-/// The merged deck is capped at what the grid can ADDRESS. Three sources' Continue Watching is
-/// up to 36 cards, and past `MAX_SHELF_ITEMS` the home grid's focus ring and its OK dispatch clamp
-/// differently — the ring stops at the last addressable card while the press opens whatever
-/// column the raw index names. Unreachable with one server, which is why the cap lives here now.
+/// Multiple sources may each fill a shelf; their merged deck must remain within
+/// the shared data, focus and animation capacity.
 #[test]
 fn the_merged_deck_is_capped_at_what_the_grid_can_address() {
     let _g = crate::testlock::serial();
     let mut o = Owner::default();
     reset(&mut o.state, &o.adapter);
     let deck = |slot: u16, tag: &str| {
-        let v: Vec<(i64, String)> = (0..12).map(|i| (i, format!("{tag}{i}"))).collect();
+        let v: Vec<(i64, String)> = (0..MAX_SHELF_ITEMS as i64).map(|i| (i, format!("{tag}{i}"))).collect();
         built(
             slot,
             &v.iter().map(|(t, r)| (*t, r.as_str())).collect::<Vec<_>>(),
@@ -842,6 +840,6 @@ fn the_merged_deck_is_capped_at_what_the_grid_can_address() {
         src(2, "friend2", HubState::Ready, Some(deck(2, "c"))),
     ]);
     assert_eq!(hub_count(&o.state), 1);
-    assert_eq!(hub_len(&o.state, 0), MAX_SHELF_ITEMS, "36 cards merged, 24 drawable");
+    assert_eq!(hub_len(&o.state, 0), MAX_SHELF_ITEMS, "multiple full sources remain bounded by the shared row capacity");
     reset(&mut o.state, &o.adapter);
 }

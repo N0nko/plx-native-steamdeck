@@ -12,6 +12,53 @@ const DISCOVERY_PEOPLE: usize = 16;
 const DISCOVERY_BYTES: usize = 2 * 1024 * 1024;
 const DISCOVERY_DEADLINE: Duration = Duration::from_secs(20);
 
+#[derive(Clone, Debug)]
+pub(crate) struct Trailer {
+    pub key: String,
+    pub title: String,
+}
+
+/// Only progressive catalog extras from the fixed Plex metadata origin. No URLs,
+/// traversal, query strings or caller-supplied authentication may enter this path.
+pub(crate) fn valid_trailer_key(key: &str) -> bool {
+    let p: Vec<_> = key.split('/').collect();
+    p.len() == 8 && p[0].is_empty() && p[1] == "library" && p[2] == "metadata"
+        && valid_id(p[3]) && p[4] == "extras" && valid_id(p[5]) && p[6] == "parts"
+        && matches!(p[7], "mp4-5000" | "mp4-2500" | "mp4-750")
+}
+
+fn pick_catalog_trailer(id: &str, rows: &[Metadata]) -> Option<Trailer> {
+    rows.iter().filter(|m| m.kind == "clip" && (m.extra_type == 1 || m.subtype == "trailer"))
+        .find_map(|m| m.media.iter().filter(|media| media.video_codec == "h264" && media.audio_codec == "aac")
+            .flat_map(|media| &media.part).find(|part| valid_trailer_key(&part.key)
+                && part.key.starts_with(&format!("/library/metadata/{id}/extras/")))
+            .map(|part| Trailer { key: part.key.clone(), title: m.title.clone() }))
+}
+
+#[cfg(test)]
+mod trailer_tests {
+    use super::*;
+    #[test]
+    fn catalog_trailer_only_accepts_its_own_progressive_h264_aac_part() {
+        let id="5d776cac47dd6e001f6ee059";
+        let key=format!("/library/metadata/{id}/extras/620427be133b2900559ccaa1/parts/mp4-2500");
+        let rows: Vec<Metadata> = serde_json::from_value(serde_json::json!([{
+            "type":"clip","extraType":1,"title":"Trailer","ratingKey":"iva-949134",
+            "Media":[{"videoCodec":"h264","audioCodec":"aac","Part":[{"key":key}]}]
+        }])).unwrap();
+        assert_eq!(pick_catalog_trailer(id,&rows).unwrap().key,key);
+        assert!(pick_catalog_trailer("5eb8f22237ccbe0041723253",&rows).is_none());
+        for bad in [format!("https://evil.test{key}"),format!("{key}?token=bad"),key.replace("/parts/", "/../parts/"),key.replace("mp4-2500","hls-2500")] {
+            assert!(!valid_trailer_key(&bad));
+        }
+        let client=AccountClient::new("fixture",Some("private test"));
+        let url=client.catalog_trailer_url(&key).unwrap();
+        assert!(url.starts_with("https://metadata.provider.plex.tv/library/metadata/"));
+        assert!(url.ends_with("X-Plex-Token=private%20test"));
+        assert!(client.catalog_trailer_url("https://evil.test/").is_none());
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum DiscoverySeed {
     /// The 24-hex component of an exact plex://movie|show/<id> GUID, never a PMS key.
@@ -463,6 +510,12 @@ impl AccountClient {
                 && matches!(m.kind.as_str(), "movie" | "show")
                 && m.guid == format!("plex://{}/{}", m.kind, id)
         })
+    }
+    pub(crate) fn catalog_trailer(&self, id: &str) -> Option<Trailer> {
+        if !valid_id(id) { return None; }
+        let r = self.catalog_request(&format!("{METADATA}/library/metadata/{id}/extras"), "GET")?;
+        let response: Envelope = serde_json::from_slice(&r.body).ok()?;
+        pick_catalog_trailer(id, &response.container.metadata)
     }
     pub(crate) fn set_watchlisted(&self, id: &str, desired: bool) -> Option<bool> {
         if !valid_id(id) {

@@ -323,3 +323,61 @@ use super::*;
     }
 
 }
+
+pub(crate) fn rating_mark(art: crate::metadata::RatingArt) -> &'static [crate::ui::widgets::MarkLayer] {
+    use crate::metadata::RatingArt as A;
+    use crate::ui::icons::Icon;
+    use crate::ui::widgets::MarkLayer;
+    static FRESH: &[MarkLayer] = &[
+        (Icon::Tomato, crate::ui::theme::RATING_FRESH),
+        (Icon::TomatoCalyx, crate::ui::theme::RATING_LEAF),
+    ];
+    static CERTIFIED: &[MarkLayer] = &[
+        (Icon::Tomato, crate::ui::theme::RATING_CERTIFIED),
+        (Icon::TomatoCalyx, crate::ui::theme::RATING_LEAF),
+    ];
+    static ROTTEN: &[MarkLayer] = &[
+        (Icon::TomatoHollow, crate::ui::theme::RATING_MUTED),
+        (Icon::TomatoCalyx, crate::ui::theme::RATING_MUTED),
+    ];
+    static CROWD_UP: &[MarkLayer] = &[(Icon::Crowd, crate::ui::theme::RATING_AUDIENCE)];
+    static CROWD_DOWN: &[MarkLayer] = &[(Icon::Crowd, crate::ui::theme::RATING_MUTED)];
+    match art {
+        A::TomatoFresh => FRESH,
+        A::TomatoCertified => CERTIFIED,
+        A::TomatoRotten => ROTTEN,
+        A::PopcornUpright => CROWD_UP,
+        A::PopcornSpilled => CROWD_DOWN,
+        A::Imdb | A::Tmdb => &[],
+    }
+}
+
+/// Shared provider marks and scores for library and catalog details.
+pub(crate) fn draw_ratings(p: crate::ui::Painter, ratings: &[crate::metadata::Rating],
+    mut x: f32, cy: f32, right: f32, measure: &dyn crate::ui::machine::Measure) {
+
+        let mut i = 0;
+        while i < ratings.len() {
+            let provider = ratings[i].art.provider();
+            let end = i + ratings[i..].partition_point(|r| r.art.provider() == provider);
+            let scores: Vec<String> = ratings[i..end]
+                .iter()
+                .map(|r| crate::ui::fmt::rating_score(r.art, r.value))
+                .collect();
+            let cells: Vec<crate::ui::widgets::RatingCell<'_>> = ratings[i..end]
+                .iter()
+                .zip(scores.iter())
+                .map(|(r, score)| crate::ui::widgets::RatingCell {
+                    mark: rating_mark(r.art),
+                    value: score,
+                    suffix: crate::ui::fmt::rating_suffix(r.art),
+                })
+                .collect();
+            let width = crate::ui::widgets::rating_group_w(provider, &cells, measure);
+            if x + width > right {
+                break;
+            }
+            x += crate::ui::widgets::rating_group(p, x, cy, provider, &cells, measure) + 32.0;
+            i = end;
+        }
+}

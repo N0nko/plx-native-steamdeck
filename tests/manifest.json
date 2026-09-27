@@ -517,6 +517,19 @@
       }
     },
     {
+      "name": "catalog-details-panel",
+      "tier": "ui",
+      "route": "home",
+      "overlay": "catalog_details",
+      "loop_floor": 30,
+      "run_secs": 8,
+      "warmup_s": 4,
+      "comment": "Synthetic four-rating catalog panel and three action buttons; navigation only, no household writes.",
+      "triggers": {
+        "plxnative-catalog-details-fixture": true
+      }
+    },
+    {
       "name": "subtitle-search-panel",
       "tier": "ui",
       "route": "home",

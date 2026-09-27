@@ -17,6 +17,8 @@ pub(crate) struct Snapshot {
     pub failed: bool,
     pub local: Option<(crate::plex::ServerId, String)>,
     pub poster: Option<(crate::plex::ServerId, String)>,
+    pub ratings: Vec<crate::metadata::Rating>,
+    pub trailer: Option<crate::plex::catalog::Trailer>,
 }
 impl Snapshot {
     pub(crate) fn pending(r: &Request) -> Self {
@@ -31,6 +33,8 @@ impl Snapshot {
             failed: false,
             local: None,
             poster: None,
+            ratings: Vec::new(),
+            trailer: None,
         }
     }
 }
