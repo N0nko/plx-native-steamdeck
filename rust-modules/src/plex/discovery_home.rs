@@ -130,6 +130,22 @@ fn title_metadata(row:&serde_json::Value)->Option<super::Metadata>{
         let (kind,id)=guid.strip_prefix("plex://")?.split_once('/')?;
         if !matches!(kind,"movie"|"show") || !super::catalog::valid_id(id){return None;}
         row["type"]=kind.into();row["ratingKey"]=id.into();row["guid"]=guid.clone().into();
+        // This card opens the parent, not the trailer named "Season 4" / "Official Trailer".
+        if let Some(title)=row.get("parentTitle").and_then(serde_json::Value::as_str)
+            .filter(|title| !title.trim().is_empty()).map(str::to_owned) {
+            row["title"]=title.into();
+        }
+    }
+    // Cloud rails may omit thumb/art while supplying typed Image alternatives.
+    // Prefer the explicit fields; a logo or landscape cover is never a portrait substitute.
+    for (field,kind) in [("thumb","coverPoster"),("art","background")] {
+        if row.get(field).and_then(serde_json::Value::as_str).is_some_and(|s| !s.trim().is_empty()) { continue; }
+        let image=row.get("Image").and_then(serde_json::Value::as_array)
+            .and_then(|images|images.iter().filter(|image|image.get("type").and_then(serde_json::Value::as_str)==Some(kind))
+                .filter_map(|image|image.get("url").and_then(serde_json::Value::as_str))
+                .find(|url|url.starts_with("https://") || url.starts_with("http://")))
+            .unwrap_or("").to_owned();
+        row[field]=image.into();
     }
     let item:super::Metadata=serde_json::from_value(row).ok()?;
     (matches!(item.kind.as_str(),"movie"|"show") && super::catalog::valid_id(&item.rating_key)
@@ -433,6 +449,37 @@ pub(crate) fn discovery_at(generation:u32,key:Option<&str>)->Option<Vec<Discover
 mod tests {
     use super::*;
     use serde_json::json;
+    #[test]
+    fn trailer_rail_uses_parent_title_and_provider_image_poster() {
+        // Shape captured from New Trailers / Elsbeth: no thumb, but Image has a poster.
+        let row=json!({"type":"clip","title":"Season 4","parentTitle":"Elsbeth",
+            "ratingKey":"6ab7290535cfab4cad9efb8d",
+            "primaryGuid":"plex://show/645ea1c294b088b0810f2ea8",
+            "Image":[{"type":"clearLogo","url":"https://example.test/logo.png"},
+                {"type":"background","url":"https://example.test/background.jpg"},
+                {"type":"coverPoster","url":"https://example.test/poster.jpg"}]});
+        let m=title_metadata(&row).unwrap();
+        assert_eq!(m.thumb,"https://example.test/poster.jpg");
+        assert_eq!(m.art,"https://example.test/background.jpg");
+        assert_eq!(m.title,"Elsbeth");
+        assert_eq!(m.rating_key,"645ea1c294b088b0810f2ea8");
+        assert_eq!(m.guid,"plex://show/645ea1c294b088b0810f2ea8");
+    }
+    #[test]
+    fn provider_image_fallback_keeps_explicit_art_and_never_uses_a_logo_as_a_poster() {
+        let mut row=json!({"type":"movie","ratingKey":"0123456789abcdef01234567",
+            "guid":"plex://movie/0123456789abcdef01234567","title":"Movie",
+            "thumb":"https://example.test/preferred.jpg","art":"https://example.test/preferred-art.jpg",
+            "Image":[{"type":"coverPoster","url":"https://example.test/other.jpg"}]});
+        let m=title_metadata(&row).unwrap();
+        assert_eq!(m.thumb,"https://example.test/preferred.jpg");
+        assert_eq!(m.art,"https://example.test/preferred-art.jpg");
+        row["thumb"]=serde_json::Value::Null;
+        assert_eq!(title_metadata(&row).unwrap().thumb,"https://example.test/other.jpg");
+        row["thumb"]="".into();
+        row["Image"]=json!([{"type":"clearLogo","url":"https://example.test/logo.png"}]);
+        assert!(title_metadata(&row).unwrap().thumb.is_empty());
+    }
     #[test]
     fn provider_order_and_more_than_twelve_items_are_preserved(){
         let items=(0..40).map(|i|json!({"type":"movie","ratingKey":format!("{i:024x}"),"guid":format!("plex://movie/{i:024x}"),"title":format!("Title {i}")})).collect::<Vec<_>>();

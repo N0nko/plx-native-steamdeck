@@ -234,7 +234,7 @@ pub(crate) fn warm_tex_on(
     crate::ui::tex::warm_on(srv.raw(), path, w, h, png != 0)
 }
 
-/// Source art for a [`card`]: a catalog poster (resolved 250×375, dark gradient skeleton), any
+/// Source art for a [`card`]: a catalog poster (resolved 250×375, flat dark skeleton), any
 /// keyed thumbnail at an explicit resolution (flat placeholder skeleton), or a person's headshot
 /// (the same thumbnail, but its EMPTY case draws a person glyph rather than a blank tile).
 pub(crate) enum Art<'a> {
@@ -1651,7 +1651,7 @@ pub(crate) fn skeleton_bar(p: Painter, r: Rect, phase: f32) {
     skeleton_sheen(p, r, rad, phase);
 }
 
-/// **Artwork that has not arrived** — the structural top→bottom sheet [`Art`] already draws for a
+/// **Artwork that has not arrived** — the flat dark sheet [`Art`] already draws for a
 /// missing poster, plus the sweep. Same geometry and same resting card edge as the real tile, which
 /// is the whole point: the placeholder is the card, without the picture.
 pub(crate) fn skeleton_sheet(p: Painter, r: Rect, rad: f32, phase: f32) {

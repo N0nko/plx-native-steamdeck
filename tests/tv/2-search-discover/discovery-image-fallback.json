@@ -1,0 +1,31 @@
+{
+  "group": "2-search-discover",
+  "description": "Start in a dynamic trailer rail on a title whose response omits thumb but includes Image/coverPoster (Elsbeth at diagnosis). Read-only; do not activate the title. Refresh the fixture selection from current provider data when rails change.",
+  "steps": [
+    {
+      "name": "01-provider-poster",
+      "before": "search(/none)?",
+      "after": "search(/none)?",
+      "keys": [],
+      "settle": 8,
+      "covers": [
+        "discovery-image-fallback"
+      ],
+      "review": "Poster loads from Image/coverPoster; caption uses the parent title, not a generic Season 4 trailer label."
+    },
+    {
+      "name": "02-neighbor-posters",
+      "before": "search(/none)?",
+      "after": "search(/none)?",
+      "keys": [
+        "RIGHT",
+        "LEFT"
+      ],
+      "settle": 2,
+      "covers": [
+        "discovery-image-fallback"
+      ],
+      "review": "Artwork remains resident and navigation unchanged. Any unavailable image uses a flat, unbanded placeholder."
+    }
+  ]
+}

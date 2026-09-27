@@ -503,5 +503,10 @@
     "group": "2-search-discover",
     "id": "search-scroll-under-chrome",
     "title": "Discovery and search scroll behind floating navigation without a horizontal cutoff"
+  },
+  {
+    "group": "2-search-discover",
+    "id": "discovery-image-fallback",
+    "title": "Provider Image posters and parent show names in trailer rails; flat missing-art placeholders"
   }
 ]

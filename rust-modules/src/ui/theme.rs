@@ -656,12 +656,11 @@ pub const PANEL_FROST_BOT: [f32; 4] = with_a(NEUTRAL_750, 0.72);
 pub const SURFACE_QR_PLATE: [f32; 4] = COOL_0;
 /// Poster/thumb skeleton flat placeholder.
 pub const CARD_PLACEHOLDER: [f32; 4] = COOL_850;
-/// Loading-skeleton gradient — top. The same `COOL_850` stop as [`CARD_PLACEHOLDER`]: a card whose
-/// artwork is on the way and one with none to load are the same object at rest. Both lean BLUE,
-/// away from the neutral panel greys, so a missing poster never reads as a panel.
-pub const SKELETON_TOP: [f32; 4] = COOL_850;
-/// Loading-skeleton gradient — bottom.
-pub const SKELETON_BOT: [f32; 4] = COOL_900;
+/// Artwork-placeholder top stop. Both stops intentionally use the same flat fill:
+/// a dark ramp across a poster produced visible bands while art was unavailable.
+pub const SKELETON_TOP: [f32; 4] = CARD_PLACEHOLDER;
+/// Artwork-placeholder bottom stop; flat like the top, with no extra dither pass.
+pub const SKELETON_BOT: [f32; 4] = CARD_PLACEHOLDER;
 
 // ── Scrims (near-black; alpha supplied per call) ─────────────────────────────
 /// Hero/scroll scrim ink; use via [`scrim`].
