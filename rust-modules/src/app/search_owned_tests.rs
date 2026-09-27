@@ -1071,7 +1071,7 @@ fn catalog_library_action_opens_exact_detail_without_watchlist_or_play(){
  let mut rig=Bridge::for_test(||0);let entry=EntryId(81);let instance=InstanceId(82);
  let parts=CxParts{tick:tick(0),press:Default::default(),focus:Default::default(),owner:InputOwner::Entry(entry)};
  let split=rig.split();let cx=parts.cx::<AppHost>(split.views,split.measure);
- let id="0123456789abcdef01234567".to_owned();let mut screen=crate::screens::catalog_details::CatalogDetailsScreen::new(entry,crate::screens::registry::CatalogDetailsArg{catalog_id:id.clone(),title:"Exact title".into(),person:String::new(),department:String::new(),role:String::new(),year:2026});
+ let id="0123456789abcdef01234567".to_owned();let mut screen=crate::screens::catalog_details::CatalogDetailsScreen::new(entry,crate::screens::registry::CatalogDetailsArg{catalog_id:id.clone(),title:"Exact title".into(),person:String::new(),department:String::new(),role:String::new(),inline:None,poster:None,year:2026});
  let mut present=Present::new();let mut out=Vec::new();
  {let mut fx=Effects::new(&mut out,MachineId::Instance(instance),&mut present);screen.step(&ScreenEvent::Mount,&cx,&mut fx);}
  out.clear();
@@ -1079,7 +1079,7 @@ fn catalog_library_action_opens_exact_detail_without_watchlist_or_play(){
  {let mut fx=Effects::new(&mut out,MachineId::Instance(instance),&mut present);screen.step(&ScreenEvent::Activate(2),&cx,&mut fx);}
  assert!(out.is_empty(),"pending catalog data must not expose a library action");
  {let mut fx=Effects::new(&mut out,MachineId::Instance(instance),&mut present);
- screen.step(&ScreenEvent::App(crate::screens::registry::AppMsg::Catalog(crate::catalog_action::Snapshot{id,profile:crate::plex::session::current_gen(),title:"Exact title".into(),summary:String::new(),year:2026,watchlisted:Some(false),busy:false,failed:false,poster:None,ratings:Vec::new(),trailer:None,local:Some((crate::plex::ServerId::UNSET,"server-key-42".into()))})),&cx,&mut fx);
+ screen.step(&ScreenEvent::App(crate::screens::registry::AppMsg::Catalog(crate::catalog_action::Snapshot{id,profile:crate::plex::session::current_gen(),title:"Exact title".into(),summary:String::new(),year:2026,watchlisted:Some(false),busy:false,failed:false,poster:None,ratings:Vec::new(),trailer:None,kind:String::new(),facts:String::new(),genres:String::new(),cast:String::new(),backdrop:None,local:Some((crate::plex::ServerId::UNSET,"server-key-42".into()))})),&cx,&mut fx);
  screen.step(&ScreenEvent::Activate(2),&cx,&mut fx);}
  assert!(out.iter().any(|e|matches!(&e.fx,Fx::App(AppFx::Content(crate::screens::registry::ContentReq::Present(crate::screens::registry::ContentArg::Detail{rk,..}))) if rk=="server-key-42")));
  assert!(!out.iter().any(|e|matches!(&e.fx,Fx::App(AppFx::Catalog(_))|Fx::App(AppFx::Content(crate::screens::registry::ContentReq::Play{..})))));
@@ -1098,4 +1098,29 @@ fn compact_keyboard_and_optional_native_shortcut() {
  assert_eq!(d.focus().map(|k|k.elem),Some(0x7002));
  frame(&mut d,&mut rig,AppArg::Search,tick(2),system_key(tick(2)));
  assert_eq!(d.focus().map(|k|k.elem),Some(1));assert!(d.input.keyboard);
+}
+
+#[test]
+fn inline_catalog_full_details_back_returns_to_card_before_dismissal() {
+ let _serial=crate::testlock::serial();let session=crate::plex::session::TempSession::new("inline-catalog-back");session.watching("synthetic");
+ let mut rig=Bridge::for_test(||0);let entry=EntryId(81);let instance=InstanceId(82);
+ let parts=CxParts{tick:tick(0),press:Default::default(),focus:Default::default(),owner:InputOwner::Entry(entry)};
+ let split=rig.split();let cx=parts.cx::<AppHost>(split.views,split.measure);
+ let mut screen=crate::screens::catalog_details::CatalogDetailsScreen::new(entry,crate::screens::registry::CatalogDetailsArg{catalog_id:"0123456789abcdef01234567".into(),title:"Exact title".into(),person:String::new(),department:String::new(),role:String::new(),inline:Some([100,420]),poster:None,year:2026});
+ let mut present=Present::new();let mut out=Vec::new();
+ {let mut fx=Effects::new(&mut out,MachineId::Instance(instance),&mut present);screen.step(&ScreenEvent::Mount,&cx,&mut fx);}
+ let compact=screen.place(&4,&cx,At::SpringTarget).unwrap().rect;
+ out.clear();
+ {let mut fx=Effects::new(&mut out,MachineId::Instance(instance),&mut present);screen.step(&ScreenEvent::Activate(4),&cx,&mut fx);}
+ assert!(screen.place(&4,&cx,At::SpringTarget).unwrap().rect.w>compact.w);
+ let back=script_key(Key::Back,tick(1)).remove(0);
+ out.clear();
+ {let mut fx=Effects::new(&mut out,MachineId::Instance(instance),&mut present);screen.step(&ScreenEvent::Input(back.clone()),&cx,&mut fx);}
+ let actual=screen.place(&4,&cx,At::SpringTarget).unwrap().rect;
+ assert_eq!((actual.x,actual.y,actual.w,actual.h),(compact.x,compact.y,compact.w,compact.h));
+ assert!(!out.iter().any(|e|matches!(&e.fx,Fx::Nav(NavOp::Dismiss(_)))));
+ out.clear();
+ {let mut fx=Effects::new(&mut out,MachineId::Instance(instance),&mut present);screen.step(&ScreenEvent::Input(back),&cx,&mut fx);}
+ assert!(out.iter().any(|e|matches!(&e.fx,Fx::Nav(NavOp::Dismiss(id)) if *id==entry)));
+ assert!(!out.iter().any(|e|matches!(&e.fx,Fx::App(AppFx::Catalog(_))|Fx::App(AppFx::Content(_)))));
 }

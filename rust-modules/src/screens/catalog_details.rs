@@ -21,9 +21,17 @@ pub(crate) struct CatalogDetailsArg {
     pub(crate) department: String,
     pub(crate) role: String,
     pub(crate) year: i32,
+    pub(crate) inline: Option<[i32; 2]>,
+    pub(crate) poster: Option<(crate::plex::ServerId, String)>,
+}
+impl CatalogDetailsArg {
+    pub(crate) const INLINE_W: f32 = 1100.0;
+    pub(crate) const INLINE_H: f32 = 304.0;
 }
 impl LogicalState for CatalogDetailsArg {
     fn write(&self, c: &mut Canon) {
+        c.option(self.inline, |c, a| { c.u32(a[0] as u32).u32(a[1] as u32); });
+        c.option(self.poster.as_ref(), |c,(sid,key)| { c.u32(sid.raw() as u32).str(key); });
         c.str(&self.catalog_id)
             .str(&self.title)
             .str(&self.person)
@@ -35,29 +43,24 @@ impl LogicalState for CatalogDetailsArg {
         out.push_str("catalog_credit");
     }
 }
-pub(crate) const SHAPE: &str = "CatalogDetails{watchlist_v4:profile_status_summary_local_sid_rk_poster_sid_thumb,ratings:[{art:u32,value:f64,critic:bool}],trailer:opt<{key:str,title:str}>,catalog_id:str,title:str,person:str,department:str,role:str,year:i32}";
+pub(crate) const SHAPE: &str = "CatalogDetails{inline_v1:opt<[i32;2]>,poster:opt<(sid,key)>,full:bool,extended:{kind,facts,genres,cast,backdrop},watchlist_v4:profile_status_summary_local_sid_rk_poster_sid_thumb,ratings:[{art:u32,value:f64,critic:bool}],trailer:opt<{key:str,title:str}>,catalog_id:str,title:str,person:str,department:str,role:str,year:i32}";
 pub(crate) struct CatalogDetailsScreen {
     entry: EntryId,
     arg: CatalogDetailsArg,
     state: Option<crate::catalog_action::Snapshot>,
     profile: u32,
+    full: bool,
 }
 const WATCHLIST: u32 = 1;
 const LIBRARY: u32 = 2;
 const TRAILER: u32 = 3;
-const PANEL: Rect = Rect::new(336.0, 208.0, 1248.0, 664.0);
-const POSTER: Rect = Rect::new(384.0, 256.0, 250.0, 375.0);
-const TEXT_X: f32 = 666.0;
-const TEXT_W: f32 = 870.0;
-const BUTTON_Y: f32 = 720.0;
-fn button_rect(elem: u32, buttons: &[u32]) -> Rect {
-    let width=(1152.0 - 16.0 * (buttons.len()-1) as f32) / buttons.len() as f32;
-    let index=buttons.iter().position(|e|*e==elem).unwrap_or(0);
-    Rect::new(384.0 + index as f32 * (width+16.0), BUTTON_Y, width, 64.0)
-}
+const INFO: u32 = 4;
+const COMPACT_PAD: f32 = 24.0;
 impl CatalogDetailsScreen {
     pub(crate) fn new(entry: EntryId, arg: CatalogDetailsArg) -> Self {
+        let full = arg.inline.is_none();
         Self {
+            full,
             entry,
             arg,
             state: None,
@@ -72,8 +75,47 @@ impl CatalogDetailsScreen {
         buttons.push(WATCHLIST);
         buttons
     }
+    fn panel(&self) -> Rect {
+        if self.full { Rect::FULL } else {
+            let [x,y]=self.arg.inline.unwrap_or([410,420]);
+            Rect::new(x as f32,y as f32,CatalogDetailsArg::INLINE_W,CatalogDetailsArg::INLINE_H)
+        }
+    }
+    fn info_rect(&self) -> Rect {
+        let r=self.panel();
+        if self.full { Rect::new(96.0,150.0,1728.0,730.0) }
+        else { Rect::new(r.x+12.0,r.y+12.0,r.w-300.0,r.h-24.0) }
+    }
+    fn button_rect(&self, elem:u32) -> Rect {
+        let buttons=self.buttons();
+        let index=buttons.iter().position(|e|*e==elem).unwrap_or(0) as f32;
+        if self.full {
+            let width=(1728.0-16.0*(buttons.len()-1) as f32)/buttons.len() as f32;
+            Rect::new(96.0+index*(width+16.0),920.0,width,64.0)
+        } else {
+            let r=self.panel();
+            let h=64.0; let gap=12.0;
+            let height=buttons.len() as f32*(h+gap)-gap;
+            Rect::new(r.x+r.w-280.0,r.y+(r.h-height)/2.0+index*(h+gap),256.0,h)
+        }
+    }
+    fn select_info<H:AppLike>(&mut self, fx:&mut Effects<'_,H>) {
+        self.full=true;
+        fx.push(Fx::Deliver(fx.from(), crate::ui::machine::Delivery::Screen(ScreenEvent::Enter(
+            Enter::Fresh {focus:FocusTarget::Elem(FocusKey{entry:self.entry,elem:self.buttons()[0]})}))));
+        fx.invalidate(crate::ui::present::Provenance::Input);
+    }
+    fn back<H:AppLike>(&mut self, fx:&mut Effects<'_,H>) {
+        if self.full && self.arg.inline.is_some() {
+            self.full=false;
+            fx.push(Fx::Deliver(fx.from(), crate::ui::machine::Delivery::Screen(ScreenEvent::Enter(
+                Enter::Fresh {focus:FocusTarget::Elem(FocusKey{entry:self.entry,elem:INFO})}))));
+            fx.invalidate(crate::ui::present::Provenance::Input);
+        } else { fx.push(Fx::Nav(NavOp::Dismiss(self.entry))); }
+    }
     fn activate<H:AppLike>(&mut self, elem:u32, fx:&mut Effects<'_,H>) {
         if self.profile!=crate::plex::session::current_gen(){return;}
+        if elem==INFO { self.select_info(fx); return; }
         let Some(state)=self.state.as_ref().filter(|s|!s.busy) else{return;};
         if elem==LIBRARY {
             if let Some((sid,rk))=&state.local {
@@ -101,9 +143,11 @@ impl CatalogDetailsScreen {
 impl LogicalState for CatalogDetailsScreen {
     fn write(&self, c: &mut Canon) {
         self.arg.write(c);
-        c.u32(self.profile);
+        c.u32(self.profile).bool(self.full);
         c.option(self.state.as_ref(), |c, s| {
             c.bool(s.busy).bool(s.failed).str(&s.summary).str(&s.title);
+            c.str(&s.kind).str(&s.facts).str(&s.genres).str(&s.cast);
+            c.option(s.backdrop.as_ref(),|c,(sid,key)|{c.u32(sid.raw() as u32).str(key);});
             c.option(s.local.as_ref(),|c,(sid,rk)|{c.u32(sid.raw() as u32).str(rk);});
             c.option(s.poster.as_ref(),|c,(sid,thumb)|{c.u32(sid.raw() as u32).str(thumb);});
             c.seq(s.ratings.len());
@@ -133,9 +177,14 @@ impl<H: AppLike> Machine<H> for CatalogDetailsScreen {
                 #[cfg(feature="devtriggers")]
                 if crate::dev::flag("catalog-details-fixture") {
                     let mut state=crate::catalog_action::Snapshot::pending(&request);
+                    self.full=crate::dev::flag("catalog-full-fixture");
+                    state.kind="movie".into(); state.facts="2021 · 155 min · PG-13 · Warner Bros.".into();
+                    state.genres="Science Fiction · Adventure · Drama".into();
+                    state.cast="Timothée Chalamet · Rebecca Ferguson · Oscar Isaac · Zendaya · Jason Momoa".into();
                     state.title="Dune".into(); state.year=2021; state.busy=false; state.watchlisted=Some(false);
                     state.summary="A young heir travels to the desert planet Arrakis, where rival houses compete for a resource that determines the future of the galaxy.".into();
                     state.local=Some((crate::plex::ServerId::from_raw(1),"42".into()));
+                    state.poster=crate::plex::server_ids().next().map(|sid|(sid,"/library/metadata/1/thumb/1".into()));
                     state.ratings=crate::metadata::convert_ratings(&serde_json::from_value(serde_json::json!({"Rating":[
                         {"image":"imdb://image.rating","value":8.0,"type":"audience"},
                         {"image":"rottentomatoes://image.rating.ripe","value":8.3,"type":"critic"},
@@ -151,7 +200,7 @@ impl<H: AppLike> Machine<H> for CatalogDetailsScreen {
                     crate::ui::machine::Delivery::Screen(ScreenEvent::Enter(Enter::Fresh {
                         focus: FocusTarget::Elem(FocusKey {
                             entry: self.entry,
-                            elem: WATCHLIST,
+                            elem: INFO,
                         }),
                     })),
                 ));
@@ -177,7 +226,7 @@ impl<H: AppLike> Machine<H> for CatalogDetailsScreen {
                     }
                 ) =>
             {
-                fx.push(Fx::Nav(NavOp::Dismiss(self.entry)));
+                self.back(fx);
             }
             _ => return Handled::No,
         }
@@ -186,46 +235,40 @@ impl<H: AppLike> Machine<H> for CatalogDetailsScreen {
 }
 impl<H: AppLike> Focusable<H> for CatalogDetailsScreen {
     fn groups(&self, _: &Cx<'_, H>, out: &mut Vec<GroupSpec>) {
-        out.push(GroupSpec {
-            id: GroupId(1),
-            kind: GroupKind::Row { wrap: false },
-            seat: Seat::First,
-            reachable: AxisMask::BOTH,
-            edge: [EdgeRule::Stop; 4],
-            extent: Rect::new(384.0,BUTTON_Y,1152.0,64.0),
-            len: self.buttons().len(),
-            elem: ElemKind::Control,
-        });
+        out.push(GroupSpec {id:GroupId(1),kind:GroupKind::Free,seat:Seat::First,
+            reachable:AxisMask::BOTH,edge:[EdgeRule::Stop;4],extent:self.panel(),
+            len:self.buttons().len()+1,elem:ElemKind::Control});
     }
-    fn group_of(&self, e: &u32, _: &Cx<'_, H>) -> Option<GroupId> {
-        self.buttons().contains(e).then_some(GroupId(1))
+    fn group_of(&self,e:&u32,_:&Cx<'_,H>)->Option<GroupId> {
+        (*e==INFO || self.buttons().contains(e)).then_some(GroupId(1))
     }
-    fn neighbour(&self, from: FocusKey<u32>, dir: Dir, _: &Cx<'_, H>) -> Step<u32> {
+    fn neighbour(&self,from:FocusKey<u32>,dir:Dir,_:&Cx<'_,H>)->Step<u32> {
         let buttons=self.buttons();
-        if let Some(index)=buttons.iter().position(|e|*e==from.elem) {
-            let next=match dir {Dir::Left=>index.checked_sub(1),Dir::Right=>Some(index+1),_=>None};
-            if let Some(elem)=next.and_then(|i|buttons.get(i)) {return Step::Move(FocusKey{entry:self.entry,elem:*elem});}
-        }
-        Step::Edge
+        let next=if from.elem==INFO {
+            matches!(dir,Dir::Right|Dir::Down).then_some(buttons[0])
+        } else if let Some(i)=buttons.iter().position(|e|*e==from.elem) {
+            if (!self.full && dir==Dir::Left) || (self.full && dir==Dir::Up) {Some(INFO)}
+            else { match dir {
+                Dir::Up if !self.full => i.checked_sub(1).map(|j|buttons[j]),
+                Dir::Down if !self.full => buttons.get(i+1).copied(),
+                Dir::Left if self.full => i.checked_sub(1).map(|j|buttons[j]),
+                Dir::Right if self.full => buttons.get(i+1).copied(),
+                _=>None,
+            }}
+        } else {None};
+        next.map_or(Step::Edge,|elem|Step::Move(FocusKey{entry:self.entry,elem}))
     }
-    fn place(&self, e: &u32, _: &Cx<'_, H>, _: At) -> Option<Placed> {
-        let buttons=self.buttons();
-        buttons.contains(e).then_some(Placed {
-            rect: button_rect(*e,&buttons),
-            rest_rect: button_rect(*e,&buttons),
-            clip: Rect::new(0.0, 0.0, 1920.0, 1080.0),
-            index: buttons.iter().position(|i|i==e).map(|i|i as u32),
-        })
+    fn place(&self,e:&u32,_:&Cx<'_,H>,_:At)->Option<Placed> {
+        if *e!=INFO && !self.buttons().contains(e) {return None;}
+        let rect=if *e==INFO {self.info_rect()} else {self.button_rect(*e)};
+        Some(Placed{rect,rest_rect:rect,clip:Rect::FULL,index:if *e==INFO {None}
+            else {self.buttons().iter().position(|i|i==e).map(|i|i as u32)}})
     }
-    fn reconcile(&self, want: FocusKey<u32>, _: &Cx<'_, H>) -> FocusKey<u32> {
-        if !self.buttons().contains(&want.elem){FocusKey{entry:self.entry,elem:WATCHLIST}}else{want}
+    fn reconcile(&self,want:FocusKey<u32>,_:&Cx<'_,H>)->FocusKey<u32> {
+        if want.elem==INFO || self.buttons().contains(&want.elem) {want}
+        else {FocusKey{entry:self.entry,elem:INFO}}
     }
-    fn seat(&self, _: GroupId, _: Placed, _: &Cx<'_, H>) -> FocusKey<u32> {
-        FocusKey {
-            entry: self.entry,
-            elem: if self.has_local(){LIBRARY}else{WATCHLIST},
-        }
-    }
+    fn seat(&self,_:GroupId,_:Placed,_:&Cx<'_,H>)->FocusKey<u32> {FocusKey{entry:self.entry,elem:INFO}}
 }
 impl<H: AppLike> Screen<H> for CatalogDetailsScreen {
     fn name(&self) -> &'static str {
@@ -238,93 +281,73 @@ impl<H: AppLike> Screen<H> for CatalogDetailsScreen {
         None
     }
     fn prepare(&mut self, _: &mut crate::ui::frame::Budget, _: &Cx<'_, H>) {}
-    fn scrim(&self) -> Scrim {
-        Scrim::dim(theme::underlay::DIM_PANEL)
-    }
+    fn scrim(&self) -> Scrim { Scrim::NONE }
     fn draw(&mut self, f: &mut DrawFrame<'_, '_, H>) {
-        let r = PANEL;
-        let p = f.painter.alpha(f.page_alpha);
-        crate::ui::widgets::panel_ground(p, r, theme::ALERT_PANEL_RAD, f.underlay);
-        let x = TEXT_X;
-        let w = TEXT_W;
-        if let Some((sid, thumb))=self.state.as_ref().and_then(|s|s.poster.as_ref()) {
-            crate::ui::widgets::card(p, POSTER, crate::ui::widgets::Art::Thumb{sid:*sid,key:thumb,res:(250,375)}, theme::CARD_RING_RAD, false, 1.0, 0.0);
-        }
-        let text = |s: &str, y, size, ink, lines| {
-            TextView::new(s, size, ink)
-                .with_measure(f.measure)
-                .max_lines(lines)
-                .draw(p, Rect::new(x, r.y + y, w, 0.0));
-        };
-        text(
-            "CATALOG",
-            48.0,
-            theme::size::CAPTION,
-            theme::TEXT_TERTIARY,
-            1,
-        );
-        text(
-            self.state
-                .as_ref()
-                .map(|s| s.title.as_str())
-                .filter(|s| !s.is_empty())
-                .unwrap_or(&self.arg.title),
-            94.0,
-            theme::size::HEADLINE,
-            theme::TEXT_HEADING,
-            2,
-        );
-        let year_value=self.state.as_ref().map_or(self.arg.year,|s|if s.year>0{s.year}else{self.arg.year});
-        let year = if year_value > 0 {
-            year_value.to_string()
-        } else {
-            "Year not supplied".into()
-        };
-        text(&year, 180.0, theme::size::CAPTION, theme::TEXT_SECONDARY, 1);
-        let credit = [&self.arg.person,&self.arg.department,&self.arg.role].into_iter().filter(|s|!s.trim().is_empty()).map(String::as_str).collect::<Vec<_>>().join(" · ");
-        if !credit.is_empty(){text(&credit, 220.0, theme::size::CAPTION, theme::TEXT_SECONDARY, 1);}
-        if let Some(state)=&self.state {
-            crate::ui::fmt::draw_ratings(p, &state.ratings, x, r.y+if credit.is_empty(){236.0}else{276.0}, x+w, f.measure);
-        }
-        let summary = self
-            .state
-            .as_ref()
-            .map(|s| s.summary.as_str())
-            .filter(|s| !s.is_empty())
-            .unwrap_or("Catalog information is unavailable.");
-        text(summary, if credit.is_empty(){282.0}else{322.0}, theme::size::BODY, theme::TEXT_READING, if credit.is_empty(){4}else{3});
-        let label = match self.state.as_ref() {
-            Some(s) if s.busy => c"Loading…",
-            Some(s) if s.failed => c"Retry Watchlist status",
-            Some(s) if s.watchlisted == Some(true) => c"Remove from Watchlist",
-            _ => c"Add to Watchlist",
-        };
         use crate::ui::View;
-        let buttons=self.buttons();
-        for elem in buttons.iter().copied() {
-        let label=match elem {LIBRARY=>c"Open in Library",TRAILER=>c"Watch Trailer",_=>label};
-        let rect=button_rect(elem,&buttons);
-        crate::ui::widgets::Button::new(label.as_ptr(), theme::size::BODY, rect)
-            .focused(f.cx.focus.current.is_some_and(|key|key.entry==self.entry && key.elem==elem))
-            .draw(&crate::ui::Env::inert(), p);
-        f.stop(
-            f.painter,
-            crate::ui::screen::Stop {
-                key: FocusKey {
-                    entry: self.entry,
-                    elem,
-                },
-                rect,
-                rest_rect: rect,
-                clip: Rect::new(0.0, 0.0, 1920.0, 1080.0),
-                hover: crate::ui::screen::Hover::Focus,
-                activate: crate::ui::screen::Activate::Immediate,
-            },
-        );
+        let r=self.panel(); let p=f.painter.alpha(f.page_alpha);
+        if self.full {
+            p.rect(Rect::FULL,0.0,theme::CINEMA_GROUND,theme::CINEMA_GROUND,0.0);
+            if let Some((sid,key))=self.state.as_ref().and_then(|s|s.backdrop.as_ref()) {
+                crate::ui::widgets::card(p,Rect::FULL,crate::ui::widgets::Art::Thumb{sid:*sid,key,res:(1280,720)},0.0,false,1.0,0.0);
+                let shade=theme::scrim_black(0.84);
+                p.rect(Rect::FULL,0.0,shade,shade,0.0);
+            }
+        } else {crate::ui::widgets::panel_ground(p,r,theme::ALERT_PANEL_RAD,f.underlay);}
+        let poster=if self.full {Rect::new(96.0,192.0,280.0,420.0)}
+            else {Rect::new(r.x+COMPACT_PAD,r.y+COMPACT_PAD,164.0,246.0)};
+        if let Some((sid,key))=self.state.as_ref().and_then(|s|s.poster.as_ref()).or(self.arg.poster.as_ref()) {
+            crate::ui::widgets::card(p,poster,crate::ui::widgets::Art::Thumb{sid:*sid,key,res:(300,450)},theme::CARD_RING_RAD,false,1.0,0.0);
         }
-
-        let hint = crate::ui::widgets::KeyHint::new(c"Press", c"BACK", c"to return");
-        hint.draw(p, r.x+r.w-theme::alert::PAD-hint.width(f.measure), r.y+r.h-theme::space::MD-crate::ui::widgets::KeyHint::height()/2.0, f.measure);
+        else { crate::ui::widgets::card(p,poster,crate::ui::widgets::Art::Poster(None),theme::CARD_RING_RAD,false,1.0,0.0); }
+        let x=if self.full {424.0} else {poster.x+poster.w+24.0};
+        let w=if self.full {1376.0} else {r.x+r.w-304.0-x};
+        let top=if self.full {192.0} else {r.y+28.0};
+        let text=|s:&str,y,size,ink,lines| {
+            TextView::new(s,size,ink).with_measure(f.measure).max_lines(lines)
+                .draw(p,Rect::new(x,y,w,0.0));
+        };
+        let state=self.state.as_ref();
+        let title=state.map(|s|s.title.as_str()).filter(|s|!s.is_empty()).unwrap_or(&self.arg.title);
+        text(title,top,if self.full {theme::size::DISPLAY} else {theme::size::HEADLINE},theme::TEXT_HEADING,if self.full {2}else{1});
+        let year=self.arg.year.to_string();
+        let facts=state.map(|s|s.facts.as_str()).filter(|s|!s.is_empty()).unwrap_or(if self.arg.year>0{&year}else{""});
+        text(facts,top+if self.full{156.0}else{56.0},theme::size::CAPTION,theme::TEXT_SECONDARY,1);
+        if let Some(state)=state {
+            if self.full {
+                crate::ui::fmt::draw_ratings(p,&state.ratings,x,top+218.0,x+w,f.measure);
+            } else {
+                crate::ui::fmt::draw_compact_ratings(p,&state.ratings,x,r.y+222.0,x+w,f.measure);
+            }
+            text(&state.summary,top+if self.full{258.0}else{100.0},if self.full{theme::size::BODY}else{theme::size::CAPTION},theme::TEXT_READING,if self.full{7}else{2});
+            if self.full {
+                for (label,value,y) in [("Genres",&state.genres,726.0),("Cast",&state.cast,778.0)] {
+                    if !value.is_empty(){text(&format!("{label}   {value}"),y,theme::size::CAPTION,theme::TEXT_SECONDARY,if label=="Cast"{2}else{1});}
+                }
+                let credit=[self.arg.person.as_str(),self.arg.department.as_str(),self.arg.role.as_str()].into_iter().filter(|s|!s.is_empty()).collect::<Vec<_>>().join(" · ");
+                if !credit.is_empty(){TextView::new(&credit,theme::size::CAPTION,theme::TEXT_SECONDARY).with_measure(f.measure).max_lines(3).draw(p,Rect::new(96.0,644.0,280.0,0.0));}
+            }
+        }
+        let current=f.cx.focus.current.filter(|k|k.entry==self.entry).map(|k|k.elem);
+        if !self.full {
+            let info=self.info_rect();
+            if current==Some(INFO) { p.rring(info,theme::CARD_RING_RAD,2.0,theme::TEXT_SECONDARY); }
+            text("Details  ›",r.y+r.h-48.0,theme::size::CAPTION,theme::TEXT_SECONDARY,1);
+        }
+        let watch=match state {Some(s) if s.busy=>c"Loading…",Some(s) if s.failed=>c"Retry Watchlist",Some(s) if s.watchlisted==Some(true)=>c"Remove Watchlist",_=>c"Watchlist"};
+        for elem in self.buttons().into_iter().chain(std::iter::once(INFO)) {
+            let rect=if elem==INFO {self.info_rect()} else {self.button_rect(elem)};
+            if elem!=INFO {
+                let label=match elem {LIBRARY=>c"Open in Library",TRAILER=>c"Trailer",_=>watch};
+                crate::ui::widgets::Button::new(label.as_ptr(),theme::size::BODY,rect)
+                    .focused(current==Some(elem)).draw(&crate::ui::Env::inert(),p);
+            }
+            f.stop(f.painter,crate::ui::screen::Stop{key:FocusKey{entry:self.entry,elem},rect,rest_rect:rect,
+                clip:Rect::FULL,hover:crate::ui::screen::Hover::Focus,activate:crate::ui::screen::Activate::Immediate});
+        }
+        if self.full {
+            let hint=crate::ui::widgets::KeyHint::new(c"Press",c"BACK",c"to return");
+            hint.draw(p,1824.0-hint.width(f.measure),1030.0,f.measure);
+        }
     }
     fn render(&self) -> RenderStrategy {
         RenderStrategy::Page

@@ -524,9 +524,23 @@
       "loop_floor": 30,
       "run_secs": 8,
       "warmup_s": 4,
-      "comment": "Synthetic four-rating catalog panel and three action buttons; navigation only, no household writes.",
+      "comment": "Synthetic compact inline card: ratings, information focus and three actions; no household writes.",
       "triggers": {
         "plxnative-catalog-details-fixture": true
+      }
+    },
+    {
+      "name": "catalog-full-panel",
+      "tier": "ui",
+      "route": "home",
+      "overlay": "catalog_details",
+      "loop_floor": 30,
+      "run_secs": 8,
+      "warmup_s": 4,
+      "comment": "Synthetic full catalog details; expand/back behavior covered by host tests and the Search/Discover path.",
+      "triggers": {
+        "plxnative-catalog-details-fixture": true,
+        "plxnative-catalog-full-fixture": true
       }
     },
     {

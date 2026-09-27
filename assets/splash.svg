@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080">
+  <rect width="1920" height="1080" fill="#000"/>
+  <!-- Small monochrome PLX mark; no glow, bevel, texture or subtitle. -->
+  <g transform="translate(823 490)" fill="none" stroke="#fff" stroke-width="18" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M0 100V0H37C80 0 80 61 37 61H0"/>
+    <path d="M102 0V100H158"/>
+    <path d="M190 0L264 100M264 0L190 100"/>
+  </g>
+</svg>

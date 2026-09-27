@@ -219,7 +219,9 @@ impl Backdrop {
 
         let incoming_a = reveal(tex.0, &self.art);
         let outgoing_a = reveal(outgoing_tex.0, &self.outgoing_art);
-        if !wash_hidden(env.sp, incoming_a, slide.map(|_| outgoing_a))
+        // The first hero dissolves over OLED black. Keep the ambient field for the grid,
+        // never enlarge a low-detail blur into a gray loading screen while art is pending.
+        if env.sp > 0.005 && !wash_hidden(env.sp, incoming_a, slide.map(|_| outgoing_a))
             && !self.wash.is_flat(theme::SURFACE_APP, AmbientWash::FLAT_EPS)
         {
             self.wash.draw(p, Rect::FULL);
@@ -249,7 +251,7 @@ impl Backdrop {
                 backdrop_art(p, tex, env.sp, 0.0, incoming_a);
             }
         }
-        if !folded && env.hero_a > 0.01 {
+        if !folded && env.hero_a > 0.01 && (incoming_a > 0.01 || outgoing_a > 0.01) {
             let [y0, knee, mid, foot] = base_scrim_ramp(env.hero_a);
             p.rect(
                 Rect::new(0.0, y0, SCR_W, knee - y0),
@@ -1031,7 +1033,7 @@ impl HomeScreen {
     }
 
     fn draw_page<H: HomeLike>(&mut self, f: &mut DrawFrame<'_, '_, H>) {
-        crate::gfx::frame_clear(theme::CLEAR_RGB.0, theme::CLEAR_RGB.1, theme::CLEAR_RGB.2);
+        crate::gfx::frame_clear(theme::CINEMA_GROUND[0], theme::CINEMA_GROUND[1], theme::CINEMA_GROUND[2]);
         let view = H::hubs(f.cx);
         let visible_focus = self.visible_focus(f.focus.current);
         let env = self.env(0.0);

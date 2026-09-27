@@ -1,6 +1,6 @@
 {
   "group": "2-search-discover",
-  "description": "Start on a catalog details panel with available extras. Read-only navigation; do not activate Watchlist or library playback.",
+  "description": "Start on an inline catalog card with information focused. Read-only navigation; never activate Watchlist or playback.",
   "steps": [
     {
       "name": "01-catalog-ratings",
@@ -9,7 +9,8 @@
       "keys": [],
       "settle": 12,
       "covers": [
-        "catalog-ratings-trailer"
+        "catalog-ratings-trailer",
+        "catalog-inline-full"
       ],
       "review": "Provider ratings use library presentation; omit absent providers. Trailer only appears when Plex supplies a supported trailer. Open in Library requires an exact local match."
     },
@@ -18,14 +19,55 @@
       "before": ".*catalog.*",
       "after": ".*catalog.*",
       "keys": [
-        "LEFT",
-        "RIGHT"
+        "RIGHT",
+        "DOWN",
+        "UP",
+        "LEFT"
       ],
       "settle": 1,
       "covers": [
         "catalog-ratings-trailer"
       ],
       "review": "Button focus, ratings, summary and Back hint fit without overlap. Explicit trailer playback is a separate authorized device check."
+    },
+    {
+      "name": "03-catalog-full",
+      "before": ".*catalog.*",
+      "after": ".*catalog.*",
+      "keys": [
+        "OK"
+      ],
+      "settle": 2,
+      "covers": [
+        "catalog-inline-full"
+      ],
+      "review": "Information target opens full details with provided synopsis, ratings, genres and cast; optional missing fields are omitted."
+    },
+    {
+      "name": "04-catalog-back-inline",
+      "before": ".*catalog.*",
+      "after": ".*catalog.*",
+      "keys": [
+        "BACK"
+      ],
+      "settle": 1,
+      "covers": [
+        "catalog-inline-full"
+      ],
+      "review": "Back returns to same inline card with information focused."
+    },
+    {
+      "name": "05-catalog-back-search",
+      "before": ".*catalog.*",
+      "after": ".*search.*",
+      "keys": [
+        "BACK"
+      ],
+      "settle": 1,
+      "covers": [
+        "catalog-inline-full"
+      ],
+      "review": "Second Back restores original result row, position and focus without requesting or playing anything."
     }
   ]
 }

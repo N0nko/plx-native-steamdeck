@@ -1,0 +1,17 @@
+{
+  "group": "1-home-movies-tv",
+  "description": "Capture the system splash during a cold launch separately. Start on Home with artwork delayed by a mock server; then let artwork arrive.",
+  "steps": [
+    {
+      "name": "01-home-loading-black",
+      "before": ".*home.*",
+      "after": ".*home.*",
+      "keys": [],
+      "settle": 1,
+      "covers": [
+        "startup-black"
+      ],
+      "review": "Only the centered white mark on pure-black OS splash; Home loading background remains black. Artwork fades in without a gray blocky field. Existing glass menus remain unchanged."
+    }
+  ]
+}

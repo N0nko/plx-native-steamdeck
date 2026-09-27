@@ -410,6 +410,7 @@ pub(super) fn tile<H: SearchLike>(
         return;
     };
     let model = &screen.rows[row];
+    if screen.inline.is_some_and(|(elem,_,_)|model.elems[col]==elem) {return;}
     let style = layout::style(model.kind);
     let rest = screen.row_rect(row, col, At::Drawn);
     let pop = model.motion.scale(col);

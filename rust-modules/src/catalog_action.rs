@@ -19,6 +19,11 @@ pub(crate) struct Snapshot {
     pub poster: Option<(crate::plex::ServerId, String)>,
     pub ratings: Vec<crate::metadata::Rating>,
     pub trailer: Option<crate::plex::catalog::Trailer>,
+    pub kind: String,
+    pub facts: String,
+    pub genres: String,
+    pub cast: String,
+    pub backdrop: Option<(crate::plex::ServerId, String)>,
 }
 impl Snapshot {
     pub(crate) fn pending(r: &Request) -> Self {
@@ -35,6 +40,8 @@ impl Snapshot {
             poster: None,
             ratings: Vec::new(),
             trailer: None,
+            kind: String::new(), facts: String::new(), genres: String::new(),
+            cast: String::new(), backdrop: None,
         }
     }
 }

@@ -1134,3 +1134,26 @@ fn context_waits_two_seconds_even_when_cached_and_keeps_cast_before_similar() {
     deliver(&mut screen,&fixture,Some(child),ScreenEvent::FocusMoved {from:Some(focus),to:child,by:By::Dir});
     assert_eq!(screen.rows.len(),3); assert_eq!(screen.base_rows,1);
 }
+
+#[test]
+fn inline_catalog_expansion_preserves_other_rows_and_restores_search_geometry() {
+    let _serial=crate::testlock::serial();
+    let mut fixture=Fixture::new();
+    fixture.query("ab").shelves(vec![shelf(Kind::Movie,"row",4),shelf(Kind::Show,"tv",4)]);
+    let mut screen=fixture.screen();
+    let before=screen.row_rect(0,1,At::Drawn);
+    let other=screen.row_rect(1,1,At::Drawn);
+    let scroll=screen.scroll_target;
+    let elem=screen.rows[0].elems[1];
+    screen.inline=Some((elem,500,420));
+    let left=screen.row_rect(0,0,At::Drawn);
+    let right=screen.row_rect(0,2,At::Drawn);
+    assert!(left.x+left.w<=500.0);
+    assert!(right.x>=500.0+crate::screens::registry::CatalogDetailsArg::INLINE_W);
+    let actual=screen.row_rect(1,1,At::Drawn);
+    assert_eq!((actual.x,actual.y,actual.w,actual.h),(other.x,other.y,other.w,other.h));
+    deliver(&mut screen,&fixture,Some(FocusKey{entry:ENTRY,elem}),ScreenEvent::Uncover);
+    let actual=screen.row_rect(0,1,At::Drawn);
+    assert_eq!((actual.x,actual.y,actual.w,actual.h),(before.x,before.y,before.w,before.h));
+    assert_eq!(screen.scroll_target,scroll);
+}

@@ -458,6 +458,8 @@ pub const PLANE_COVER: [f32; 4] = SURFACE_APP;
 /// transparent black instead: the player route, and the detail page while a trailer preview has
 /// presented a frame (`gfx::frame_clear_through`).
 pub const CLEAR_RGB: (f32, f32, f32) = (SURFACE_APP[0], SURFACE_APP[1], SURFACE_APP[2]);
+/// OLED-black ground for startup and cinematic catalog details, without a gray wash.
+pub const CINEMA_GROUND: [f32; 4] = BLACK;
 /// Opaque menu panel / fade mask / badge knockout interior.
 pub const SURFACE_PANEL: [f32; 4] = NEUTRAL_650;
 /// Near-opaque sheet/card gradient — top stop. [`SURFACE_PANEL`]'s own stop at .985, so the sheet

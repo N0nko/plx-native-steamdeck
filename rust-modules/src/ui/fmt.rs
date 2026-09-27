@@ -354,7 +354,18 @@ pub(crate) fn rating_mark(art: crate::metadata::RatingArt) -> &'static [crate::u
 
 /// Shared provider marks and scores for library and catalog details.
 pub(crate) fn draw_ratings(p: crate::ui::Painter, ratings: &[crate::metadata::Rating],
-    mut x: f32, cy: f32, right: f32, measure: &dyn crate::ui::machine::Measure) {
+    x: f32, cy: f32, right: f32, measure: &dyn crate::ui::machine::Measure) {
+    ratings_row(p, ratings, x, cy, right, measure, false);
+}
+
+/// Same marks and score units, with abbreviated provider captions for inline cards.
+pub(crate) fn draw_compact_ratings(p: crate::ui::Painter, ratings: &[crate::metadata::Rating],
+    x: f32, cy: f32, right: f32, measure: &dyn crate::ui::machine::Measure) {
+    ratings_row(p, ratings, x, cy, right, measure, true);
+}
+
+fn ratings_row(p: crate::ui::Painter, ratings: &[crate::metadata::Rating],
+    mut x: f32, cy: f32, right: f32, measure: &dyn crate::ui::machine::Measure, compact: bool) {
 
         let mut i = 0;
         while i < ratings.len() {
@@ -373,11 +384,12 @@ pub(crate) fn draw_ratings(p: crate::ui::Painter, ratings: &[crate::metadata::Ra
                     suffix: crate::ui::fmt::rating_suffix(r.art),
                 })
                 .collect();
+            let provider = if compact && provider == "ROTTEN TOMATOES" { "RT" } else { provider };
             let width = crate::ui::widgets::rating_group_w(provider, &cells, measure);
             if x + width > right {
                 break;
             }
-            x += crate::ui::widgets::rating_group(p, x, cy, provider, &cells, measure) + 32.0;
+            x += crate::ui::widgets::rating_group(p, x, cy, provider, &cells, measure) + if compact {16.0} else {32.0};
             i = end;
         }
 }

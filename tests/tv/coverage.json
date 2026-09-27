@@ -468,5 +468,15 @@
     "group": "3-playback-details-watchlist",
     "id": "torrent-local-status",
     "title": "Managed torrent files show Local; Repair enabled, Prepare unnecessary"
+  },
+  {
+    "group": "1-home-movies-tv",
+    "id": "startup-black",
+    "title": "Monochrome centered splash; black Home loading ground without gray ambient wash"
+  },
+  {
+    "group": "2-search-discover",
+    "id": "catalog-inline-full",
+    "title": "Inline catalog row expansion, information target, full details and two-stage Back restoration"
   }
 ]

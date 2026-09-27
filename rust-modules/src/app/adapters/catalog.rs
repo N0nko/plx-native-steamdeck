@@ -33,9 +33,19 @@ impl Controller {
                     reply.title = meta.title.clone();
                     reply.summary = meta.summary.clone();
                     reply.year = meta.year as i32;
+                    reply.kind = meta.kind.clone();
+                    reply.facts = [
+                        (meta.year > 0).then(|| meta.year.to_string()),
+                        (meta.duration > 0).then(|| format!("{} min", meta.duration / 60_000)),
+                        (!meta.content_rating.is_empty()).then(|| meta.content_rating.clone()),
+                        (!meta.studio.is_empty()).then(|| meta.studio.clone()),
+                    ].into_iter().flatten().collect::<Vec<_>>().join(" · ");
+                    reply.genres = meta.genre.iter().map(|t| t.tag.as_str()).filter(|s|!s.is_empty()).collect::<Vec<_>>().join(" · ");
+                    reply.cast = meta.role.iter().take(12).map(|t|t.tag.as_str()).filter(|s|!s.is_empty()).collect::<Vec<_>>().join(" · ");
                     if let Some(sid) = crate::plex::server_ids().next() {
                         let item = crate::pms::parse_item(&meta, sid);
                         if !item.thumb.is_empty() { reply.poster = Some((sid, item.thumb)); }
+                        if !item.art.is_empty() { reply.backdrop = Some((sid, item.art)); }
                     }
                     // Paint metadata immediately; library matching, account state and trailers
                     // are optional background enrichment, never a prerequisite for the panel.

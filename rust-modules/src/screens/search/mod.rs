@@ -46,7 +46,7 @@ pub(super) const OWNER_FLOOR: f32 = 0.02;
 const BLINK_MS: u32 = 530;
 const BLINK_US: u32 = BLINK_MS * 1000;
 
-pub(crate) const SHAPE: &str = "SearchScreen{custom_v1:{keypad_open:bool,numeric:bool,filter:u64,multitap:pending_echo,discovery:owned_context_branches_v5_dwell_two_seconds,shown:rows,base_rows:u64},entry:u32,instance:u32,draft:{text:str,caret:u64,profile:u32,pending:bool},mounted:bool,editing:bool,blink_us:u32,hot:Spring,scroll:Spring,scroll_target:f32,next_elem:u32,query_gen:u32,recent_clear_pending:bool,content_dirty:bool,fade:Xfade,ground:PageGround,owner_row:Option<u64>,owner:str,owner_alpha:Spring,restored:Option<SearchMemory>,keys:[SearchKey],recents:[u32],rows:[{kind:u32,group:u32,elems:[u32],motion:CardRow}]}";
+pub(crate) const SHAPE: &str = "SearchScreen{inline:opt<(elem:u32,x:i32,y:i32)>,custom_v1:{keypad_open:bool,numeric:bool,filter:u64,multitap:pending_echo,discovery:owned_context_branches_v5_dwell_two_seconds,shown:rows,base_rows:u64},entry:u32,instance:u32,draft:{text:str,caret:u64,profile:u32,pending:bool},mounted:bool,editing:bool,blink_us:u32,hot:Spring,scroll:Spring,scroll_target:f32,next_elem:u32,query_gen:u32,recent_clear_pending:bool,content_dirty:bool,fade:Xfade,ground:PageGround,owner_row:Option<u64>,owner:str,owner_alpha:Spring,restored:Option<SearchMemory>,keys:[SearchKey],recents:[u32],rows:[{kind:u32,group:u32,elems:[u32],motion:CardRow}]}";
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 enum Identity {
@@ -61,6 +61,7 @@ struct KeyEntry { identity: Identity, elem: u32, group: GroupId, slot: usize }
 struct Row { kind: Kind, group: GroupId, elems: Vec<u32>, motion: CardRow }
 
 pub(crate) struct SearchScreen {
+    inline: Option<(u32,i32,i32)>,
     discovery:discovery::Browse,shown:crate::discovery::Page,base_rows:usize,discovery_seat:Option<(usize,usize)>,discovery_return:Option<Vec<(GroupId,f32)>>,
     keypad_open:bool, numeric:bool, filter:usize, multitap:multitap::MultiTap,
     entry: EntryId,
@@ -97,7 +98,7 @@ pub(crate) struct SearchScreen {
 
 impl SearchScreen {
     pub(crate) fn new(entry: EntryId, instance: InstanceId) -> Self {
-        Self { discovery:Default::default(),shown:Default::default(),base_rows:0,discovery_seat:None,discovery_return:None,keypad_open:false,numeric:false,filter:0,multitap:multitap::MultiTap::new(),entry, instance, draft: Draft::new(0, ""), mounted: false, editing: false,
+        Self { inline:None, discovery:Default::default(),shown:Default::default(),base_rows:0,discovery_seat:None,discovery_return:None,keypad_open:false,numeric:false,filter:0,multitap:multitap::MultiTap::new(),entry, instance, draft: Draft::new(0, ""), mounted: false, editing: false,
             blink_us: 0, hot: Spring::at(1.0), scroll: Spring::at(0.0), scroll_target: 0.0,
             keys: Vec::new(), next_elem: 10, rows: Vec::new(), recents: Vec::new(), query_gen: 0,
             recent_clear_pending: false, publication: None, content_dirty: true,
@@ -371,9 +372,14 @@ impl SearchScreen {
                     if self.discover_enter(0,0,elem,fx){self.sync(cx,false,fx);}else{self.discovery.pending_down=Some(elem);}
                 }
                 Item::Catalog(media) => {
+                    let rest=self.row_rect(row_index,col,At::Drawn);
+                    let x=rest.x.clamp(96.0,1824.0-crate::screens::registry::CatalogDetailsArg::INLINE_W).round() as i32;
+                    let y=rest.y.clamp(250.0,984.0-crate::screens::registry::CatalogDetailsArg::INLINE_H).round() as i32;
+                    self.inline=Some((elem,x,y));
+                    fx.invalidate(Provenance::Input);
                     fx.push(Fx::App(AppFx::Content(crate::screens::registry::ContentReq::Panel(crate::screens::registry::ContentPanel::CatalogDetails(
                         crate::screens::registry::CatalogDetailsArg { catalog_id:media.rk.clone(),title:media.title.clone(),
-                            person:String::new(),department:String::new(),role:String::new(),year:media.year }
+                            person:String::new(),department:String::new(),role:String::new(),year:media.year, inline:Some([x,y]), poster:Some((media.sid,media.thumb.clone())) }
                     )))));
                 }
                 Item::Media(media) if !media.rk.is_empty() => {
@@ -413,6 +419,7 @@ impl<H: SearchLike> Machine<H> for SearchScreen {
                 self.fade.mount();
                 if !restoring { self.keyboard(true, false, fx); }
             }
+            ScreenEvent::Uncover => {self.inline=None;fx.invalidate(Provenance::Input);}
             ScreenEvent::Resume => self.keyboard(true, false, fx),
             ScreenEvent::WillLeave(_) | ScreenEvent::Unmount | ScreenEvent::Cover | ScreenEvent::Suspend => self.keyboard(false, false, fx),
             ScreenEvent::Activate(elem) => return self.activate(*elem, false, cx, fx),
@@ -626,8 +633,16 @@ impl SearchScreen {
         let style = layout::style(shelf.kind);
         let scroll = if at == At::Drawn { self.scroll.pos } else { self.scroll_target };
         let origin = layout::top(&kinds[..n], row, |i| self.rows[i].motion.band_expand())-self.system_shift();
-        crate::ui::card_row::tile_rect(col, style.margin_x + self.inset(), style.w + style.gap, shelf.motion.scroll_x(),
-            origin + layout::HEAD_TO_ROW - scroll, (style.w, style.h))
+        let mut rect=crate::ui::card_row::tile_rect(col, style.margin_x + self.inset(), style.w + style.gap, shelf.motion.scroll_x(),
+            origin + layout::HEAD_TO_ROW - scroll, (style.w, style.h));
+        if let Some((elem,x,_))=self.inline {
+            if let Some(slot)=shelf.elems.iter().position(|e|*e==elem) {
+                let old_x=style.margin_x+self.inset()+slot as f32*(style.w+style.gap)-shelf.motion.scroll_x();
+                rect.x += x as f32-old_x;
+                if col>slot {rect.x += crate::screens::registry::CatalogDetailsArg::INLINE_W-style.w;}
+            }
+        }
+        rect
     }
     fn reveal<H: SearchLike>(&mut self, key: FocusKey<u32>, _cx: &Cx<'_, H>) {
         let focused = self.rows.iter().position(|row| row.elems.contains(&key.elem));
@@ -822,6 +837,7 @@ impl<H: SearchLike> Screen<H> for SearchScreen {
 
 impl LogicalState for SearchScreen {
     fn write(&self, c: &mut Canon) {
+        c.option(self.inline,|c,(elem,x,y)|{c.u32(elem).u32(x as u32).u32(y as u32);});
         c.bool(self.keypad_open).bool(self.numeric).u64(self.filter as u64);self.multitap.write(c);self.discovery.write(c);self.shown.write(c);c.u64(self.base_rows as u64);
         c.u32(self.entry.0).u32(self.instance.0);
         self.draft.write(c);
