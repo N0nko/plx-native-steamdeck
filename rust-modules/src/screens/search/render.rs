@@ -127,6 +127,26 @@ fn count_key(shelf: Option<&crate::search::Shelf>) -> Option<(Kind, usize)> {
     shelf.map(|s| (s.kind, s.items.len()))
 }
 
+/// Visual scroll window; pointer hits independently reserve the standing navigation bar.
+fn content_clip(left: f32) -> Rect {
+    Rect::new(left, 0.0, SCR_W - left, SCR_H)
+}
+
+#[cfg(test)]
+mod scroll_clip_tests {
+    use super::*;
+    #[test]
+    fn search_scrolling_keeps_art_behind_the_floating_navigation() {
+        for left in [0.0, 640.0] {
+            let clip = content_clip(left);
+            assert!(clip.contains(left + 20.0, crate::ui::widgets::TOP_BAR_BOTTOM - 10.0),
+                "the floating bar must not create a full-width empty strip");
+            assert!(clip.contains(left + 20.0, 1.0));
+            if left > 0.0 { assert!(!clip.contains(left - 1.0, 250.0)); }
+        }
+    }
+}
+
 pub(super) fn draw<H: SearchLike>(screen: &SearchScreen, f: &mut DrawFrame<'_, '_, H>) {
     crate::gfx::frame_clear(theme::CLEAR_RGB.0, theme::CLEAR_RGB.1, theme::CLEAR_RGB.2);
     let p = f.painter.alpha(f.page_alpha);
@@ -134,9 +154,10 @@ pub(super) fn draw<H: SearchLike>(screen: &SearchScreen, f: &mut DrawFrame<'_, '
     field(screen, f, p);
     let p = p.alpha(screen.fade.alpha());
     {
-    // Painting and hit testing must agree when horizontal rows pass the keyboard.
+    // Keep the keyboard gutter protected, but let artwork scroll behind the floating bar.
+    // Pointer stops retain their own TOP_BAR_BOTTOM boundary in Focusable::place.
     let left = if screen.keypad_open { (keypad::extent(screen.numeric).x + keypad::extent(screen.numeric).w) + theme::space::MD } else { 0.0 };
-    let _clip = f.clip(p, Rect::new(left, crate::ui::widgets::TOP_BAR_BOTTOM, SCR_W - left, SCR_H - crate::ui::widgets::TOP_BAR_BOTTOM));
+    let _clip = f.clip(p, content_clip(left));
     if !screen.recents.is_empty() {
         recents(screen, f, p);
     } else if screen.rows.is_empty() {
@@ -1329,10 +1350,10 @@ mod tests {
 fn controls<H:SearchLike>(screen:&SearchScreen,f:&mut DrawFrame<'_, '_, H>){
     use crate::ui::screen::{Stop,Hover,Activate};
     let p=f.painter.alpha(f.page_alpha);
-    // Scrolled controls share the content hit boundary: never paint through the standing tabs.
+    // Controls scroll behind the floating bar; only their pointer stops stop at its boundary.
     let floor=crate::ui::widgets::TOP_BAR_BOTTOM;
     let clip=Rect::new(0.0,floor,SCR_W,SCR_H-floor);
-    let _clip=f.clip(p,clip);
+    let _clip=f.clip(p,content_clip(0.0));
     let mut draw=|elem:u32,label:&str,rect:Rect,selected:bool|{
         let label=cstring(label);let focused=f.cx.focus.current==Some(screen.key(elem));
         let style = if selected { crate::ui::widgets::ControlStyle::Custom { fill: if focused { theme::TAB_SELECTED_HOVER } else { theme::ACCENT }, ink: theme::ACCENT_INK } } else { crate::ui::widgets::ControlStyle::Glass };

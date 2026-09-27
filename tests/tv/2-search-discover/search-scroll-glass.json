@@ -1,0 +1,71 @@
+{
+  "description": "Start on Home. Read-only Discover scrolling and navigation-glass visual regression.",
+  "group": "2-search-discover",
+  "steps": [
+    {
+      "name": "01-home-glass",
+      "before": "home",
+      "after": "home",
+      "review": "Top navigation glass texture over hero artwork",
+      "covers": [
+        "navigation-glass"
+      ]
+    },
+    {
+      "name": "02-discover",
+      "before": "home",
+      "keys": [
+        "BACK",
+        "LEFT",
+        "LEFT",
+        "LEFT",
+        "LEFT",
+        "LEFT",
+        "RIGHT",
+        "RIGHT",
+        "RIGHT",
+        "RIGHT",
+        "OK"
+      ],
+      "after": "search",
+      "settle": 6,
+      "review": "Empty discovery; no filtering or account mutation"
+    },
+    {
+      "name": "03-discover-scroll",
+      "before": "search",
+      "keys": [
+        "RIGHT",
+        "RIGHT",
+        "RIGHT",
+        "RIGHT",
+        "RIGHT",
+        "RIGHT",
+        "RIGHT",
+        "RIGHT",
+        "DOWN",
+        "DOWN"
+      ],
+      "after": "search",
+      "settle": 2,
+      "review": "Posters continue to the screen edge behind the floating top bar; no horizontal cutoff. Check glass gradients and focus.",
+      "covers": [
+        "search-scroll-under-chrome"
+      ]
+    },
+    {
+      "name": "04-discover-scroll-more",
+      "before": "search",
+      "keys": [
+        "DOWN",
+        "DOWN"
+      ],
+      "after": "search",
+      "settle": 2,
+      "review": "Posters continue to the screen edge behind the floating top bar; no horizontal cutoff. Check glass gradients and focus.",
+      "covers": [
+        "search-scroll-under-chrome"
+      ]
+    }
+  ]
+}

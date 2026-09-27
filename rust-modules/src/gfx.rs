@@ -4453,17 +4453,21 @@ const DITHER_LSB: f32 = 2.0 / 255.0;
 /// The tread cannot be computed here: the ramp is whatever the blur chain produced, and a blur is
 /// by construction the slowest field the app ever puts on screen (that is what a blur IS). So the
 /// area test is the whole of it, and the answer above the threshold is always yes.
+/// A shallow navigation bar still spans a long ramp; requiring 96px on BOTH axes
+/// incorrectly disabled its output dither. Keep the area budget and reject only
+/// very thin strips (under half that span). The shader already performs this fetch.
 /// Measured on the television, Settings over Home before this existed: a 700-row column through
 /// the ground spanned luma 55.7 to 59.1 in FOUR distinct levels, treads of 158, 157 and 146 rows.
 fn dither_for_field(w: f32, h: f32) -> f32 {
-    if w < DITHER_MIN_SPAN || h < DITHER_MIN_SPAN {
+    if w.min(h) < DITHER_MIN_SPAN * 0.5 || w * h < DITHER_MIN_SPAN * DITHER_MIN_SPAN {
         return 0.0;
     }
     DITHER_LSB
 }
 
-/// The smallest surface on which a staircase is findable by eye, in authored px, applied to BOTH
-/// axes. Below it the amplitude is 0: the fetch still runs (the prelude has no branch — cost rule
+/// Reference square for the minimum field area, in authored px. The shorter axis
+/// must also reach half this span. Below either limit the amplitude is 0: the fetch
+/// still runs (the prelude has no branch — cost rule
 /// 1 in `dither.glsl`) but on a field this small it is on the idle texture pipe and adds nothing.
 const DITHER_MIN_SPAN: f32 = 96.0;
 
@@ -6421,6 +6425,14 @@ mod tests {
         assert!(page_moving());
         begin_frame(true);
         assert_eq!(dither_for_field(700.0, 700.0), DITHER_LSB, "page motion is not a field's business");
+    }
+
+    #[test]
+    fn shallow_navigation_glass_keeps_output_dither() {
+        assert_eq!(dither_for_field(544.0, 76.0), DITHER_LSB,
+            "a long glass bar has visible colour ramps despite its shallow height");
+        assert_eq!(dither_for_field(76.0, 544.0), DITHER_LSB);
+        assert_eq!(dither_for_field(64.0, 64.0), 0.0, "small controls stay unchanged");
     }
 
     #[test]

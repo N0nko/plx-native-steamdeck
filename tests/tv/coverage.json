@@ -493,5 +493,15 @@
     "group": "3-playback-details-watchlist",
     "id": "series-unmanaged",
     "title": "Unmanaged series preserve library seasons without endless retries"
+  },
+  {
+    "group": "1-home-movies-tv",
+    "id": "navigation-glass",
+    "title": "Smooth top navigation glass, including shallow gradient ramps"
+  },
+  {
+    "group": "2-search-discover",
+    "id": "search-scroll-under-chrome",
+    "title": "Discovery and search scroll behind floating navigation without a horizontal cutoff"
   }
 ]
