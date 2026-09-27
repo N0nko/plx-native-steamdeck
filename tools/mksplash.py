@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Render the vector startup mark with system librsvg/Cairo (Linux/WSL)."""
+"""Render a true 4K master and webOS's 1080p launch surface directly from SVG."""
 import ctypes as C
 from ctypes.util import find_library
 from pathlib import Path
@@ -16,6 +16,7 @@ def main():
         return fn
     surface_new = bind(cairo, 'cairo_image_surface_create', C.c_void_p, C.c_int, C.c_int, C.c_int)
     context_new = bind(cairo, 'cairo_create', C.c_void_p, C.c_void_p)
+    scale = bind(cairo, 'cairo_scale', None, C.c_void_p, C.c_double, C.c_double)
     load = bind(rsvg, 'rsvg_handle_new_from_file', C.c_void_p, C.c_char_p, C.c_void_p)
     render = bind(rsvg, 'rsvg_handle_render_cairo', C.c_int, C.c_void_p, C.c_void_p)
     save = bind(cairo, 'cairo_surface_write_to_png', C.c_int, C.c_void_p, C.c_char_p)
@@ -25,16 +26,20 @@ def main():
     handle = load(str(root / 'assets/splash.svg').encode(), None)
     if not handle:
         raise RuntimeError('Cannot load splash.svg')
-    surface = surface_new(0, 1920, 1080)
-    context = context_new(surface)
     try:
-        if not render(handle, context):
-            raise RuntimeError('Cannot render splash.svg')
-        if save(surface, str(root / 'pkg/splash.png').encode()):
-            raise RuntimeError('Cannot save splash.png')
+        for width, height, target in [(3840,2160,'assets/splash-master.png'),(1920,1080,'pkg/splash.png')]:
+            surface = surface_new(0, width, height)
+            context = context_new(surface)
+            try:
+                scale(context, width/1920, height/1080)
+                if not render(handle, context):
+                    raise RuntimeError('Cannot render splash.svg')
+                if save(surface, str(root / target).encode()):
+                    raise RuntimeError('Cannot save '+target)
+            finally:
+                free_context(context)
+                free_surface(surface)
     finally:
-        free_context(context)
-        free_surface(surface)
         unref(handle)
 
 
