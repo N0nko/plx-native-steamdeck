@@ -1071,7 +1071,7 @@ fn catalog_library_action_opens_exact_detail_without_watchlist_or_play(){
  let mut rig=Bridge::for_test(||0);let entry=EntryId(81);let instance=InstanceId(82);
  let parts=CxParts{tick:tick(0),press:Default::default(),focus:Default::default(),owner:InputOwner::Entry(entry)};
  let split=rig.split();let cx=parts.cx::<AppHost>(split.views,split.measure);
- let id="0123456789abcdef01234567".to_owned();let mut screen=crate::screens::catalog_details::CatalogDetailsScreen::new(entry,crate::screens::registry::CatalogDetailsArg{catalog_id:id.clone(),title:"Exact title".into(),person:String::new(),department:String::new(),role:String::new(),inline:None,poster:None,host_glass:false,year:2026});
+ let id="0123456789abcdef01234567".to_owned();let mut screen=crate::screens::catalog_details::CatalogDetailsScreen::new(entry,crate::screens::registry::CatalogDetailsArg{catalog_id:id.clone(),title:"Exact title".into(),person:String::new(),department:String::new(),role:String::new(),inline:None,poster:None,host_glass:false,parent:None,year:2026});
  let mut present=Present::new();let mut out=Vec::new();
  {let mut fx=Effects::new(&mut out,MachineId::Instance(instance),&mut present);screen.step(&ScreenEvent::Mount,&cx,&mut fx);}
  out.clear();
@@ -1106,7 +1106,7 @@ fn inline_catalog_full_details_back_returns_to_card_before_dismissal() {
  let mut rig=Bridge::for_test(||0);let entry=EntryId(81);let instance=InstanceId(82);
  let parts=CxParts{tick:tick(0),press:Default::default(),focus:Default::default(),owner:InputOwner::Entry(entry)};
  let split=rig.split();let cx=parts.cx::<AppHost>(split.views,split.measure);
- let mut screen=crate::screens::catalog_details::CatalogDetailsScreen::new(entry,crate::screens::registry::CatalogDetailsArg{catalog_id:"0123456789abcdef01234567".into(),title:"Exact title".into(),person:String::new(),department:String::new(),role:String::new(),inline:Some([100,420]),poster:None,host_glass:false,year:2026});
+ let mut screen=crate::screens::catalog_details::CatalogDetailsScreen::new(entry,crate::screens::registry::CatalogDetailsArg{catalog_id:"0123456789abcdef01234567".into(),title:"Exact title".into(),person:String::new(),department:String::new(),role:String::new(),inline:Some([100,420]),poster:None,host_glass:false,parent:None,year:2026});
  let mut present=Present::new();let mut out=Vec::new();
  {let mut fx=Effects::new(&mut out,MachineId::Instance(instance),&mut present);screen.step(&ScreenEvent::Mount,&cx,&mut fx);}
  let compact=screen.place(&4,&cx,At::SpringTarget).unwrap().rect;
@@ -1134,7 +1134,7 @@ fn catalog_preview_waits_for_expansion_and_dwell_and_uses_preview_transport() {
  let parts=CxParts{tick:tick(0),press:Default::default(),focus:crate::ui::machine::FocusRead{current:Some(FocusKey{entry,elem:4}),..Default::default()},owner:InputOwner::Entry(entry)};
  let split=rig.split();let cx=parts.cx::<AppHost>(split.views,split.measure);
  let id="0123456789abcdef01234567".to_owned();
- let mut screen=crate::screens::catalog_details::CatalogDetailsScreen::new(entry,crate::screens::registry::CatalogDetailsArg{catalog_id:id.clone(),title:"Title".into(),person:String::new(),department:String::new(),role:String::new(),inline:Some([100,420]),poster:None,host_glass:false,year:2026});
+ let mut screen=crate::screens::catalog_details::CatalogDetailsScreen::new(entry,crate::screens::registry::CatalogDetailsArg{catalog_id:id.clone(),title:"Title".into(),person:String::new(),department:String::new(),role:String::new(),inline:Some([100,420]),poster:None,host_glass:false,parent:None,year:2026});
  let request=crate::catalog_action::Request{id,profile:crate::plex::session::current_gen(),desired:None};
  let mut state=crate::catalog_action::Snapshot::pending(&request);state.busy=false;
  state.trailer=Some(crate::plex::catalog::Trailer{key:"catalog-part".into(),title:"Trailer".into()});
@@ -1168,4 +1168,21 @@ fn catalog_preview_waits_for_expansion_and_dwell_and_uses_preview_transport() {
  {let mut fx=Effects::new(&mut out,MachineId::Instance(instance),&mut present);screen.step(&ScreenEvent::Cover,&cx,&mut fx);}
  assert!(out.iter().any(|e|matches!(&e.fx,Fx::App(AppFx::Content(crate::screens::registry::ContentReq::PreviewStop)))));
  crate::player::preview::reset_for_test();
+}
+
+#[test]
+fn inline_catalog_horizontal_edges_dismiss_and_return_direction_to_its_search_instance() {
+ use crate::ui::screen::Dir;
+ let mut rig=Bridge::for_test(||0);let entry=EntryId(81);let instance=InstanceId(82);let parent=InstanceId(70);
+ for (elem,key,dir) in [(4,Key::Left,Dir::Left),(1,Key::Right,Dir::Right)] {
+  let parts=CxParts{tick:tick(0),press:Default::default(),focus:crate::ui::machine::FocusRead{current:Some(FocusKey{entry,elem}),..Default::default()},owner:InputOwner::Entry(entry)};
+  let split=rig.split();let cx=parts.cx::<AppHost>(split.views,split.measure);
+  let mut screen=crate::screens::catalog_details::CatalogDetailsScreen::new(entry,crate::screens::registry::CatalogDetailsArg{catalog_id:"0123456789abcdef01234567".into(),title:"Title".into(),person:String::new(),department:String::new(),role:String::new(),inline:Some([100,420]),poster:None,host_glass:false,parent:Some(parent),year:2026});
+  let mut present=Present::new();let mut out=Vec::new();
+  {let mut fx=Effects::new(&mut out,MachineId::Instance(instance),&mut present);
+   screen.step(&ScreenEvent::Input(script_key(key,tick(1)).remove(0)),&cx,&mut fx);}
+  assert!(out.iter().any(|e|matches!(&e.fx,Fx::Nav(NavOp::Dismiss(id)) if *id==entry)));
+  assert!(out.iter().any(|e|matches!(&e.fx,Fx::Deliver(MachineId::Instance(id),Delivery::Screen(ScreenEvent::App(crate::screens::registry::AppMsg::CatalogNavigate(d)))) if *id==parent && *d==dir)));
+  assert!(!out.iter().any(|e|matches!(&e.fx,Fx::App(AppFx::Catalog(_)))));
+ }
 }

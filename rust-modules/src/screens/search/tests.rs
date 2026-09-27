@@ -1177,3 +1177,18 @@ fn inline_catalog_lower_shelf_moves_with_its_panel_and_restores_scroll() {
     assert_eq!((screen.scroll.pos,screen.scroll_target),scroll);
     assert_eq!(screen.row_rect(1,1,At::Drawn).y,before.y);
 }
+
+#[test]
+fn inline_exit_selects_adjacent_poster_after_uncover_without_opening_it() {
+    let _serial=crate::testlock::serial();
+    let mut fixture=Fixture::new();fixture.query("ab").shelves(vec![shelf(Kind::Movie,"row",4)]);
+    for (dir,col) in [(Dir::Left,0),(Dir::Right,2)] {
+        let mut screen=fixture.screen();let elem=screen.rows[0].elems[1];let target=screen.rows[0].elems[col];
+        screen.inline=Some((elem,500,420));
+        deliver(&mut screen,&fixture,None,ScreenEvent::App(crate::screens::registry::AppMsg::CatalogNavigate(dir)));
+        let (_,out,_)=deliver(&mut screen,&fixture,None,ScreenEvent::Uncover);
+        assert!(screen.inline.is_none());
+        assert!(out.iter().any(|e|matches!(&e.fx,Fx::Deliver(_,Delivery::Screen(ScreenEvent::Enter(Enter::Fresh {focus:FocusTarget::Elem(k)}))) if k.elem==target)));
+        assert!(!out.iter().any(|e|matches!(&e.fx,Fx::App(AppFx::Content(_)))));
+    }
+}

@@ -946,6 +946,7 @@ pub(crate) enum DetailRefreshPhase {
 
 /// The application's messages (spec §3.1).
 pub(crate) enum AppMsg {
+    CatalogNavigate(crate::ui::screen::Dir),
     Catalog(crate::catalog_action::Snapshot),
     Discovery(crate::discovery::Reply),
     Companion(crate::media_companion::Snapshot),
@@ -1799,7 +1800,7 @@ pub(crate) fn every_surface_arg() -> Vec<AppArg> {
         }),
         AppArg::CatalogDetails(CatalogDetailsArg {
             catalog_id: "catalog-1".into(), title: "Catalog credit".into(), person: "Performer".into(),
-            department: "Acting".into(), role: String::new(), year: 2020, inline:None, host_glass:false, poster:None,
+            department: "Acting".into(), role: String::new(), year: 2020, inline:None, host_glass:false,parent:None, poster:None,
         }),
         AppArg::TracksPanel(crate::screens::tracks_panel::TracksPanelArg { page: 1 }),
         AppArg::AboutPanel,
@@ -1966,7 +1967,8 @@ pub(crate) const SCREEN_SHAPES: &[&str] = &[
 #[cfg(test)]
 // Inline catalog anchor, full-detail mode and enriched metadata extend recorded state.
 // Catalog cast/preview state and restored Search inline viewport.
-const SCREEN_SHAPES_PIN: u64 = 0x769ce4c44c0a4181;
+// Search retains a directed return from its inline catalog instance.
+const SCREEN_SHAPES_PIN: u64 = 0xca85c2f3240c41e0;
 
 #[cfg(test)]
 mod arg_tests {

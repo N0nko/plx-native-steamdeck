@@ -614,7 +614,7 @@ impl FilmographyScreen {
             let arg = crate::screens::registry::CatalogDetailsArg {
                 catalog_id: credit.catalog_id.clone(), title: credit.title.clone(),
                 person: self.name.clone(), department: self.department.clone(),
-                role: credit.role.clone(), year: credit.year, inline:None, host_glass:false, poster:None,
+                role: credit.role.clone(), year: credit.year, inline:None, host_glass:false,parent:None, poster:None,
             };
             fx.push(crate::ui::machine::Fx::App(AppFx::Content(ContentReq::Panel(
                 crate::screens::registry::ContentPanel::CatalogDetails(arg),

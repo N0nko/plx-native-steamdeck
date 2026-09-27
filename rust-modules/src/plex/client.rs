@@ -843,11 +843,13 @@ impl StreamUrl {
     ///
     /// **Total**, because its caller has no failure path: a garbage override has to come back as
     /// *something* to fail on at `http_open`. That is why it goes through [`super::origin::split`]
-    /// rather than [`Origin::parse`] — the defaults are the ones this function has always had (no
-    /// scheme means `http`, no port means 32400), and an undialable port becomes the default
-    /// instead of wrapping into one nobody wrote down.
+    /// rather than [`Origin::parse`]. Bare PMS overrides retain port 32400; explicit HTTP(S)
+    /// URLs use their scheme's standard port when omitted. Written ports remain authoritative.
     pub fn parse(url: &str) -> StreamUrl {
-        let (origin, path) = super::origin::split(url);
+        let (legacy, path) = super::origin::split(url);
+        let origin = if url.starts_with("https://") || url.starts_with("http://") {
+            Origin::parse_connection(url, if url.starts_with("https://") { 443 } else { 80 }).unwrap_or(legacy)
+        } else { legacy };
         StreamUrl {
             origin,
             path: if path.is_empty() {
@@ -871,6 +873,16 @@ impl StreamUrl {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn external_stream_urls_use_web_ports_but_bare_pms_overrides_keep_32400() {
+        for (url,port) in [("https://cdn.example/trailer.mp4",443),("http://cdn.example/trailer.mp4",80),
+            ("https://nas.example:32400/part",32400),("nas.example/part",32400)] {
+            let stream=StreamUrl::parse(url);
+            assert_eq!(stream.port(),port);
+            assert_eq!(StreamUrl::parse(&stream.to_url()).port(),port);
+        }
+    }
 
     fn a_client(machine: &str, token: &str) -> Client {
         Client::new(

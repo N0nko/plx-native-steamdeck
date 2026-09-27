@@ -19,10 +19,22 @@ pub(crate) struct Catalog { pub episodes: Vec<Row> }
 pub(crate) enum Action { Read { now: u32 }, Request { season: i64, episode: Option<i64> } }
 
 const READ_FAILURE: &str = "Season list unavailable · retrying shortly";
+fn terminal_notice(answer: &serde_json::Value) -> Option<&'static str> {
+    match answer["reason_code"].as_str()? {
+        "series_unmanaged" => Some("Showing library seasons · series is not managed by Sonarr"),
+        "series_ambiguous" => Some("Showing library seasons · check series identity in Sonarr"),
+        "series_numbering" => Some("Showing library seasons · episode numbering needs a mapping"),
+        _ => None,
+    }
+}
 pub(crate) fn read_due(d: &Detail, now: u32) -> bool {
     d.is_show && !d.series_attempted && (d.series_retry_at==0 || now.wrapping_sub(d.series_retry_at)<0x8000_0000)
 }
 fn land_read(d: &mut Detail, answer: Option<serde_json::Value>, now: u32) {
+    if let Some(notice)=answer.as_ref().and_then(terminal_notice) {
+        d.series_attempted=true; d.series_retry_at=0; d.series_notice=notice.into();
+        return;
+    }
     if let Some(catalog)=answer.and_then(|v|serde_json::from_value::<Catalog>(v).ok()).filter(valid_catalog) {
         d.series_catalog=Some(catalog); d.series_attempted=true; d.series_retry_at=0;
         if d.series_notice==READ_FAILURE { d.series_notice.clear(); }
@@ -65,9 +77,10 @@ fn perform(sid: ServerId, rk: &str, action: &Action) -> Option<serde_json::Value
         &format!("https://{}:{}/v1/{verb}?rating_key={rk}&machine_id={}{}",p.host,p.port,p.machine_id,extra),
         &["Accept: application/json".into(),format!("Authorization: Bearer {}",p.token)], method,None,
         crate::net::Timeouts { connect_s:3,total_s:15,..crate::net::API },false,Some(2_000_000),crate::net::Tls::Pinned(&p.tls_pin))?;
-    if response.status != 200 { return None; }
+    if !matches!(response.status,200|503) { return None; }
     let value: serde_json::Value = serde_json::from_slice(&response.body).ok()?;
-    (value["rating_key"] == rk && value["machine_id"] == p.machine_id).then_some(value)
+    (value["rating_key"] == rk && value["machine_id"] == p.machine_id
+        && (response.status==200 || terminal_notice(&value).is_some())).then_some(value)
 }
 
 pub(super) fn request(state: &mut MetadataState, adapter: &Arc<MetadataAdapter>, sid: ServerId, rk: &str, action: Action) -> bool {
@@ -169,6 +182,18 @@ pub(super) fn merge_episodes(d: &mut Detail) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn unmanaged_series_keeps_local_episodes_without_endless_transient_retries() {
+        let mut d=Detail {is_show:true,episodes:vec![Episode {rk:"42".into(),..Default::default()}],..Default::default()};
+        land_read(&mut d,Some(serde_json::json!({"reason_code":"series_unmanaged"})),1000);
+        assert_eq!(d.episodes[0].rk,"42");
+        assert!(!read_due(&d,90_000));
+        assert!(d.series_notice.contains("not managed by Sonarr"));
+        assert!(!d.series_notice.contains("retrying"));
+        d.series_attempted=false;
+        land_read(&mut d,Some(serde_json::json!({"reason_code":"request_failed"})),1000);
+        assert!(read_due(&d,31_000),"temporary errors must remain retryable");
+    }
     #[test]
     fn incomplete_catalog_retries_with_backoff_and_preserves_local_details() {
         let mut d=Detail {is_show:true,series_attempted:true,episodes:vec![Episode {rk:"42".into(),..Default::default()}],..Default::default()};

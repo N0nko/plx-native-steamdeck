@@ -1,0 +1,8 @@
+{
+  "group":"3-playback-details-watchlist",
+  "description":"Start on a library series that is not managed by Sonarr, with seasons visible. Read-only; never request episodes as part of this fixture.",
+  "steps":[
+    {"name":"01-unmanaged-library-seasons","before":"detail(/none)?","after":"detail(/none)?","keys":[],"settle":3,"covers":["series-unmanaged"],"review":"Local seasons remain usable. Notice explains that additional seasons are unavailable because the series is not managed by Sonarr."},
+    {"name":"02-no-endless-retry","before":"detail(/none)?","after":"detail(/none)?","keys":[],"settle":35,"covers":["series-unmanaged"],"review":"No misleading retry message; local season and episode focus stays unchanged."}
+  ]
+}

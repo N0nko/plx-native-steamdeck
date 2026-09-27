@@ -483,5 +483,15 @@
     "group": "3-playback-details-watchlist",
     "id": "catalog-background-preview",
     "title": "Expanded catalog background trailer, shared transport, volume promotion and clean return to inline card"
+  },
+  {
+    "group": "2-search-discover",
+    "id": "catalog-horizontal-exit",
+    "title": "Inline card exits horizontally to adjacent posters without activation"
+  },
+  {
+    "group": "3-playback-details-watchlist",
+    "id": "series-unmanaged",
+    "title": "Unmanaged series preserve library seasons without endless retries"
   }
 ]

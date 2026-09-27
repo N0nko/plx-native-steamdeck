@@ -210,7 +210,8 @@ impl Resource {
                 return Err(Error::InvalidUri("unsupported URI scheme"));
             }
             let child_origin =
-                Origin::parse(reference).ok_or(Error::InvalidUri("malformed absolute URI"))?;
+                Origin::parse_connection(reference, if reference.starts_with("https://") {443} else {80})
+                    .ok_or(Error::InvalidUri("malformed absolute URI"))?;
             if child_origin != self.origin {
                 return Err(Error::CrossOrigin);
             }
@@ -1048,6 +1049,14 @@ fn path_without_query(path: &str) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn absolute_playlist_urls_use_standard_ports_and_still_reject_cross_origin() {
+        let base=Resource::new(Origin::parse("https://media.example:443/master.m3u8").unwrap(),"/master.m3u8").unwrap();
+        assert_eq!(base.resolve("https://media.example/segment.ts").unwrap().origin.port(),443);
+        assert!(base.resolve("https://media.example:32400/segment.ts").is_err());
+        assert!(base.resolve("https://other.example/segment.ts").is_err());
+    }
 
     fn source(path: &str) -> Resource {
         Resource::new(Origin::http("192.0.2.10", 32400), path).unwrap()

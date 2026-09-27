@@ -23,6 +23,7 @@ pub(crate) struct CatalogDetailsArg {
     pub(crate) year: i32,
     pub(crate) inline: Option<[i32; 2]>,
     pub(crate) host_glass: bool,
+    pub(crate) parent: Option<crate::ui::machine::InstanceId>,
     pub(crate) poster: Option<(crate::plex::ServerId, String)>,
 }
 impl CatalogDetailsArg {
@@ -32,6 +33,7 @@ impl CatalogDetailsArg {
 impl LogicalState for CatalogDetailsArg {
     fn write(&self, c: &mut Canon) {
         c.bool(self.host_glass);
+        c.option(self.parent,|c,p|{c.u32(p.0);});
         c.option(self.inline, |c, a| { c.u32(a[0] as u32).u32(a[1] as u32); });
         c.option(self.poster.as_ref(), |c,(sid,key)| { c.u32(sid.raw() as u32).str(key); });
         c.str(&self.catalog_id)
@@ -102,7 +104,7 @@ impl CatalogDetailsScreen {
         let buttons=self.buttons();
         let index=buttons.iter().position(|e|*e==elem).unwrap_or(0) as f32;
         if self.full {
-            Rect::new(384.0+index*92.0,590.0,64.0,64.0)
+            Rect::new(442.0+index*200.0,590.0,64.0,64.0)
         } else {
             let r=self.panel();
             let height=buttons.len() as f32*80.0-16.0;
@@ -258,6 +260,22 @@ impl<H: AppLike> Machine<H> for CatalogDetailsScreen {
         if let ScreenEvent::Input(input)=ev {
             if let InputKind::Key {key,edge,sym,wcode,..}=input.kind {
                 if self.preview_key(key,edge,sym,wcode,input.at.ms,fx){return Handled::Yes;}
+                if edge==Edge::Down && !self.full && self.arg.inline.is_some() {
+                    let elem=cx.focus.current.filter(|k|k.entry==self.entry).map(|k|k.elem);
+                    let dir=match (key,elem) {
+                        (Key::Left,Some(INFO))=>Some(Dir::Left),
+                        (Key::Right,Some(e)) if self.buttons().contains(&e)=>Some(Dir::Right),
+                        _=>None,
+                    };
+                    if let Some(dir)=dir {
+                        if let Some(parent)=self.arg.parent {
+                            fx.push(Fx::Deliver(crate::ui::machine::MachineId::Instance(parent),
+                                crate::ui::machine::Delivery::Screen(ScreenEvent::App(AppMsg::CatalogNavigate(dir)))));
+                        }
+                        self.stop_preview(fx); fx.push(Fx::Nav(NavOp::Dismiss(self.entry)));
+                        return Handled::Yes;
+                    }
+                }
                 if self.full && self.preview_requested && crate::player::preview::view().picture && key==Key::Up && edge==Edge::Down
                     && cx.focus.current.is_some_and(|k|k.entry==self.entry && k.elem<CAST) {
                     self.preview_promoted=true; self.trailer_ctl.reveal(); fx.invalidate(crate::ui::present::Provenance::Input); return Handled::Yes;
@@ -421,14 +439,16 @@ impl<H: AppLike> Screen<H> for CatalogDetailsScreen {
         text(title,top,if self.full {theme::size::DISPLAY} else {theme::size::HEADLINE},theme::TEXT_HEADING,if self.full {2}else{1});
         let year=self.arg.year.to_string();
         let facts=state.map(|s|s.facts.as_str()).filter(|s|!s.is_empty()).unwrap_or(if self.arg.year>0{&year}else{""});
-        text(facts,top+if self.full{126.0}else{56.0},theme::size::CAPTION,theme::TEXT_SECONDARY,1);
+        let title_h=TextView::new(title,theme::size::DISPLAY,theme::TEXT_HEADING).with_measure(f.measure).max_lines(2).measure_h(w);
+        let facts_y=top+if self.full {title_h+20.0} else {56.0};
+        text(facts,facts_y,theme::size::CAPTION,theme::TEXT_SECONDARY,1);
         if let Some(state)=state {
             if self.full {
-                crate::ui::fmt::draw_ratings(p,&state.ratings,x,top+176.0,x+w,f.measure);
+                crate::ui::fmt::draw_ratings(p,&state.ratings,x,facts_y+50.0,x+w,f.measure);
             } else {
                 crate::ui::fmt::draw_compact_ratings(p,&state.ratings,x,r.y+246.0,x+w,f.measure);
             }
-            text(&state.summary,top+if self.full{226.0}else{104.0},if self.full{theme::size::BODY}else{theme::size::CAPTION},theme::TEXT_READING,if self.full{4}else{3});
+            text(&state.summary,if self.full{facts_y+100.0}else{top+104.0},if self.full{theme::size::BODY}else{theme::size::CAPTION},theme::TEXT_READING,if self.full{4}else{3});
             if self.full {
                 if !state.genres.is_empty(){text(&state.genres,540.0,theme::size::CAPTION,theme::TEXT_SECONDARY,1);}
 
@@ -450,8 +470,8 @@ impl<H: AppLike> Screen<H> for CatalogDetailsScreen {
                 crate::ui::widgets::CircleButton::new(c"".as_ptr()).icon(icon).frame(rect)
                     .focused(current==Some(elem)).draw(&crate::ui::Env::inert(),p);
                 if self.full && current==Some(elem) {
-                    let label=match elem {LIBRARY=>c"Open in Library",TRAILER=>c"Trailer",_=>watch};
-                    TextView::new(label.to_str().unwrap_or_default(),theme::size::CAPTION,theme::TEXT_SECONDARY).with_measure(f.measure).max_lines(1).draw(p,Rect::new(384.0+self.buttons().len() as f32*92.0+12.0,610.0,1000.0,0.0));
+                    let label=match elem {LIBRARY=>c"Open in Library",TRAILER=>c"Trailer",_ if state.is_some_and(|s|s.watchlisted==Some(true))=>c"Watchlisted",_=>watch};
+                    TextView::new(label.to_str().unwrap_or_default(),theme::size::CAPTION,theme::TEXT_SECONDARY).with_measure(f.measure).h(crate::ui::label::HAlign::Center).max_lines(1).draw(p,Rect::new(rect.x+rect.w/2.0-90.0,rect.y+rect.h+12.0,180.0,0.0));
                 }
             }
             if !self.preview_promoted {f.stop(f.painter,crate::ui::screen::Stop{key:FocusKey{entry:self.entry,elem},rect,rest_rect:rect,

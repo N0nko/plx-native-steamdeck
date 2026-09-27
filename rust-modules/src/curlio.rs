@@ -700,7 +700,7 @@ impl CurlSource {
         }
         // The resolve pin, by this URL's host and port — see `net::resolve` for why the media
         // plane consults a table rather than carrying the pin. Looked up ONCE here; a seek reuses it.
-        let (origin, _) = crate::plex::origin::split(url);
+        let origin = crate::plex::StreamUrl::parse(url).origin;
         let resolve_entry = crate::net::resolve::entry_for(origin.host(), origin.port());
         // The offline reproduction (`/tmp/plxnative-nowan`): a name opens only with a pin.
         if resolve_entry.is_none()
@@ -757,7 +757,7 @@ impl CurlSource {
         if !media_url_allowed(url) {
             return Err(OpenErr::Local);
         }
-        let (origin, _) = crate::plex::origin::split(url);
+        let origin = crate::plex::StreamUrl::parse(url).origin;
         let resolve_entry = crate::net::resolve::entry_for(origin.host(), origin.port());
         if resolve_entry.is_none()
             && crate::net::refuse_name(origin.host(), crate::net::API.connect_s)

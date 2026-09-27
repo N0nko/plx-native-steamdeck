@@ -46,10 +46,10 @@
 //!
 //! ## This is a PMS origin parser, not a general URL parser
 //!
-//! Two deliberate narrowings, both because every origin in this app is a Plex server's:
+//! Two deliberate narrowings for callers parsing legacy PMS addresses:
 //!
-//! * **The default port is 32400**, not 80/443. It is what `StreamUrl::parse` has always defaulted
-//!   to, and a PMS with no port in its URL is a PMS on the default port.
+//! * **The default port is 32400**, not 80/443. General streaming URLs use `parse_connection`
+//!   with their scheme's standard port; bare PMS overrides keep this legacy default.
 //! * **Only `http` and `https` are recognised.** [`Origin::parse`] refuses anything else rather
 //!   than inventing a meaning for it.
 use super::probe::dial_port;
