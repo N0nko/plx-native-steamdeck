@@ -580,6 +580,11 @@ impl HomeScreen {
         self.carousel = Some(incoming);
         self.hero_dir = dir as f32;
         self.hero_slide.jump(0.0);
+        // Input can present before the next Tick. Publish both artwork identities with
+        // the slide positions, otherwise x=0 briefly draws an empty outgoing slot.
+        self.backdrop.update(
+            view.hero(next), view.hero(cur), None, self.carousel.as_ref(), self.snap.pos, 0.0,
+        );
         self.hero_flip_cd = HERO_FLIP_CD;
         self.hero_auto = HERO_AUTO_S;
         true

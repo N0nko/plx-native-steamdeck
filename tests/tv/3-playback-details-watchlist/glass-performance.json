@@ -1,0 +1,36 @@
+{
+  "group": "3-playback-details-watchlist",
+  "description": "Start on The Middle season 6 with all artwork loaded. Collect unarmed heartbeat/FRAMEDROP before and during navigation. No activation or acquisition.",
+  "steps": [
+    {
+      "name": "01-before",
+      "before": "detail",
+      "keys": [],
+      "settle": 1,
+      "covers": [
+        "season-glass-frame-times"
+      ],
+      "review": "Confirm the exact focus position before continuing."
+    },
+    {
+      "name": "02-motion",
+      "before": "detail",
+      "after": "detail",
+      "keys": [
+        "LEFT",
+        "LEFT",
+        "LEFT",
+        "LEFT",
+        "RIGHT",
+        "RIGHT",
+        "RIGHT",
+        "RIGHT"
+      ],
+      "settle": 1,
+      "covers": [
+        "season-glass-frame-times"
+      ],
+      "review": "Review smooth motion, continuous glass fade, neighboring focus light, artwork continuity. Compare p50/p95/p99 and slow22 from a separate no-capture timed arrow sequence; screenshot settling is not a performance result."
+    }
+  ]
+}

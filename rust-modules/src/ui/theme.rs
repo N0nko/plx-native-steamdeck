@@ -563,6 +563,10 @@ impl Material {
 pub const PANEL_MATERIAL: Material = Material::Regular;
 /// Inset reflected light for translucent controls over an unsampleable video plane.
 pub const GLASS_REFLECTION_GLOW: [f32; 4] = [9.0, 0.16, 6.0, 0.09];
+
+/// Soft focus light cast across neighboring glass; analytic, no backdrop recapture.
+pub const CONTROL_LIGHT_REACH: f32 = 88.0;
+pub const CONTROL_LIGHT: [f32; 4] = with_a(TEXT_PRIMARY, 0.22);
 // The five `MODAL_*` tokens that stood here — `MODAL_SAMPLE_MATERIAL`, `MODAL_FROST_ALPHA`,
 // `MODAL_BLUR_TAPS`, `MODAL_BLUR_TINT`, `MODAL_BLUR_SATURATION` — were the material of a
 // full-screen BLURRED modal ground (`Glass::modal_ground` → `Painter::backdrop_blur_flat` →

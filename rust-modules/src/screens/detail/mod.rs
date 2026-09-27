@@ -219,9 +219,8 @@ pub(crate) struct DetailScreen {
     spin_ms: f32,
     /// The underlying clock for [`spin_ms`](Self::spin_ms) (`motion::Phase`, phase 12 D4).
     spin_phase: crate::ui::motion::Phase,
-    /// Vertical section geometry for this frame. Synopsis height and the episode strip's
-    /// `block_h` are O(text) and used to be re-asked from every `place` in `record_stops`.
-    /// Cleared at the start of `tick` so a present reuses one walk; missed when
+    /// Vertical section geometry retained across animation ticks. Synopsis height and
+    /// the episode strip's `block_h` are O(text); remeasure only on invalidation or when
     /// [`LayoutStamp`] no longer matches the live item (in-place season landings rewrite
     /// `CURRENT` at a stable address). Never hashed.
     layout: Cell<Option<LayoutCache>>,
@@ -2835,7 +2834,7 @@ impl DetailScreen {
     fn tick<H: ContentLike + crate::screens::registry::MetadataLike>(&mut self, t: Tick, cx: &Cx<'_, H>, fx: &mut Effects<'_, H>) {
         let meta = H::metadata(cx);
         self.spot_facts = SpotFacts::of(self, meta);
-        self.layout.set(None);
+        // LayoutStamp detects content changes; focus/animation ticks keep measured text.
         let dt = t.dt();
         self.pump_restore(meta, fx);
         let d = self.detail(meta);

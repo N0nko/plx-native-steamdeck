@@ -2169,3 +2169,21 @@ fn a_pinned_hero_never_auto_advances() {
     }
     assert_eq!(s.carousel.as_ref().map(|(_, rk)| rk.as_str()), Some("2"));
 }
+
+#[test]
+fn performance_hero_flip_publishes_art_before_the_next_tick() {
+    let _guard = crate::testlock::serial();
+    let mut state = crate::pms::PmsState::default();
+    let adapter = std::sync::Arc::new(crate::pms::PmsAdapter::default());
+    crate::pms::seed_for_test(&mut state, &adapter, 3, crate::pms::HubState::Ready);
+    let snapshot = crate::pms::hubs_snapshot(&state);
+    let view = snapshot.view();
+    let mut s = screen(view);
+    s.backdrop.art.jump(1.0);
+    assert!(s.flip(view, 1));
+    let keys = [s.selected_hero(view), s.outgoing_hero(view)]
+        .map(|h| h.map(|h| (h.item.sid, h.item.art.clone())));
+    assert_eq!(s.backdrop.art_keys, keys, "the press frame must paint the outgoing hero at x=0");
+    assert_eq!(s.backdrop.outgoing_art.pos, 1.0);
+    assert_eq!(s.backdrop.keyed, s.carousel);
+}

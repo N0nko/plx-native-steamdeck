@@ -1,0 +1,29 @@
+{
+  "group": "1-home-movies-tv",
+  "description": "Start on Home hero Next. Record a short video or rapid captures across OK; inspect the press frame, transition, and return to idle. Advance only Next, never Play.",
+  "steps": [
+    {
+      "name": "01-before",
+      "before": "home",
+      "keys": [],
+      "settle": 1,
+      "covers": [
+        "hero-next-no-black-frame"
+      ],
+      "review": "Confirm the exact focus position before continuing."
+    },
+    {
+      "name": "02-motion",
+      "before": "home",
+      "after": "home",
+      "keys": [
+        "OK"
+      ],
+      "settle": 1,
+      "covers": [
+        "hero-next-no-black-frame"
+      ],
+      "review": "Review smooth motion, continuous glass fade, neighboring focus light, artwork continuity. Compare p50/p95/p99 and slow22 from a separate no-capture timed arrow sequence; screenshot settling is not a performance result."
+    }
+  ]
+}

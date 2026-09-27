@@ -4307,7 +4307,14 @@ impl View for TabPill {
                 // rather than a bare fill. That is not cosmetic on the unkeyed ground: the idle face
                 // there is a 10% film, and the rim is the only thing separating it from what it
                 // stands on. A SEGMENT keeps the bare fill: its edge is its strip's business.
-                control_rim(p, r, rad, bg, bg, self.focused, self.ground);
+                // Fade the whole optical material, not just its scrim. Otherwise
+                // refraction stays full-strength until the last frame then disappears.
+                let (material_p, bg) = match self.mix {
+                    Some((focus, _)) if self.plated =>
+                        (p.alpha(1.0 - focus.clamp(0.0, 1.0)), theme::TAB_PLATE_IDLE),
+                    _ => (p, bg),
+                };
+                control_rim(material_p, r, rad, bg, bg, self.focused, self.ground);
             } else {
                 p.rrect(r, rad, rad, bg);
             }
@@ -4696,6 +4703,9 @@ impl TabStrip {
     /// Call this BEFORE the pill loop: the capsules are the pills' ground, and a label drawn under an
     /// opaque focus capsule is a label nobody can read.
     pub(crate) fn draw(&self, p: Painter, top: f32, h: f32, ground: TabGround) {
+        // The cursor is light ON the controls, not changing artwork underneath them.
+        // Keeping it in their band avoids refiltering the scene on every spring step.
+        let _material = crate::ui::frame::backdrop::controls();
         let cap = |c: &Capsule, col: [f32; 4], rim: Option<[f32; 4]>, scale: f32, cast: bool| {
             let (x, w) = c.span();
             let a = c.alpha();
@@ -4777,6 +4787,15 @@ impl TabStrip {
         // and it had the identical defect for the identical reason, so `cast: true` below.
         match ground {
             TabGround::Plated { pop } => {
+                let (x, w) = self.foc.span();
+                let a = self.foc.alpha();
+                if a > 0.004 && w > 0.5 {
+                    let r = Rect::new(x, top, w, h).scaled(pop);
+                    // Analytic spill keeps the neighboring glass illuminated without
+                    // inserting the moving white capsule into a GPU blur capture.
+                    p.alpha(a).shadow(r, r.h * 0.5, theme::CONTROL_LIGHT_REACH, 0.0,
+                        theme::CONTROL_LIGHT);
+                }
                 cap(&self.foc, crate::ui::ACCENT, Some(theme::CARD_SHEEN), pop, true)
             }
             TabGround::Tracked { .. } => cap(&self.foc, crate::ui::ACCENT, None, 1.0, false),

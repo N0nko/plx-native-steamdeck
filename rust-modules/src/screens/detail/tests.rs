@@ -3171,3 +3171,36 @@ fn card_outside_home_supplies_a_still_before_metadata_or_trailer() {
     screen.seed_selected(&crate::pms::PmsMovie { art: "/later".into(), ..item });
     assert_eq!(screen.selected().unwrap().art, "/art/still", "retain the mount's image");
 }
+
+#[test]
+fn performance_detail_tick_reuses_measured_synopsis_until_content_changes() {
+    use crate::ui::machine::Measure;
+    struct Counter(Cell<usize>);
+    impl Measure for Counter {
+        fn width(&self, s: &std::ffi::CStr, sz: i32, bold: bool) -> f32 {
+            if s.to_bytes().windows(10).any(|w| w == b"CacheProbe") { self.0.set(self.0.get() + 1); }
+            crate::ui::fixture::FixtureMeasure.width(s, sz, bold)
+        }
+        fn cap_h(&self, sz: i32) -> f32 { crate::ui::fixture::FixtureMeasure.cap_h(sz) }
+        fn line_h(&self, sz: i32) -> f32 { crate::ui::fixture::FixtureMeasure.line_h(sz) }
+    }
+    let guard = install(Detail { rk: "layout-performance".into(), summary: "CacheProbe original synopsis".into(), ..Default::default() });
+    let mut screen = bare(&guard, ServerId::UNSET, "layout-performance");
+    let measure = Counter(Cell::new(0));
+    screen.hero_chain(&measure, test_store().view());
+    assert!(measure.0.get() > 0);
+    measure.0.set(0);
+    let context = cx(&measure, None);
+    let mut out = Vec::new();
+    let mut present = crate::ui::present::Present::new();
+    let mut fx = Effects::new(&mut out, crate::ui::machine::MachineId::Instance(crate::ui::machine::InstanceId(9)), &mut present);
+    screen.tick(Tick { ms: 16, dt_us: 16_000 }, &context, &mut fx);
+    screen.hero_chain(&measure, test_store().view());
+    assert_eq!(measure.0.get(), 0, "an unchanged tick must not remeasure the synopsis");
+    crate::metadata::set_current_for_test(test_store().state_mut(), Some(Detail {
+        rk: "layout-performance".into(), summary: "CacheProbe modified synopsis".into(), ..Default::default()
+    }));
+    screen.hero_chain(&measure, test_store().view());
+    assert!(measure.0.get() > 0, "changed text must still rebuild layout");
+    clear();
+}
