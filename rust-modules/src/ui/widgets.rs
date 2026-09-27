@@ -4787,20 +4787,25 @@ impl TabStrip {
         // and it had the identical defect for the identical reason, so `cast: true` below.
         match ground {
             TabGround::Plated { pop } => {
-                let (x, w) = self.foc.span();
-                let a = self.foc.alpha();
-                if a > 0.004 && w > 0.5 {
-                    let r = Rect::new(x, top, w, h).scaled(pop);
-                    // Analytic spill keeps the neighboring glass illuminated without
-                    // inserting the moving white capsule into a GPU blur capture.
-                    p.alpha(a).shadow(r, r.h * 0.5, theme::CONTROL_LIGHT_REACH, 0.0,
-                        theme::CONTROL_LIGHT);
-                }
                 cap(&self.foc, crate::ui::ACCENT, Some(theme::CARD_SHEEN), pop, true)
             }
             TabGround::Tracked { .. } => cap(&self.foc, crate::ui::ACCENT, None, 1.0, false),
         }
     }
+    /// Draw the cursor's diffuse reflection after the plates. A refractive plate
+    /// replaces its framebuffer pixels, so light beneath it would be covered up.
+    /// Cut out the cursor itself to keep its dark label and white fill unchanged.
+    pub(crate) fn draw_light(&self, p: Painter, top: f32, h: f32, pop: f32) {
+        let _material = crate::ui::frame::backdrop::controls();
+        let (x, w) = self.foc.span();
+        let a = self.foc.alpha();
+        if a > 0.004 && w > 0.5 {
+            let r = Rect::new(x, top, w, h).scaled(pop);
+            p.alpha(a).shadow_outside(r, r.h * 0.5, theme::CONTROL_LIGHT_REACH,
+                0.0, theme::CONTROL_LIGHT);
+        }
+    }
+
     /// The `(focus, selected)` mixes pill `pill` (content-space `(x, w)`) should ink itself with —
     /// hand straight to [`TabPill::mix`].
     pub(crate) fn mixes(&self, pill: (f32, f32)) -> (f32, f32) {

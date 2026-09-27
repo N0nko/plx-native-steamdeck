@@ -11,6 +11,8 @@ Changes:
   light preserves illumination around the cursor without a scene capture.
 - Plated tabs fade their whole optical material beneath the arriving white capsule;
   fading only the scrim left full-strength refraction that disappeared on the last frame.
+  The glass rim now obeys cascade opacity too: at coverage .1, rim weight .2 and
+  opacity .1, the previous expression kept a .2 rim; the corrected result is .02.
 - Hero Next publishes incoming/outgoing artwork identities and reveal state at the same
   time as carousel slide positions. Input may paint before the next Tick; previously the
   outgoing slot was empty on that press frame.

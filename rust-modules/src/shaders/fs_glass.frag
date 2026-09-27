@@ -292,5 +292,7 @@ void main(){
   // Raising the alpha is what the old second surface did with `a = max(a, rim)`; this is the same
   // rule, now inside the one surface.
   float cov = 1.0 - smoothstep(-1.0, 1.0, d);
-  gl_FragColor = vec4(plx_dither(rgb), max(u_tint.a * cov, clamp(rimw, 0.0, 1.0)));
+  // Cascade opacity fades the rim too. At cov=0.1, rimw=0.2, alpha=0.1,
+  // max(alpha*cov,rimw) incorrectly left a 0.2 rim instead of 0.02.
+  gl_FragColor = vec4(plx_dither(rgb), u_tint.a * max(cov, clamp(rimw, 0.0, 1.0)));
 }

@@ -1291,6 +1291,7 @@ mod tests {
                     let _band = controls();
                     declare_glass(p, Rect::new(x, 300.0, 130.0, 60.0));
                 }
+                tabs.draw_light(p, 300.0, 60.0, 1.0);
             }
             sources.borrow_mut().resolve();
             assert_eq!(sources.borrow().jobs().len(), usize::from(frame == 0),
