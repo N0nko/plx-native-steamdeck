@@ -39,6 +39,23 @@ fn pick_catalog_trailer(id: &str, rows: &[Metadata]) -> Option<Trailer> {
 mod trailer_tests {
     use super::*;
     #[test]
+    fn expanded_catalog_cast_keeps_provider_person_identity() {
+        let id="5d7768295af944001f1f7477";
+        let person="5d77682aeb5d26001f1de4b0";
+        let body=serde_json::to_vec(&serde_json::json!({"MediaContainer":{"Metadata":[{
+            "ratingKey":id,"guid":format!("plex://movie/{id}"),"type":"movie","title":"Title",
+            "Role":[{"id":person,"key":format!("/library/people/{person}"),"type":"person","tag":"Actor","role":"Lead","thumb":"https://example.com/portrait.jpg"}]
+        }]}})).unwrap();
+        let meta=catalog_detail_from(&body,id).unwrap();
+        assert_eq!(meta.role[0].tag_key,person,"expanded cast must reach the same filmography as discovery cast");
+        assert_eq!(meta.role[0].id,0,"cloud identity must never become a local numeric tag");
+        let mut mismatched: Value = serde_json::from_slice(&body).unwrap();
+        mismatched["MediaContainer"]["Metadata"][0]["Role"][0]["key"] = Value::String("/library/people/wrong".into());
+        let meta = catalog_detail_from(&serde_json::to_vec(&mismatched).unwrap(), id).unwrap();
+        assert!(meta.role[0].tag_key.is_empty(), "unconfirmed provider identity must not be joined");
+    }
+
+    #[test]
     fn catalog_trailer_only_accepts_its_own_progressive_h264_aac_part() {
         let id="5d776cac47dd6e001f6ee059";
         let key=format!("/library/metadata/{id}/extras/620427be133b2900559ccaa1/parts/mp4-2500");
@@ -130,6 +147,24 @@ fn title_metadata(bytes: &[u8], id: &str) -> Option<Value> {
         return None;
     }
     Some(rows[0].clone())
+}
+
+fn catalog_detail_from(bytes:&[u8],id:&str)->Option<Metadata> {
+    let mut row = title_metadata(bytes, id)?;
+    if let Some(roles) = row.get_mut("Role").and_then(Value::as_array_mut) {
+        for role in roles {
+            let person = role.get("id").and_then(Value::as_str).unwrap_or("").to_owned();
+            if valid_id(&person)
+                && role.get("type").and_then(Value::as_str) == Some("person")
+                && role.get("key").and_then(Value::as_str) == Some(format!("/library/people/{person}").as_str())
+            {
+                // Provider IDs are cloud identities, never PMS numeric tag IDs.
+                role["tagKey"] = Value::String(person);
+                role["id"] = Value::from(0);
+            }
+        }
+    }
+    serde_json::from_value(row).ok()
 }
 
 fn title_cast(bytes: &[u8], id: &str) -> Option<Vec<DiscoveryPerson>> {
@@ -504,12 +539,7 @@ impl AccountClient {
             return None;
         }
         let r = self.catalog_request(&format!("{METADATA}/library/metadata/{id}"), "GET")?;
-        let response: Envelope = serde_json::from_slice(&r.body).ok()?;
-        response.container.metadata.into_iter().find(|m| {
-            m.rating_key == id
-                && matches!(m.kind.as_str(), "movie" | "show")
-                && m.guid == format!("plex://{}/{}", m.kind, id)
-        })
+        catalog_detail_from(&r.body,id)
     }
     pub(crate) fn catalog_trailer(&self, id: &str) -> Option<Trailer> {
         if !valid_id(id) { return None; }

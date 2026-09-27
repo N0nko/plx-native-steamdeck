@@ -25,6 +25,19 @@
         "discovery-person-filmography"
       ],
       "review": "Shared person screen loads portrait, biography, filmography entry and any library titles; verify actual identity and artwork."
+    },
+    {
+      "name": "03-filmography",
+      "before": "person(/none)?",
+      "after": "person(/filmography|/none)?",
+      "keys": [
+        "OK"
+      ],
+      "settle": 3,
+      "covers": [
+        "discovery-person-filmography"
+      ],
+      "review": "Verify the existing Filmography screen opens with real title posters, not only a matching route."
     }
   ]
 }
