@@ -1,6 +1,6 @@
 {
   "group": "3-playback-details-watchlist",
-  "description": "Start on The Middle season 6 with all artwork loaded. Collect unarmed heartbeat/FRAMEDROP before and during navigation. No activation or acquisition.",
+  "description": "Start on a populated middle season of The Middle with the season strip focused and artwork loaded. Record season, episode count and horizontal episode position for both builds. Collect unarmed heartbeat/FRAMEDROP during the same alternating LEFT/RIGHT sequence. No activation or acquisition.",
   "steps": [
     {
       "name": "01-before",
@@ -10,7 +10,7 @@
       "covers": [
         "season-glass-frame-times"
       ],
-      "review": "Confirm the exact focus position before continuing."
+      "review": "Confirm exact season focus, episode count and episode scroll position. Repeat the same scene after installation; initial load and screenshot settling are not performance samples."
     },
     {
       "name": "02-motion",
@@ -30,7 +30,7 @@
       "covers": [
         "season-glass-frame-times"
       ],
-      "review": "Review smooth motion, continuous glass fade, neighboring focus light, artwork continuity. Compare p50/p95/p99 and slow22 from a separate no-capture timed arrow sequence; screenshot settling is not a performance result."
+      "review": "Review smooth motion, continuous glass fade, neighboring focus light and artwork continuity. Compare p50/p95/p99 and slow22 from a separate no-capture timed alternating arrow sequence. Verify new seasons update titles and descriptions without stale layout. Keep shader/source composition identical when attributing gains to layout validation."
     }
   ]
 }

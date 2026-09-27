@@ -259,12 +259,33 @@ impl SpotFacts {
 #[derive(Clone, Copy)]
 struct LayoutCache {
     stamp: LayoutStamp,
+    /// Only true while a LayoutRead holds this draw's immutable metadata borrow.
+    reading: bool,
     chain: crate::ui::detail_layout::HeroChain,
     content_top: f32,
     top: [f32; section::SLOTS],
     block: [f32; section::SLOTS],
     seen: u8,
     end: f32,
+}
+
+/// Reuse the validated geometry throughout one immutable draw, including its hit-target walk.
+/// Each target used to rehash every episode's text. Keeping the metadata and Measure borrowed
+/// until this guard drops makes that redundant; the next draw still validates the full content.
+struct LayoutRead<'a> {
+    cache: &'a Cell<Option<LayoutCache>>,
+    previous: bool,
+    _detail: &'a Detail,
+    _measure: &'a dyn crate::ui::machine::Measure,
+}
+
+impl Drop for LayoutRead<'_> {
+    fn drop(&mut self) {
+        if let Some(mut cache) = self.cache.get() {
+            cache.reading = self.previous;
+            self.cache.set(Some(cache));
+        }
+    }
 }
 
 /// Cheap identity of the values [`LayoutCache`] was measured from. `current()` (via
@@ -294,6 +315,8 @@ struct LayoutStamp {
 
 impl LayoutStamp {
     fn of(d: &Detail) -> Self {
+        #[cfg(test)]
+        tests::LAYOUT_STAMPS.with(|count| count.set(count.get() + 1));
         use std::hash::{Hash, Hasher};
         let hero = hero::hero_episode(d);
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
@@ -674,7 +697,22 @@ impl DetailScreen {
         )
     }
 
+    fn read_layout<'a>(
+        &'a self,
+        d: &'a Detail,
+        measure: &'a dyn crate::ui::machine::Measure,
+    ) -> LayoutRead<'a> {
+        let mut cache = self.ensure_layout(d, measure);
+        let previous = cache.reading;
+        cache.reading = true;
+        self.layout.set(Some(cache));
+        LayoutRead { cache: &self.layout, previous, _detail: d, _measure: measure }
+    }
+
     fn ensure_layout(&self, d: &Detail, measure: &dyn crate::ui::machine::Measure) -> LayoutCache {
+        if let Some(cache) = self.layout.get().filter(|cache| cache.reading) {
+            return cache;
+        }
         let stamp = LayoutStamp::of(d);
         if let Some(c) = self.layout.get() {
             if c.stamp == stamp {
@@ -777,6 +815,7 @@ impl DetailScreen {
         }
         LayoutCache {
             stamp,
+            reading: false,
             chain,
             content_top,
             top,
@@ -1868,6 +1907,7 @@ impl<H: ContentLike + crate::screens::registry::MetadataLike> Screen<H> for Deta
         let p = f.painter;
         let nav_page_alpha = f.nav_page_alpha;
         let d = self.detail(meta);
+        let _layout_read = d.map(|d| self.read_layout(d, measure));
         self.draw_backdrop(p, d, f.measure, preview, meta);
         let hero_vis = hero_alpha(self.scroll.pos, HERO_FADE);
         if hero_vis > 0.01 {

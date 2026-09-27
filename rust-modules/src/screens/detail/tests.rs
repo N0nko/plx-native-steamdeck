@@ -3204,3 +3204,68 @@ fn performance_detail_tick_reuses_measured_synopsis_until_content_changes() {
     assert!(measure.0.get() > 0, "changed text must still rebuild layout");
     clear();
 }
+
+
+thread_local! {
+    pub(super) static LAYOUT_STAMPS: Cell<usize> = const { Cell::new(0) };
+}
+
+/// The live stack profile spent most of its draw time hashing every episode's text again for
+/// every hit target. A long show must validate its content once per immutable draw, regardless
+/// of how many season buttons, episode targets and credits that draw records.
+#[test]
+fn performance_detail_draw_validates_layout_once_for_long_episode_lists() {
+    let sid = ServerId::UNSET;
+    let guard = install(detail(sid, "layout-walk"));
+    let measure = crate::ui::fixture::FixtureMeasure;
+    for count in [2, 24, 100] {
+        let mut d = detail(sid, "layout-walk");
+        d.seasons = (1..=10).map(season).collect();
+        d.episodes = (0..count).map(|i| crate::metadata::Episode {
+            summary: "A long episode description. ".repeat(20),
+            ..episode(&format!("e{i}"), i)
+        }).collect();
+        crate::metadata::set_current_for_test(test_store().state_mut(), Some(d));
+        let mut screen = bare(&guard, sid, "layout-walk");
+        let context = cx(&measure, None);
+        let mut draw = DrawFrame::new(&context, crate::ui::Painter::root());
+        LAYOUT_STAMPS.with(|reads| reads.set(0));
+        Screen::<TestHost>::draw(&mut screen, &mut draw);
+        assert_eq!(LAYOUT_STAMPS.with(Cell::get), 1,
+            "{count} episodes must not make each hit target hash the entire episode list again");
+        assert!(!draw.into_stops().is_empty(), "the real hit-target traversal must run");
+        assert!(!screen.layout.get().unwrap().reading,
+            "the validation shortcut must not survive the draw");
+    }
+    clear();
+}
+
+
+#[test]
+fn performance_detail_layout_read_rechecks_equal_length_in_place_replacements() {
+    let sid = ServerId::UNSET;
+    let guard = install(detail(sid, "layout-replacement"));
+    let screen = bare(&guard, sid, "layout-replacement");
+    let measure = crate::ui::fixture::FixtureMeasure;
+    let mut d = detail(sid, "layout-replacement");
+    d.episodes[0].summary = "Small".into();
+    let before = {
+        let _read = screen.read_layout(&d, &measure);
+        screen.ensure_layout(&d, &measure).stamp
+    };
+    let episode_buffer = d.episodes.as_ptr();
+    let summary_buffer = d.episodes[0].summary.as_ptr();
+    d.episodes[0].summary.replace_range(.., "Large");
+    assert_eq!(d.episodes.as_ptr(), episode_buffer);
+    assert_eq!(d.episodes[0].summary.as_ptr(), summary_buffer);
+    LAYOUT_STAMPS.with(|reads| reads.set(0));
+    let after = {
+        let _read = screen.read_layout(&d, &measure);
+        screen.ensure_layout(&d, &measure).stamp
+    };
+    assert_eq!(LAYOUT_STAMPS.with(Cell::get), 1);
+    assert_ne!(before.content_hash, after.content_hash,
+        "a same-address, same-length landing must validate the actual changed text");
+    assert!(!screen.layout.get().unwrap().reading);
+    clear();
+}
