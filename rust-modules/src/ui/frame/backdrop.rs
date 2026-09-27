@@ -301,22 +301,8 @@ pub(crate) fn paint(rect: Rect, values: Vec<u64>) {
         let Some(w) = w.as_ref().filter(|w| w.discovery) else {
             return;
         };
-        // No glass entry is ever created at or above the surfaces band: every
-        // `Glass::DYNAMIC_BACKDROP.backdrop(...)` call site sits inside the CHROME layer scope
-        // (grep-verified against the whole crate), and popovers stood off the blur chain
-        // entirely on 2026-09-19 — they use the frozen-host snapshot in `popover.rs`, which
-        // feeds its own synthetic `Paint` straight into `Sources::begin`, never through this
-        // function. So nothing downstream ever reads a `Paint` recorded above that boundary, yet
-        // the surfaces loop in `dispatch.rs::draw_with` (Settings/AccountMenu/ItemMenu/About's
-        // own content) runs unconditionally on both the no-GL discovery pass and the real draw
-        // pass — recording its entire primitive stream every discovered frame, whether or not
-        // anything changed, was pure waste, and the heaviest-text screens paid for it most (see
-        // the dated addendum in docs/backdrop-blur-profiling.md). This is the authoritative gate;
-        // `Painter::declare`'s `recording_excluded` check exists only to skip building `values`
-        // in the first place for this same content.
-        if w.current >= Z::surface(0) {
-            return;
-        }
+        // Panels now sample frozen hosts and controls sample their shared material band.
+        // Keep the geometric occlusion gate below; visible modal paint is a real dependency.
         let Some(rect) = w.clip.map_or(Some(rect), |c| intersection(c, rect)) else {
             return;
         };
@@ -345,25 +331,15 @@ pub(crate) fn paint(rect: Rect, values: Vec<u64>) {
     });
 }
 /// Fast pre-check for [`crate::ui::Painter::declare`]: true once the current walk position has
-/// reached the surfaces band, where [`paint`] discards everything anyway. Checking here lets a
+/// is geometrically hidden by a retained opaque host. Checking here lets a
 /// caller skip building the primitive's `Vec<u64>` (and, for text, the byte-packing in
 /// [`text_value`]) instead of building it only to have `paint` throw it away.
 pub(crate) fn recording_excluded() -> bool {
     WALK.with(|w| {
         w.borrow().as_ref().is_some_and(|w| {
             w.discovery
-                && (w.current >= Z::surface(0) || fully_occluded(w.current, &w.sources.borrow().layers))
+                && fully_occluded(w.current, &w.sources.borrow().layers)
         })
-    })
-}
-
-/// True once a DISCOVERY walk has reached the surfaces band — the half of
-/// [`recording_excluded`] where a glass declaration is a bug rather than dead content.
-pub(crate) fn in_surfaces_band() -> bool {
-    WALK.with(|w| {
-        w.borrow()
-            .as_ref()
-            .is_some_and(|w| w.discovery && w.current >= Z::surface(0))
     })
 }
 
@@ -717,6 +693,16 @@ pub(crate) fn layer(z: Z, shared: bool) -> Scope {
     });
     Scope(old)
 }
+/// Controls in the same structural segment share ONE scene capture. Scope the whole widget,
+/// including text, above its source so focus/label changes never invalidate sibling backdrops.
+/// The halfway slot preserves the existing 16-bit snapshot boundaries and 24-bit page bands.
+/// Re-entry is idempotent (a control can contain another control).
+pub(crate) fn controls() -> Scope {
+    let z = current_layer().unwrap_or(Z::PAGE);
+    let band = Z((z.0 / (1 << 16)) * (1 << 16) + (1 << 15));
+    layer(band, true)
+}
+
 pub(crate) fn draw_span<T>(name: &'static str, draw: impl FnOnce() -> T) -> T {
     if discovering() {
         draw()
@@ -987,6 +973,30 @@ mod tests {
             vec![Z(0), Z(2)]
         );
     }
+    #[test]
+    fn translucent_controls_share_one_source_and_exclude_their_labels() {
+        use crate::ui::{widgets::{Button, ControlStyle}, Env, View, theme};
+        let _guard = crate::testlock::serial();
+        let sources = Rc::new(RefCell::new(Sources::default()));
+        sources.borrow_mut().begin(vec![]);
+        {
+            let _walk = discover(sources.clone());
+            let p = crate::ui::Painter::root();
+            p.rect(canvas(), 0.0, theme::TEXT_PRIMARY, theme::TEXT_PRIMARY, 0.0);
+            for x in [100.0, 240.0, 380.0] {
+                Button::new(c"Label".as_ptr(), theme::size::CAPTION,
+                    Rect::new(x, 300.0, 120.0, 64.0))
+                    .style(ControlStyle::Glass).draw(&Env::inert(), p);
+            }
+        }
+        sources.borrow_mut().resolve();
+        let s = sources.borrow();
+        assert_eq!(s.entries.len(), 1, "one cached scene, not a blur per button");
+        let e = s.entries.values().next().unwrap();
+        assert_eq!(e.members.len(), 3);
+        assert_eq!(e.prefix.len(), 1, "control glyphs must not refract into their siblings");
+    }
+
     fn declare_glass(p: crate::ui::Painter, r: Rect) {
         assert!(crate::ui::widgets::Glass::DYNAMIC_BACKDROP.backdrop(
             p,
@@ -1245,56 +1255,45 @@ mod tests {
     }
 
     #[test]
-    fn content_at_or_above_the_surfaces_band_is_never_recorded() {
-        // The `nav.modals.surfaces` draw loop (Settings/AccountMenu/ItemMenu/About's own content,
-        // `dispatch.rs::draw_with`) is not gated by `host_render`/`PagePlan`, so it walks fully on
-        // every discovered frame — but no glass entry ever lives at or above `Z::surface(0)`, so
-        // recording what it declares was pure cost for data nothing reads. This is the modal-100 /
-        // push-100 stress-bench regression's second cause (see docs/backdrop-blur-profiling.md).
+    fn modal_glass_records_its_source_and_resolves_above_the_frozen_host() {
         let _guard = crate::testlock::serial();
         let sources = Rc::new(RefCell::new(Sources::default()));
         sources.borrow_mut().begin(vec![]);
         {
             let _walk = discover(sources.clone());
             let p = crate::ui::Painter::root();
-            p.rect(rect(0.0), 0.0, [0.0; 4], [0.0; 4], 0.0);
-            assert_eq!(sources.borrow().paints.len(), 1, "below the surfaces band records");
-            {
-                let _layer = layer(Z::surface(0), false);
-                p.rect(rect(0.0), 0.0, [1.0; 4], [0.0; 4], 0.0);
-                p.rect(rect(0.0), 0.0, [2.0; 4], [0.0; 4], 0.0);
-            }
-            assert_eq!(
-                sources.borrow().paints.len(),
-                1,
-                "content declared at/above the surfaces band must not be recorded"
-            );
-            {
-                let _layer = layer(Z::PAGE, false);
-                p.rect(rect(0.0), 0.0, [3.0; 4], [0.0; 4], 0.0);
-            }
-            assert_eq!(sources.borrow().paints.len(), 2, "layer unwinds back below the band");
+            p.rect(canvas(), 0.0, [1.0; 4], [1.0; 4], 0.0);
+            let _layer = layer(Z::surface(0), false);
+            declare_glass(p, rect(0.0));
         }
+        sources.borrow_mut().resolve();
+        let s = sources.borrow();
+        assert_eq!(s.entries.len(), 1);
+        assert_eq!(s.entries.values().next().unwrap().prefix.len(), 1);
+        assert_eq!(s.jobs().len(), 1);
     }
 
     #[test]
-    fn a_glass_command_above_the_surfaces_band_trips_the_debug_assert() {
-        // `Painter::declare`'s fast pre-check must never silently eat a glass command: if one is
-        // ever declared inside a surface (none is today — grep-verified), the debug build has to
-        // say so immediately rather than let that glass quietly never resolve.
+    fn shared_control_focus_changes_reuse_backdrop_but_background_changes_refresh() {
         let _guard = crate::testlock::serial();
         let sources = Rc::new(RefCell::new(Sources::default()));
-        sources.borrow_mut().begin(vec![]);
-        {
-            let _walk = discover(sources.clone());
-            let p = crate::ui::Painter::root();
-            let _layer = layer(Z::surface(0), false);
-            let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                declare_glass(p, rect(0.0));
-            }));
-            if cfg!(debug_assertions) {
-                assert!(caught.is_err(), "a glass command above the band must assert");
+        for frame in 0..3 {
+            sources.borrow_mut().begin(vec![]);
+            {
+                let _walk = discover(sources.clone());
+                let p = crate::ui::Painter::root();
+                p.rect(canvas(), 0.0, [if frame == 2 { 0.5 } else { 1.0 }; 4], [1.0; 4], 0.0);
+                for x in [100.0, 250.0] {
+                    let _band = controls();
+                    declare_glass(p, Rect::new(x, 300.0, 120.0, 64.0));
+                    // Changing glyph/focus paint lives in the same band, not in its source.
+                    p.rect(Rect::new(x, 300.0, 20.0, 20.0), 0.0, [frame as f32; 4], [1.0; 4], 0.0);
+                }
             }
+            sources.borrow_mut().resolve();
+            assert_eq!(sources.borrow().entries.len(), 1);
+            assert_eq!(sources.borrow().jobs().len(), usize::from(frame != 1));
+            commit(&sources);
         }
     }
 

@@ -462,18 +462,7 @@ impl Painter {
         if self.text_recorder { return true; }
         if !frame::backdrop::discovering() { return false; }
         if frame::backdrop::recording_excluded() {
-            // `paint` would discard this unconditionally (see its comment); skip building
-            // `values` at all rather than build it only to throw it away.
-            //
-            // Only the SURFACES half of that gate is a programming error for a glass. The other
-            // half — content under a frozen host boundary (the tab bar's glass on Home while an
-            // account or item menu holds Home as a snapshot) — is dead content that `paint`
-            // discards by the same rule, and asserting there panicked every such frame.
-            debug_assert!(
-                tag != frame::backdrop::GLASS_COMMAND || !frame::backdrop::in_surfaces_band(),
-                "a glass command was declared at/above the surfaces band, where recording is \
-                 skipped; this glass would never resolve"
-            );
+            // Hidden content cannot contribute to any visible glass source.
             return true;
         }
         use frame::backdrop::Value;

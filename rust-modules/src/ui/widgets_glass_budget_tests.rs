@@ -341,17 +341,10 @@ fn live_glass_carries_no_private_source_policy() {
     );
 }
 
-/// **Glass is chrome-only; no popover panel frosts a backdrop blur.** Every panel stands on the
-/// latched underlay field through `panel_ground` (directly, or through `Popover::panel`), and the
-/// blur chain's users are the top bar's standing track, the profile chip's capsule, the dev tile
-/// band — all in `widgets.rs` — plus the frame mechanism and the dev load dial.
-///
-/// A source grep, because the failure it guards is a call that COMPILES: `Glass` and
-/// `Painter::backdrop_blur` stay reachable for the chrome, so a panel that reached for them again
-/// would draw, look plausible on a still page, and put the ~11% of a frame's GPU the migration
-/// removed straight back.
+/// Material ownership remains central: screens cannot create independent blur chains.
+/// Source counts and invalidation are covered in frame/backdrop.rs.
 #[test]
-fn no_popover_panel_uses_the_blur_path_and_every_one_stands_on_the_field() {
+fn refractive_material_is_owned_by_shared_widgets_not_individual_screens() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     // The blur path's legitimate users: chrome, the frame plan, the dev dial, the API itself, and
     // a fixture that names it in a string.
@@ -399,11 +392,11 @@ fn no_popover_panel_uses_the_blur_path_and_every_one_stands_on_the_field() {
     }
     assert!(
         offenders.is_empty(),
-        "the blur path is chrome-only — a panel's ground is `widgets::panel_ground`:\n{}",
+        "the blur path is shared — a panel's ground is `widgets::panel_ground`:\n{}",
         offenders.join("\n")
     );
 
-    // …and every panel that used to frost one now stands on the field.
+    // Every panel goes through the shared material and its video-plane fallback.
     for rel in [
         "screens/item_menu.rs",
         "screens/account_menu.rs",

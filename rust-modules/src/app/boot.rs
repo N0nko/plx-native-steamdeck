@@ -995,7 +995,10 @@ pub(crate) unsafe fn construct(
         .and_then(|s| s.parse().ok())
         .filter(|v: &f64| *v > 0.0)
         .unwrap_or(22.0);
-    let instr = crate::diag::heartbeat::Instruments::new(framedrop_on, framedrop_thresh);
+    // Lightweight release frame timing is independent of the developer CPU/GPU profilers.
+    // Controlled replay stays deterministic; no glFinish or per-frame allocation on healthy frames.
+    let instr = crate::diag::heartbeat::Instruments::new(framedrop_on || !controlled, framedrop_thresh);
+    let instr = if !framedrop_on { instr.production() } else { instr };
     if framedrop_on {
         crate::diag::spans::arm();
     }

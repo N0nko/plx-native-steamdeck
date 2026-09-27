@@ -411,6 +411,8 @@ pub(crate) fn probe(win: *mut c_void) {
 
         // The panel, for the log only. See the module doc: this is the number it is tempting and
         // wrong to build on. Resolved through dlsym because webOS releases below 4.4.2 lack it.
+        // Read the native app's display mode; panel capability does not imply compositor cadence.
+        log_display_cadence();
         let panel = panel_resolution();
         let p = panel.map_or("unknown".to_string(), |(w, h)| format!("{w}x{h}"));
         log(&format!(
@@ -560,6 +562,28 @@ mod tests {
 }
 
 /// `SDL_webOSGetPanelResolution`, if this SDL has it. Diagnostic only — never a layout input.
+/// ABI from the bundled SDL_video.h; optional read-only lookup adds no firmware import.
+#[repr(C)]
+struct DisplayMode {
+    format: u32,
+    w: c_int,
+    h: c_int,
+    refresh_rate: c_int,
+    driverdata: *mut c_void,
+}
+fn log_display_cadence() {
+    let h = crate::dynlib::Handle::self_handle();
+    let Some(f) = h.sym("SDL_GetCurrentDisplayMode").filter(|p| !p.is_null()) else { return };
+    // SAFETY: public SDL2 declaration matches bundled SDL_video.h exactly on 32/64-bit hosts.
+    let f: extern "C" fn(c_int, *mut DisplayMode) -> c_int = unsafe { std::mem::transmute(f) };
+    let mut mode = DisplayMode { format: 0, w: 0, h: 0, refresh_rate: 0,
+        driverdata: std::ptr::null_mut() };
+    if f(0, &mut mode) == 0 {
+        log(&format!("display-cadence: mode={}x{} refresh_hz={} (0=unspecified)",
+            mode.w, mode.h, mode.refresh_rate));
+    }
+}
+
 fn panel_resolution() -> Option<(i32, i32)> {
     let h = crate::dynlib::Handle::self_handle();
     let f = h.sym("SDL_webOSGetPanelResolution")?;

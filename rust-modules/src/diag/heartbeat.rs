@@ -104,6 +104,10 @@ pub(crate) struct HeartbeatFields {
 
 pub(crate) struct Instruments {
     armed: bool,
+    production: bool,
+    /// Millisecond ceilings, final bucket >=64ms; worst retains the exact peak.
+    histogram: [u32; 65],
+    slow_frames: u32,
     thresh_ms: f64,
     perf_freq: f64,
     stamps: [u64; 9],
@@ -120,6 +124,9 @@ impl Instruments {
     pub(crate) fn new(armed: bool, thresh_ms: f64) -> Self {
         Self {
             armed,
+            production: false,
+            histogram: [0; 65],
+            slow_frames: 0,
             thresh_ms,
             // SAFETY: a plain SDL query with no preconditions; SDL is initialised before the
             // loop that owns this value exists.
@@ -129,6 +136,12 @@ impl Instruments {
             worst_prep: 0.0,
             counters: FrameCounters::default(),
         }
+    }
+
+    /// Release telemetry: fixed storage, no GPU waits, at most four phase logs/second.
+    pub(crate) fn production(mut self) -> Self {
+        self.production = true;
+        self
     }
 
     /// This frame's counters, REPLACING the last frame's — see [`FrameCounters`] for why that
@@ -209,7 +222,14 @@ impl Instruments {
         if total > self.worst {
             self.worst = total;
         }
+        if self.production {
+            self.histogram[(total.ceil() as usize).min(64)] += 1;
+        }
         if total <= self.thresh_ms {
+            return None;
+        }
+        self.slow_frames += 1;
+        if self.production && self.slow_frames > 4 {
             return None;
         }
         // Printed in the frame ALGORITHM's order (spec §8.4), which on the legacy loop is not the
@@ -259,6 +279,18 @@ impl Instruments {
         let mut s = String::new();
         if self.armed {
             s = format!(" worstframe={:.1}ms worstprep={:.1}ms", self.worst, self.worst_prep);
+            if self.production {
+                let count: u32 = self.histogram.iter().sum();
+                let percentile = |percent: u32| {
+                    let target = (count * percent).div_ceil(100);
+                    let mut n = 0;
+                    self.histogram.iter().position(|v| { n += v; n >= target }).unwrap_or(64)
+                };
+                s.push_str(&format!(" frames={} p50={}ms p95={}ms p99={}ms slow22={} histogram_cap=64ms",
+                    count, percentile(50), percentile(95), percentile(99), self.slow_frames));
+                self.histogram.fill(0);
+            }
+            self.slow_frames = 0;
             self.worst = 0.0;
             self.worst_prep = 0.0;
         }
@@ -381,6 +413,21 @@ impl ColdOpens {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn release_histogram_counts_all_spikes_and_bounds_phase_logging() {
+        let mut i = Instruments::new(true, 22.0).production();
+        i.perf_freq = 1000.0;
+        for n in 0..100 {
+            i.stamps = [0; 9];
+            i.stamps[8] = if n < 90 { 16 } else { 80 };
+            assert_eq!(i.frame_drop_line(&|| String::new()).is_some(), (90..94).contains(&n));
+        }
+        let line = i.heartbeat_tail(HeartbeatFields::default(), None);
+        assert!(line.contains("worstframe=80.0ms"));
+        assert!(line.contains("frames=100 p50=16ms p95=64ms p99=64ms slow22=10"));
+        assert!(i.heartbeat_tail(HeartbeatFields::default(), None).contains("frames=0"));
+    }
 
     #[test]
     fn an_unarmed_instrument_reads_zero_and_writes_no_frame_drop_line() {

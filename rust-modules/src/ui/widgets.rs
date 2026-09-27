@@ -77,37 +77,23 @@ impl Glass {
     }
 }
 
-/// **A popover panel's GROUND — the page under it, carried into it, WHERE it is.**
-///
-/// Every popover in the app stands on this: the menus, the alert panels, the person bio, the
-/// decision alert. It used to be a real backdrop blur of the host (`Glass::CACHED.panel`, and the
-/// bio's `DYNAMIC_BACKDROP`) tinted by a fixed frost — ~11% of a frame's GPU cycles on the
-/// account panel (`docs/backdrop-blur-profiling.md`), for a picture the frost then covered all but
-/// 15% of. What survives a frost that dense is the page's COLOUR and where it is, which is exactly
-/// what the underlay field already holds: the 15x8 grid the modal dim latched from the undimmed
-/// page (`containers::modal::ModalUnderlay`). So the panel draws the field's own window at its
-/// screen rect ([`crate::ui::underlay::UnderlayField::draw_panel`] — green under the panel's
-/// bottom-left stays under its bottom-left), multiplied by `theme::underlay::PANEL_TINT` and held
-/// under `PANEL_LUMA_MAX`, and then the SAME frost and the same rim the glass panel wore.
-///
-/// **The edge is not part of the material's identity**, and it did not change: the rim is
-/// [`theme::GLASS_RIM`] with the boost to [`theme::GLASS_RIM_LIGHT`] on the side facing the light —
-/// the standing track's two weights, the same lamp, the same one pixel — so a panel and the glass
-/// bar above it still read as one family of object.
-///
-/// `field` is `None`, or not latched yet (the first frame, a refused sample, a panel over the video
-/// plane): the flat near-opaque sheet ([`theme::PANEL_TOP`]/[`theme::PANEL_BOT`]) with the same rim.
-/// Never a blank, and never the frost alone — [`theme::PANEL_FROST_TOP`] is only legal over the
-/// field it is frosting.
-///
-/// Live chrome and frozen inline-card glass are separate from this sampled panel ground.
-
+/// Refractive sheet over the retained host. The shared shader bends real sampled content,
+/// splits colour at the rim and applies the panel's readability frost in the same pass.
+/// Hardware-video frames cannot supply that source; their latched colour field and reflected
+/// rim remain the explicit fallback. No additional capture loop or screen-local material.
 pub(crate) fn panel_ground(
     p: Painter,
     r: Rect,
     radius: f32,
     field: Option<&crate::ui::underlay::UnderlayField>,
 ) {
+    let (top, bot) = panel_frost();
+    let face = crate::gfx::GlassFace { scrim_top: top, scrim_bot: bot,
+        rim: theme::GLASS_RIM, rim_lit: theme::GLASS_RIM_LIGHT, rim_w: 1.0 };
+    if Glass::DYNAMIC_BACKDROP.backdrop(p, r, 0.0, radius, theme::TEXT_PRIMARY,
+        crate::gfx::GlassRim::Bevelled, face, theme::Material::UltraThin) {
+        return;
+    }
     let boost = theme::GLASS_RIM_LIGHT[3] - theme::GLASS_RIM[3];
     let weight = panel_tint_sweep().unwrap_or(theme::underlay::PANEL_TINT);
     let drew = crate::ui::profile::phase("panel.field", || {
@@ -137,21 +123,8 @@ fn panel_tint_sweep() -> Option<f32> {
     None
 }
 
-/// **What a popover is made of — both halves, from one name.** See [`theme::Material`].
-///
-/// A panel is HEAVIER and SOFTER than the bar on purpose, and both halves come from the same place
-/// so they cannot drift apart. The reference is unambiguous: in one screenshot of iOS 26's TV app
-/// the posters behind the tab BAR are readable and behind the context MENU above it almost nothing
-/// is. A menu is a surface you read and act on; a bar is chrome you look past.
-///
-/// Laddered on the television over one ground (.72/.55/.42/.30 frost): at .42 the menu's own rows go
-/// soft against the page coming through, and by .30 the panel has stopped reading as a surface. So
-/// the density does not come DOWN toward the bar, which is the obvious "unification" and the wrong
-/// move; what changed instead is that the panel now also gets the extra sample the bar declines,
-/// because lightening the shared snapshot for the bar had lightened the menus with it.
-///
-/// `/tmp/plxnative-material=<ultrathin|thin|regular|thick|ultrathick>` swaps the whole material,
-/// and `/tmp/plxnative-panelfrost=<a>` still overrides the density alone for a finer sweep.
+/// Shared sheet density. Regular frost leaves refraction visible while protecting text.
+/// Developer overrides still use the same material scale.
 fn panel_material() -> theme::Material {
     material_sweep().unwrap_or(theme::PANEL_MATERIAL)
 }
@@ -2659,6 +2632,7 @@ impl CircleButton {
 }
 impl View for CircleButton {
     fn draw(&self, _e: &Env, p: Painter) {
+        let _material = crate::ui::frame::backdrop::controls();
         let base = self.frame;
         let r = base.scaled(self.scale);
         let face = self.style.face(self.focused, self.ground, self.palette);
@@ -3778,6 +3752,7 @@ impl TransportButton {
 }
 impl View for TransportButton {
     fn draw(&self, _e: &Env, p: Painter) {
+        let _material = crate::ui::frame::backdrop::controls();
         use crate::ui::icons::Icon;
         let r = self.frame.scaled(self.scale);
         // The design system builds this disc AS a `CircleButton` at 64px, so it takes the shared
@@ -4316,11 +4291,12 @@ impl TabPill {
 }
 impl View for TabPill {
     fn draw(&self, _e: &Env, p: Painter) {
+        let _material = crate::ui::frame::backdrop::controls();
         let r = self.frame;
         let (fill, ink, bold_mix) = self.face();
         if let Some(bg) = fill {
             let rad = r.h * 0.5;
-            if matches!(self.style, TabStyle::Button) {
+            if matches!(self.style, TabStyle::Button) || self.plated {
                 let r = face_box(r);
                 let rad = r.h * 0.5;
                 if self.focused {
@@ -6417,10 +6393,26 @@ fn control_rim(
     ground: ControlGround,
 ) {
     let (rim, top, w) = control_rim_spec(focused, ground);
+    // Opaque focus stays white for unmistakable remote focus. Every translucent face shares
+    // a cached scene with its sibling controls; there is no blur or allocation per button.
+    if top_face[3] < 0.98 && body_face[3] < 0.98 {
+        let face = crate::gfx::GlassFace { scrim_top: top_face, scrim_bot: body_face,
+            rim, rim_lit: theme::with_a(theme::GLASS_RIM_LIGHT, top), rim_w: w };
+        if Glass::DYNAMIC_BACKDROP.backdrop(p, r, 0.0, rad, theme::TEXT_PRIMARY,
+            crate::gfx::GlassRim::Standing, face, theme::Material::UltraThin) {
+            return;
+        }
+    }
+
     // the ÉTLIV — light spilling inward off that line. It belongs to the one edge that is a STATE,
     // so it arrives and leaves with it.
-    let glow = (focused && ground == ControlGround::Unkeyed)
-        .then_some(theme::CONTROL_RIM_FOCUS_UNKEYED_GLOW);
+    let glow = if focused && ground == ControlGround::Unkeyed {
+        Some(theme::CONTROL_RIM_FOCUS_UNKEYED_GLOW)
+    } else if body_face[3] < 0.98 {
+        // The movie is a separate hardware plane. Use a coherent reflected edge without
+        // pretending a black/stale framebuffer is the moving video.
+        Some(theme::GLASS_REFLECTION_GLOW)
+    } else { None };
     p.face_rimmed(
         r,
         rad,
@@ -6621,8 +6613,6 @@ const BTN_ICON_RATIO: f32 = 1.15;
 const BTN_ICON_GAP: f32 = 12.0;
 /// Total horizontal air a pill carries around its icon+label run.
 pub(crate) const BTN_PILL_AIR: f32 = 68.0;
-/// [`ControlStyle::Keyline`]'s stroke width (the design's 1.5 — same weight as [`keyline_chip`]'s).
-const BTN_KEYLINE_W: f32 = 1.5;
 
 impl Button {
     pub fn new(label: *const c_char, sz: c_int, frame: Rect) -> Self {
@@ -6760,28 +6750,8 @@ impl Button {
         // (`face_box`). A stadium and a disc are returned untouched.
         let b = face_box(r);
         let rad = b.h * 0.5;
-        if matches!(self.style, ControlStyle::Keyline) && !self.focused {
-            let rad = r.h * 0.5;
-            // the knockout: stroke colour first, then the interior inset by it — the SDF has no
-            // stroke-only mode (`keyline_chip` / `pass_capsule`'s construction); `bg` here is
-            // `colors()`'s translucent interior, not a repaint of the ground (there is none over
-            // live video — see `theme::PILL_KEYLINE_BG`)
-            p.rrect(r, rad, rad, theme::PILL_KEYLINE);
-            let s = BTN_KEYLINE_W;
-            p.rrect(
-                Rect::new(r.x + s, r.y + s, r.w - 2.0 * s, r.h - 2.0 * s),
-                rad - s,
-                rad - s,
-                face.top,
-            );
-        } else {
-            // FOCUS is an elevation as well as a fill — see `control_cast`. Under the face, so the
-            // near-opaque focused plate covers everything the shadow's own interior cut leaves.
-            if self.focused {
-                control_cast(p, b, rad);
-            }
-            control_rim(p, b, rad, face.top, face.body, self.focused, self.ground);
-        }
+        if self.focused { control_cast(p, b, rad); }
+        control_rim(p, b, rad, face.top, face.body, self.focused, self.ground);
         let Some(frac) = self.progress else { return };
         let w = b.w * frac.clamp(0.0, 1.0);
         if w <= 0.0 {
@@ -6835,6 +6805,7 @@ pub(crate) fn draw_control_face(
 }
 impl View for Button {
     fn draw(&self, _e: &Env, p: Painter) {
+        let _material = crate::ui::frame::backdrop::controls();
         let r = self.frame.scaled(self.scale);
         let face = self.style.face(self.focused, self.ground, self.palette);
         let ink = face.ink;

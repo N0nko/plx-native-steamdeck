@@ -327,7 +327,7 @@ pub const CONTROL_IDLE_FACE_L: f32 = 0.215;
 /// Fraction of the ambient key's OKLCH chroma carried by an idle keyed face.
 pub const CONTROL_IDLE_AMBIENT_C: f32 = 0.45;
 /// Opacity of an idle keyed face. Named separately because its RGB is derived from the local key.
-pub const CONTROL_IDLE_FACE_A: f32 = 0.92;
+pub const CONTROL_IDLE_FACE_A: f32 = 0.55;
 /// Share of the focused top retained by the spent half of a countdown control; the balance is the
 /// shelf ground, in sRGB just like the design system's `color-mix`.
 pub const CONTROL_SPENT_FOCUS_W: f32 = 0.76;
@@ -560,7 +560,9 @@ impl Material {
 /// **A panel spends only the `frost()` half now.** Its ground is the latched underlay field
 /// (`widgets::panel_ground`), not a backdrop blur, so `deep()` has nothing to re-sample under it;
 /// the density over the field is this material's frost, and it is what keeps the words clean.
-pub const PANEL_MATERIAL: Material = Material::UltraThick;
+pub const PANEL_MATERIAL: Material = Material::Regular;
+/// Inset reflected light for translucent controls over an unsampleable video plane.
+pub const GLASS_REFLECTION_GLOW: [f32; 4] = [9.0, 0.16, 6.0, 0.09];
 // The five `MODAL_*` tokens that stood here — `MODAL_SAMPLE_MATERIAL`, `MODAL_FROST_ALPHA`,
 // `MODAL_BLUR_TAPS`, `MODAL_BLUR_TINT`, `MODAL_BLUR_SATURATION` — were the material of a
 // full-screen BLURRED modal ground (`Glass::modal_ground` → `Painter::backdrop_blur_flat` →

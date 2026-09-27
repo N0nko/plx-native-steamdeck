@@ -214,7 +214,7 @@ void main(){
   // Dispersion is confined to the narrow rim of the light-blur material. Deep
   // menus keep their identical multi-tap source. Preserve PageDip source alpha.
   if (u_deep.x == 0.0 && u_lens > 0.0) {
-    highp vec2 split = nrm * (0.6 * lens) * u_uvpx;
+    highp vec2 split = nrm * (2.2 * lens) * u_uvpx;
     highp vec2 bent = v_cuv + push * u_uvpx;
     rgb.r = mix(u_source_ground.r, texture2D(u_tex, bent + split).r, u_source_alpha);
     rgb.b = mix(u_source_ground.b, texture2D(u_tex, bent - split).b, u_source_alpha);
@@ -265,7 +265,7 @@ void main(){
   // the readable interior unchanged and avoids a broad grey halo.
   float grazing = t * t; grazing *= grazing * t;
   float catchLight = 0.25 + 0.75 * max(dot(nrm, u_light.xy), 0.0);
-  rgb = mix(rgb, u_edge.rgb, 0.18 * grazing * catchLight);
+  rgb = mix(rgb, u_edge.rgb, 0.30 * grazing * catchLight);
 #endif
   // A LERP, not an addition, and that is the whole of why a DARK edge can exist at all. The rim was
   // `rgb += rimcol * weight`, which can only ever ADD light: a near-black rim added near-nothing, so

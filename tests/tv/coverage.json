@@ -337,7 +337,7 @@
   {
     "group": "2-search-discover",
     "id": "filter-roundtrip",
-    "title": "Repeated results \u00e2\u2020\u2019 filters \u00e2\u2020\u2019 results navigation without a focus trap"
+    "title": "Repeated results â†’ filters â†’ results navigation without a focus trap"
   },
   {
     "group": "3-playback-details-watchlist",
@@ -447,7 +447,7 @@
   {
     "id": "subtitle-download-playback",
     "group": "3-playback-details-watchlist",
-    "title": "Explicit download, delayed attachment, selected file, direct-play captions and seeking \u00e2\u20ac\u201d requires playback verification"
+    "title": "Explicit download, delayed attachment, selected file, direct-play captions and seeking â€” requires playback verification"
   },
   {
     "group": "1-home-movies-tv",
@@ -528,5 +528,20 @@
     "id": "glass-material-experiment",
     "group": "2-search-discover",
     "title": "Shared native glass: refraction, rim highlight, readable labels and navigation pacing"
+  },
+  {
+    "group": "1-home-movies-tv",
+    "id": "1-unified-liquid-glass",
+    "title": "Shared refractive controls/panels; focus clarity and frame-time spikes (hardware video uses reflection fallback)"
+  },
+  {
+    "group": "2-search-discover",
+    "id": "2-unified-liquid-glass",
+    "title": "Shared refractive controls/panels; focus clarity and frame-time spikes (hardware video uses reflection fallback)"
+  },
+  {
+    "group": "3-playback-details-watchlist",
+    "id": "3-unified-liquid-glass",
+    "title": "Shared refractive controls/panels; focus clarity and frame-time spikes (hardware video uses reflection fallback)"
   }
 ]

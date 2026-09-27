@@ -1,0 +1,15 @@
+{
+  "group": "2-search-discover",
+  "description": "Visual/material checkpoint on the currently open representative screen. Home: hero and navigation; Search: keyboard/inline/full catalog; Playback: details seasons, tracks sheet, active transport. This capture does not claim automatic traversal coverage.",
+  "steps": [
+    {
+      "name": "01-material-current-screen",
+      "keys": [],
+      "settle": 2,
+      "covers": [
+        "2-unified-liquid-glass"
+      ],
+      "review": "Review actual panel/button refraction, colour separation at edges, crisp labels and focus. Save heartbeat worstframe/p95/p99 and FRAMEDROP phases. Repeat over contrasting artwork. During playback the video plane cannot be refracted; inspect reflected rims and unchanged readable HUD instead."
+    }
+  ]
+}
