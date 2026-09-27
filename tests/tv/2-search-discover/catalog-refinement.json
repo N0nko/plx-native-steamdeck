@@ -1,0 +1,30 @@
+{
+  "group": "2-search-discover",
+  "description": "Start at expanded catalog details, action focused. Read-only: never activate Watchlist or Play. Capture layout, shared cast profile and filmography, then return.",
+  "steps": [
+    {
+      "name": "01-expanded-flow",
+      "before": "search/catalog_details",
+      "after": "search/catalog_details",
+      "keys": [],
+      "covers": [
+        "catalog-flow-layout"
+      ],
+      "review": "Genres follow synopsis; actions follow genres. Watchlist label centered below icon, library action is a labelled pill only for a local item."
+    },
+    {
+      "name": "02-cast-person",
+      "before": "search/catalog_details",
+      "after": "person(/none)?",
+      "keys": [
+        "DOWN",
+        "OK"
+      ],
+      "settle": 6,
+      "covers": [
+        "discovery-person-filmography"
+      ],
+      "review": "Shared person screen loads portrait, biography, filmography entry and any library titles; verify actual identity and artwork."
+    }
+  ]
+}

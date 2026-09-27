@@ -1153,6 +1153,7 @@ fn inline_catalog_expansion_preserves_other_rows_and_restores_search_geometry() 
     let actual=screen.row_rect(1,1,At::Drawn);
     assert_eq!((actual.x,actual.y,actual.w,actual.h),(other.x,other.y,other.w,other.h));
     deliver(&mut screen,&fixture,Some(FocusKey{entry:ENTRY,elem}),ScreenEvent::Uncover);
+    for i in 0..120 {deliver(&mut screen,&fixture,None,ScreenEvent::Tick(tick(i)));}
     let actual=screen.row_rect(0,1,At::Drawn);
     assert_eq!((actual.x,actual.y,actual.w,actual.h),(before.x,before.y,before.w,before.h));
     assert_eq!(screen.scroll_target,scroll);
@@ -1174,8 +1175,23 @@ fn inline_catalog_lower_shelf_moves_with_its_panel_and_restores_scroll() {
     assert!((screen.row_rect(1,0,At::Drawn).y-y).abs()<1.0);
     assert_eq!(crate::screens::registry::CatalogDetailsArg::INLINE_H,crate::ui::consts::CARD_H);
     deliver(&mut screen,&fixture,Some(FocusKey{entry:ENTRY,elem}),ScreenEvent::Uncover);
-    assert_eq!((screen.scroll.pos,screen.scroll_target),scroll);
-    assert_eq!(screen.row_rect(1,1,At::Drawn).y,before.y);
+    assert_eq!(screen.scroll_target,scroll.1);
+    for i in 0..120 {deliver(&mut screen,&fixture,None,ScreenEvent::Tick(tick(i)));}
+    assert!((screen.scroll.pos-scroll.0).abs()<0.25);
+    assert!((screen.row_rect(1,1,At::Drawn).y-before.y).abs()<0.25);
+}
+
+#[test]
+fn inline_close_keeps_the_first_frame_continuous() {
+    let _serial=crate::testlock::serial();
+    let mut fixture=Fixture::new();fixture.query("ab").shelves(vec![shelf(Kind::Movie,"row",4)]);
+    let mut screen=fixture.screen();let elem=screen.rows[0].elems[1];
+    screen.inline=Some((elem,500,420));
+    let before=screen.row_rect(0,2,At::Drawn);
+    deliver(&mut screen,&fixture,None,ScreenEvent::Uncover);
+    assert_eq!(screen.row_rect(0,2,At::Drawn).x,before.x,"closing must not snap the neighbouring posters");
+    for i in 0..90 {deliver(&mut screen,&fixture,None,ScreenEvent::Tick(tick(i)));}
+    assert!(screen.row_rect(0,2,At::Drawn).x<before.x-300.0,"shelf must settle back to its compact geometry");
 }
 
 #[test]

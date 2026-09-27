@@ -1968,7 +1968,8 @@ pub(crate) const SCREEN_SHAPES: &[&str] = &[
 // Inline catalog anchor, full-detail mode and enriched metadata extend recorded state.
 // Catalog cast/preview state and restored Search inline viewport.
 // Search retains a directed return from its inline catalog instance.
-const SCREEN_SHAPES_PIN: u64 = 0xca85c2f3240c41e0;
+// Search retains the closing shelf geometry until its shared spring settles.
+const SCREEN_SHAPES_PIN: u64 = 0x9479a04840a90c5b;
 
 #[cfg(test)]
 mod arg_tests {

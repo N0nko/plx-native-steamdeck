@@ -1112,7 +1112,8 @@ fn inline_catalog_full_details_back_returns_to_card_before_dismissal() {
  let compact=screen.place(&4,&cx,At::SpringTarget).unwrap().rect;
  out.clear();
  {let mut fx=Effects::new(&mut out,MachineId::Instance(instance),&mut present);screen.step(&ScreenEvent::Activate(4),&cx,&mut fx);}
- assert!(screen.place(&4,&cx,At::SpringTarget).unwrap().rect.w>compact.w);
+ assert_eq!(screen.place(&4,&cx,At::SpringTarget).unwrap().rect.w,240.0,
+     "expanded information focus belongs to the poster, not an invisible box over the actions");
  let back=script_key(Key::Back,tick(1)).remove(0);
  out.clear();
  {let mut fx=Effects::new(&mut out,MachineId::Instance(instance),&mut present);screen.step(&ScreenEvent::Input(back.clone()),&cx,&mut fx);}

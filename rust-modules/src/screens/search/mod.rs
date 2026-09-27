@@ -46,7 +46,7 @@ pub(super) const OWNER_FLOOR: f32 = 0.02;
 const BLINK_MS: u32 = 530;
 const BLINK_US: u32 = BLINK_MS * 1000;
 
-pub(crate) const SHAPE: &str = "SearchScreen{inline_exit:opt<dir>,inline_scroll:opt<(f32,f32)>,inline:opt<(elem:u32,x:i32,y:i32)>,custom_v1:{keypad_open:bool,numeric:bool,filter:u64,multitap:pending_echo,discovery:owned_context_branches_v5_dwell_two_seconds,shown:rows,base_rows:u64},entry:u32,instance:u32,draft:{text:str,caret:u64,profile:u32,pending:bool},mounted:bool,editing:bool,blink_us:u32,hot:Spring,scroll:Spring,scroll_target:f32,next_elem:u32,query_gen:u32,recent_clear_pending:bool,content_dirty:bool,fade:Xfade,ground:PageGround,owner_row:Option<u64>,owner:str,owner_alpha:Spring,restored:Option<SearchMemory>,keys:[SearchKey],recents:[u32],rows:[{kind:u32,group:u32,elems:[u32],motion:CardRow}]}";
+pub(crate) const SHAPE: &str = "SearchScreen{inline_return:opt<(elem,x,y)>,inline_fold:Spring,inline_exit:opt<dir>,inline_scroll:opt<(f32,f32)>,inline:opt<(elem:u32,x:i32,y:i32)>,custom_v1:{keypad_open:bool,numeric:bool,filter:u64,multitap:pending_echo,discovery:owned_context_branches_v5_dwell_two_seconds,shown:rows,base_rows:u64},entry:u32,instance:u32,draft:{text:str,caret:u64,profile:u32,pending:bool},mounted:bool,editing:bool,blink_us:u32,hot:Spring,scroll:Spring,scroll_target:f32,next_elem:u32,query_gen:u32,recent_clear_pending:bool,content_dirty:bool,fade:Xfade,ground:PageGround,owner_row:Option<u64>,owner:str,owner_alpha:Spring,restored:Option<SearchMemory>,keys:[SearchKey],recents:[u32],rows:[{kind:u32,group:u32,elems:[u32],motion:CardRow}]}";
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 enum Identity {
@@ -64,6 +64,8 @@ pub(crate) struct SearchScreen {
     inline: Option<(u32,i32,i32)>,
     inline_scroll: Option<(f32,f32)>,
     inline_exit: Option<Dir>,
+    inline_return: Option<(u32,i32,i32)>,
+    inline_fold: Spring,
     discovery:discovery::Browse,shown:crate::discovery::Page,base_rows:usize,discovery_seat:Option<(usize,usize)>,discovery_return:Option<Vec<(GroupId,f32)>>,
     keypad_open:bool, numeric:bool, filter:usize, multitap:multitap::MultiTap,
     entry: EntryId,
@@ -100,7 +102,7 @@ pub(crate) struct SearchScreen {
 
 impl SearchScreen {
     pub(crate) fn new(entry: EntryId, instance: InstanceId) -> Self {
-        Self { inline:None, inline_scroll:None, inline_exit:None, discovery:Default::default(),shown:Default::default(),base_rows:0,discovery_seat:None,discovery_return:None,keypad_open:false,numeric:false,filter:0,multitap:multitap::MultiTap::new(),entry, instance, draft: Draft::new(0, ""), mounted: false, editing: false,
+        Self { inline_return:None, inline_fold:Spring::at(0.0), inline:None, inline_scroll:None, inline_exit:None, discovery:Default::default(),shown:Default::default(),base_rows:0,discovery_seat:None,discovery_return:None,keypad_open:false,numeric:false,filter:0,multitap:multitap::MultiTap::new(),entry, instance, draft: Draft::new(0, ""), mounted: false, editing: false,
             blink_us: 0, hot: Spring::at(1.0), scroll: Spring::at(0.0), scroll_target: 0.0,
             keys: Vec::new(), next_elem: 10, rows: Vec::new(), recents: Vec::new(), query_gen: 0,
             recent_clear_pending: false, publication: None, content_dirty: true,
@@ -374,6 +376,7 @@ impl SearchScreen {
                     if self.discover_enter(0,0,elem,fx){self.sync(cx,false,fx);}else{self.discovery.pending_down=Some(elem);}
                 }
                 Item::Catalog(media) => {
+                    self.inline_return=None;self.inline_fold.jump(0.0);
                     self.inline_scroll=Some((self.scroll.pos,self.scroll_target));
                     let rest=self.row_rect(row_index,col,At::Drawn);
                     let x=rest.x.clamp(96.0,1824.0-crate::screens::registry::CatalogDetailsArg::INLINE_W).round() as i32;
@@ -431,8 +434,12 @@ impl<H: SearchLike> Machine<H> for SearchScreen {
                 self.inline_exit=Some(*dir);
             }
             ScreenEvent::Uncover => {
-                let opener=self.inline.take().map(|(elem,_,_)|self.key(elem));
-                if let Some((pos,target))=self.inline_scroll.take(){self.scroll.pos=pos;self.scroll_target=target;}
+                let returning=self.inline.take();
+                let opener=returning.map(|(elem,_,_)|self.key(elem));
+                if returning.is_some() {self.inline_return=returning;self.inline_fold.jump(1.0);}
+                // Keep the current document position on the first closing frame; its existing
+                // scroll spring returns it alongside the horizontal shelf contraction.
+                if let Some((_,target))=self.inline_scroll.take(){self.scroll_target=target;}
                 if let Some((from,dir))=opener.zip(self.inline_exit.take()) {
                     let to=match self.neighbour(from,dir,cx) {Step::Move(to)=>to,_=>from};
                     self.reseat(FocusTarget::Elem(to),fx); self.reveal(to,cx);
@@ -654,11 +661,12 @@ impl SearchScreen {
         let origin = layout::top(&kinds[..n], row, |i| self.rows[i].motion.band_expand())-self.system_shift();
         let mut rect=crate::ui::card_row::tile_rect(col, style.margin_x + self.inset(), style.w + style.gap, shelf.motion.scroll_x(),
             origin + layout::HEAD_TO_ROW - scroll, (style.w, style.h));
-        if let Some((elem,x,_))=self.inline {
+        if let Some((elem,x,_))=self.inline.or(self.inline_return) {
+            let amount=if self.inline.is_some(){1.0}else{self.inline_fold.pos.clamp(0.0,1.0)};
             if let Some(slot)=shelf.elems.iter().position(|e|*e==elem) {
                 let old_x=style.margin_x+self.inset()+slot as f32*(style.w+style.gap)-shelf.motion.scroll_x();
-                rect.x += x as f32-old_x;
-                if col>slot {rect.x += crate::screens::registry::CatalogDetailsArg::INLINE_W-style.w;}
+                rect.x += (x as f32-old_x)*amount;
+                if col>slot {rect.x += (crate::screens::registry::CatalogDetailsArg::INLINE_W-style.w)*amount;}
             }
         }
         rect
@@ -671,6 +679,14 @@ impl SearchScreen {
         };
     }
     fn tick<H: SearchLike>(&mut self, tick: crate::ui::machine::Tick, cx: &Cx<'_, H>, fx: &mut Effects<'_, H>) {
+        if self.inline_return.is_some() {
+            let mut present=fx.present();
+            crate::ui::motion::spring(&mut self.inline_fold.pos,&mut self.inline_fold.vel,0.0,
+                crate::ui::containers::modal::APPEAR_K,tick,&mut present);
+            if self.inline_fold.pos.abs()<0.002 && self.inline_fold.vel.abs()<0.02 {
+                self.inline_return=None;self.inline_fold.jump(0.0);
+            }
+        }
         self.discover_tick(tick,cx,fx);
         fx.push(Fx::App(AppFx::StoreWork(crate::stores::StoreWork::BrowseDiscovery)));
         fx.push(Fx::App(AppFx::StoreWork(crate::stores::StoreWork::Search { dt_us: tick.dt_us })));
@@ -857,6 +873,8 @@ impl<H: SearchLike> Screen<H> for SearchScreen {
 impl LogicalState for SearchScreen {
     fn write(&self, c: &mut Canon) {
         c.option(self.inline,|c,(elem,x,y)|{c.u32(elem).u32(x as u32).u32(y as u32);});
+        c.option(self.inline_return,|c,(elem,x,y)|{c.u32(elem).u32(x as u32).u32(y as u32);});
+        c.f32(self.inline_fold.pos).f32(self.inline_fold.vel);
         c.option(self.inline_exit,|c,dir|{c.u32(dir as u32);});
         c.option(self.inline_scroll,|c,(pos,target)|{c.f32(pos).f32(target);});
         c.bool(self.keypad_open).bool(self.numeric).u64(self.filter as u64);self.multitap.write(c);self.discovery.write(c);self.shown.write(c);c.u64(self.base_rows as u64);

@@ -639,12 +639,14 @@ impl PersonState {
 /// Read on open and whenever the registry generation moves. The roster is tiny; rebuilding only at
 /// that explicit boundary prevents an open page retaining a revoked share or missing a new one.
 fn sources(origin: ServerId, key: &str, name: &str) -> Vec<Src> {
+    // A discovery URI is a navigation identity, never a server-local personId.
+    let key = if key.starts_with("plex://person/") { "" } else { key };
     let mut out: Vec<Src> = Vec::new();
     for sid in crate::plex::server_ids().chain(std::iter::once(origin)) {
         if fx(sid, K_RESOLVE).is_none() || out.iter().any(|s| s.sid == sid) {
             continue;
         }
-        let is_origin = sid == origin;
+        let is_origin = sid == origin && !key.is_empty();
         out.push(Src {
             sid,
             // The origin needs no resolve: the credit row handed us its own `personId`, which is
@@ -837,10 +839,13 @@ fn open(
     name: &str,
     thumb: &str,
 ) {
+    // Discovery uses a URI; the shared provider client uses a bare tagKey. With no
+    // server-local person ID, resolve each library by that same canonical identity.
+    let guid = guid.strip_prefix("plex://person/").unwrap_or(guid);
     if state
         .current
         .as_ref()
-        .is_some_and(|p| crate::plex::same_item((p.sid, p.key.as_str()), (sid, key)))
+        .is_some_and(|p| crate::plex::same_item((p.sid, p.key.as_str()), (sid, key)) && p.guid == guid)
     {
         return;
     }
@@ -2061,6 +2066,22 @@ mod tests {
         fn loading(&self) -> bool { self.state.view().loading() }
         fn hold_off(&mut self) { self.state.retry_cd = [RETRY_FRAMES; NFETCH]; }
         fn supersede(&mut self) { self.state.supersede(&self.adapter); }
+    }
+
+    #[test]
+    fn discovery_people_use_the_existing_profile_and_library_resolver() {
+        let _serial = crate::testlock::serial();
+        let mut owner = Owner::default();
+        let guid = "5d77682aeb5d26001f1de4b0";
+        owner.open(S0, &format!("plex://person/{guid}"), &format!("plex://person/{guid}"), "First actor", "portrait");
+        let p = owner.current().unwrap();
+        assert_eq!(p.guid, guid, "provider routes require the bare person ID");
+        assert_eq!(p.key, format!("plex://person/{guid}"), "retain the screen's navigation identity");
+        assert!(p.srcs.iter().all(|s| !s.resolved && s.local.is_none()));
+        owner.open(S0, "", "5d77682aeb5d26001f1de4b1", "Second actor", "second");
+        assert_eq!(owner.current().unwrap().name, "Second actor");
+        owner.open(S0, "", guid, "First actor", "portrait");
+        assert_eq!(owner.current().unwrap().name, "First actor", "empty local keys must not conflate people");
     }
 
     #[test]

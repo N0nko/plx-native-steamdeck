@@ -436,6 +436,11 @@ pub(super) fn tile<H: SearchLike>(
         crate::ui::widgets::inline_card_ground(p,Rect::new(x as f32,y as f32,crate::screens::registry::CatalogDetailsArg::INLINE_W,crate::screens::registry::CatalogDetailsArg::INLINE_H));
         return;
     }
+    let p=if let Some((_,x,y))=screen.inline_return.filter(|(elem,_,_)|model.elems[col]==*elem) {
+        let fade=screen.inline_fold.pos.clamp(0.0,1.0);
+        crate::ui::widgets::inline_card_ground(p.alpha(fade),Rect::new(x as f32,y as f32,crate::screens::registry::CatalogDetailsArg::INLINE_W,crate::screens::registry::CatalogDetailsArg::INLINE_H));
+        p.alpha(1.0-fade)
+    } else {p};
     let style = layout::style(model.kind);
     let rest = screen.row_rect(row, col, At::Drawn);
     let pop = model.motion.scale(col);

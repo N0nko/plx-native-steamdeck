@@ -1,10 +1,61 @@
 {
   "group": "2-search-discover",
-  "description": "Start on an inline catalog card, information focused, with adjacent posters on both sides. No account mutations or playback.",
+  "description": "Start on an inline catalog card, information focused, with adjacent posters on both sides. No account mutations or playback. Observe or record the close transition as well as the settled captures; screenshots alone do not prove smooth motion.",
   "steps": [
-    {"name":"01-inline","before":"search/catalog_details","after":"search/catalog_details","keys":[],"covers":["catalog-horizontal-exit"],"review":"Information region focused."},
-    {"name":"02-exit-right","before":"search/catalog_details","after":"search(/none)?","keys":["RIGHT","RIGHT"],"settle":2,"covers":["catalog-horizontal-exit"],"review":"First Right focuses actions; second collapses card and selects next poster without opening it."},
-    {"name":"03-reopen-original","before":"search(/none)?","after":"search/catalog_details","keys":["LEFT","OK"],"settle":2,"covers":["catalog-horizontal-exit"],"review":"Original catalog card opens with information focused."},
-    {"name":"04-exit-left","before":"search/catalog_details","after":"search(/none)?","keys":["LEFT"],"settle":2,"covers":["catalog-horizontal-exit"],"review":"Left collapses card and selects preceding poster; no overlap remains."}
+    {
+      "name": "01-inline",
+      "before": "search/catalog_details",
+      "after": "search/catalog_details",
+      "keys": [],
+      "covers": [
+        "catalog-horizontal-exit",
+        "catalog-close-motion"
+      ],
+      "review": "Information region focused."
+    },
+    {
+      "name": "02-exit-right",
+      "before": "search/catalog_details",
+      "after": "search(/none)?",
+      "keys": [
+        "RIGHT",
+        "RIGHT"
+      ],
+      "settle": 2,
+      "covers": [
+        "catalog-horizontal-exit",
+        "catalog-close-motion"
+      ],
+      "review": "First Right focuses actions; second collapses card and selects next poster without opening it."
+    },
+    {
+      "name": "03-reopen-original",
+      "before": "search(/none)?",
+      "after": "search/catalog_details",
+      "keys": [
+        "LEFT",
+        "OK"
+      ],
+      "settle": 2,
+      "covers": [
+        "catalog-horizontal-exit",
+        "catalog-close-motion"
+      ],
+      "review": "Original catalog card opens with information focused."
+    },
+    {
+      "name": "04-exit-left",
+      "before": "search/catalog_details",
+      "after": "search(/none)?",
+      "keys": [
+        "LEFT"
+      ],
+      "settle": 2,
+      "covers": [
+        "catalog-horizontal-exit",
+        "catalog-close-motion"
+      ],
+      "review": "Left collapses card and selects preceding poster; no overlap remains."
+    }
   ]
 }

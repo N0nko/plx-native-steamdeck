@@ -508,5 +508,20 @@
     "group": "2-search-discover",
     "id": "discovery-image-fallback",
     "title": "Provider Image posters and parent show names in trailer rails; flat missing-art placeholders"
+  },
+  {
+    "group": "2-search-discover",
+    "id": "catalog-flow-layout",
+    "title": "Expanded catalog prose, genres and actions share measured flow and non-overlapping hit targets"
+  },
+  {
+    "group": "2-search-discover",
+    "id": "catalog-close-motion",
+    "title": "Inline dismissal restores shelf geometry continuously without a first-frame snap"
+  },
+  {
+    "group": "2-search-discover",
+    "id": "discovery-person-filmography",
+    "title": "Discovery cast opens shared person profile, library titles and full filmography"
   }
 ]
