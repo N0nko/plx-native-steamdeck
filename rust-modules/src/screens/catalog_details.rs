@@ -328,9 +328,10 @@ impl<H: AppLike> Screen<H> for CatalogDetailsScreen {
             }
         }
         let current=f.cx.focus.current.filter(|k|k.entry==self.entry).map(|k|k.elem);
+        if current==Some(INFO) {
+            p.rring(if self.full {poster} else {self.info_rect()},theme::CARD_RING_RAD,2.0,theme::TEXT_SECONDARY);
+        }
         if !self.full {
-            let info=self.info_rect();
-            if current==Some(INFO) { p.rring(info,theme::CARD_RING_RAD,2.0,theme::TEXT_SECONDARY); }
             text("Details  ›",r.y+r.h-48.0,theme::size::CAPTION,theme::TEXT_SECONDARY,1);
         }
         let watch=match state {Some(s) if s.busy=>c"Loading…",Some(s) if s.failed=>c"Retry Watchlist",Some(s) if s.watchlisted==Some(true)=>c"Remove Watchlist",_=>c"Watchlist"};
