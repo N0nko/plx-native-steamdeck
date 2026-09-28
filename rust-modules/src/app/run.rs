@@ -515,7 +515,14 @@ unsafe fn present_and_swap(
             let _present_scope = crate::task::watchdog::present_scope();
             #[cfg(feature = "hostsim")]
             crate::surface::present_supersampled();
-            SDL_GL_SwapWindow(app.win);
+            // The Vulkan video window is the visible surface during Deck playback.
+            // Its HUD already received this frame via readback; swapping the covered SDL
+            // window only makes Gamescope composite a second surface and issue exposes.
+            #[cfg(feature = "steamdeck")]
+            let video_presents = app.adapters.player.deck.as_ref().is_some_and(|s| s.ready && !s.failed);
+            #[cfg(not(feature = "steamdeck"))]
+            let video_presents = false;
+            if !video_presents { SDL_GL_SwapWindow(app.win); }
         }
         app.window_activity.presented(fr.player);
         // One increment, then nothing: re-ask EGL for the back buffer's AGE after real
@@ -658,6 +665,10 @@ unsafe fn ingest_sdl_event(app: &mut App, fr: &mut Frame) {
     let et = rd_u32(&app.ev, 0);
     #[cfg(feature = "steamdeck")]
     if crate::player::deck_input::is_polled_controller_event(et) { return; }
+    // SDL_WINDOWEVENT_EXPOSED belongs to the covered window, not the HUD plane in mpv.
+    #[cfg(feature = "steamdeck")]
+    if et == 0x200 && app.ev[12] == 3
+        && app.adapters.player.deck.as_ref().is_some_and(|s| s.ready && !s.failed) { return; }
     app.window_activity.event(et);
     crate::telemetry::window::lifecycle(et, matches!(app.route(), AppArg::Player));
     // INPUT while a popover holds the page frozen is the POPOVER's: every invalidate
