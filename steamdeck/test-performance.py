@@ -1,5 +1,10 @@
 """Synthetic HDR playback workload; never touches a signed-in user's library."""
-import json, os, pathlib, socket, subprocess, time, uuid
+import argparse, json, os, pathlib, socket, subprocess, time, uuid
+
+parser = argparse.ArgumentParser(__doc__)
+parser.add_argument('--fixture', default='hdr10-av.mkv')
+parser.add_argument('--seconds', type=float, default=10)
+args = parser.parse_args()
 
 root = pathlib.Path.home()/'.local/share/plxnative-steamdeck'
 run = root/'test-ui'/uuid.uuid4().hex
@@ -16,7 +21,7 @@ def ticks(pid):
     return int(fields[11])+int(fields[12])
 
 with open(run/'mock.log','w') as log, open(run/'app.log','w') as app_log:
-    mock = subprocess.Popen(['python3', str(root/'assets/mock_pms.py'), '--port','32499', '--extra-media',str(root/'fixtures/hdr10-av.mkv')], stdout=log, stderr=log)
+    mock = subprocess.Popen(['python3', str(root/'assets/mock_pms.py'), '--port','32499', '--extra-media',str(root/'fixtures'/args.fixture)], stdout=log, stderr=log)
     app = None
     try:
         time.sleep(1)
@@ -48,19 +53,28 @@ with open(run/'mock.log','w') as log, open(run/'app.log','w') as app_log:
         time.sleep(10)
         before=ticks(app.pid); started=time.monotonic()
         overlays=json.loads((run/'deck-status.json').read_text())['overlays']
-        time.sleep(10)
+        counters = ['decoder-frame-drop-count', 'frame-drop-count', 'mistimed-frame-count', 'vo-delayed-frame-count']
+        initial = {k:command('get_property', k) for k in counters}
+        time.sleep(args.seconds)
         seconds=time.monotonic()-started
         status=json.loads((run/'deck-status.json').read_text())
         result={'ui_cpu_percent':round((ticks(app.pid)-before)/os.sysconf('SC_CLK_TCK')/seconds*100,2),
                 'hud_uploads_per_second':round((status['overlays']-overlays)/seconds,2),
                 'hardware':status['hardware'],'hdr':status['hdr'],
                 'decoder_drops':command('get_property','decoder-frame-drop-count'),
-                'output_drops':command('get_property','frame-drop-count')}
+                'output_drops':command('get_property','frame-drop-count'),
+                'display_sync':command('get_property','display-sync-active'),
+                'display_hz':command('get_property','display-fps'),
+                'estimated_hz':command('get_property','estimated-display-fps'),
+                'timing_delta':{k:command('get_property',k)-initial[k] if initial[k] is not None else None for k in counters}}
         command('screenshot-to-file',f'/run/user/1000/plxnative-video-{app.pid}/performance.png','window')
         print(json.dumps(result),flush=True)
         print('evidence:',run,flush=True)
         assert result['hud_uploads_per_second'] <= 5, 'Hidden HUD must not upload continuously'
         assert result['decoder_drops'] == 0 and result['output_drops'] == 0, 'Synthetic playback dropped frames'
+        assert result['display_sync'], 'Audio-clock playback does not correct display cadence'
+        assert abs(result['estimated_hz']/result['display_hz']-1) < .02, 'Presentation clock did not settle near the display rate'
+        assert result['timing_delta']['vo-delayed-frame-count'] == 0, 'Presenter missed display deadlines'
     finally:
         if app:
             app.terminate()

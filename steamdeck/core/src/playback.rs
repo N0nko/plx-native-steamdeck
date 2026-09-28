@@ -39,12 +39,16 @@ impl Session {
         let script = root.join("controls.lua");
         fs::write(&script, include_str!("../../controls.lua"))?;
         let mut cmd = Command::new("flatpak");
+        // Gamescope needs a single queued frame for mpv's display clock to stay
+        // stable. Deeper queues produced irregular 55-75 Hz feedback on a 90 Hz
+        // panel. FIFO + display sync also lets oversample remove 24/90 Hz judder.
         cmd.args(["run", "--die-with-parent", "--filesystem=host-os:ro", "--filesystem=xdg-run/gamescope-0"])
             .arg(format!("--filesystem={}", root.display()))
             .args(["--env=GAMESCOPE_WAYLAND_DISPLAY=gamescope-0", "--env=ENABLE_GAMESCOPE_WSI=1", "--env=STEAM_GAMESCOPE_HDR_SUPPORTED=1"])
             .arg(format!("--env=VK_LAYER_PATH={}", std::env::var("PLXNATIVE_VULKAN_DIR").unwrap_or_else(|_| format!("{}/.local/share/plxnative-steamdeck/vulkan", std::env::var("HOME").unwrap_or_default()))))
             .args(["--env=VK_INSTANCE_LAYERS=VK_LAYER_FROG_gamescope_wsi_x86_64", "io.mpv.Mpv", "--no-config", "--idle=yes", "--force-window=yes", "--fullscreen", "--vo=gpu-next", "--gpu-api=vulkan", "--gpu-context=x11vk", "--target-colorspace-hint=yes", "--hwdec=auto", "--osc=no", "--osd-level=0", "--input-default-bindings=no", "--input-terminal=no", "--terminal=no", "--keep-open=no"])
             .arg(format!("--input-ipc-server={}", socket.display()))
+            .args(["--vulkan-swap-mode=fifo", "--swapchain-depth=1", "--video-sync=display-resample", "--interpolation=yes", "--tscale=oversample"])
             .arg(format!("--script={}", script.display()))
             .env("DISPLAY", ":1")
             .stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
