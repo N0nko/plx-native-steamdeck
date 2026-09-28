@@ -988,7 +988,7 @@ mod tests {
             .parent()
             .expect("rust-modules has a parent")
             .join("PRIVACY.md");
-        let doc = std::fs::read_to_string(&root).expect("PRIVACY.md is readable");
+        let doc = std::fs::read_to_string(&root).expect("PRIVACY.md is readable").replace("\r\n", "\n");
         let want = privacy_table();
         assert!(
             doc.contains(&want),
