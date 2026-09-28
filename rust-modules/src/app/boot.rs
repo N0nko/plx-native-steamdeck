@@ -20,6 +20,8 @@ use super::*;
 /// Falls back to the canvas size if SDL cannot answer, which is the behaviour this replaced.
 #[cfg(feature = "hostsim")]
 pub(crate) fn desktop_window_size() -> (c_int, c_int) {
+    #[cfg(feature = "steamdeck")]
+    if cfg!(feature = "steamdeck") { return (1280, 800); }
     // `PLXNATIVE_WIN=<w>x<h>` overrides the fit entirely — `make sim-shot SIM_W=1920 SIM_H=1080`.
     // It exists because the fit below is chosen for a HUMAN looking at a window, and a screenshot
     // is not that: on a 1x display the divisor lands on 2 and every shot comes back 960x540, which
@@ -376,7 +378,9 @@ pub(crate) unsafe fn construct(
     // app, and nothing reachable from SDL changes that. The line stays because it costs
     // nothing and states the intent; it is not what keeps the screensaver away.
     SDL_SetHint(c"SDL_VIDEO_ALLOW_SCREENSAVER".as_ptr(), c"0".as_ptr());
-    if SDL_Init(SDL_INIT_VIDEO) != 0 {
+    #[cfg(feature = "steamdeck")]
+    SDL_SetHint(c"SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS".as_ptr(), c"1".as_ptr());
+    if SDL_Init(SDL_INIT_VIDEO | if cfg!(feature = "steamdeck") { 0x2000 } else { 0 }) != 0 {
         log("SDL_Init failed");
         return Err(1);
     }
@@ -440,7 +444,8 @@ pub(crate) unsafe fn construct(
     let title = c"PlxNative";
     #[cfg(not(feature = "hostsim"))]
     let title = c"plxnative";
-    let win = SDL_CreateWindow(title.as_ptr(), wx, wy, ww_req, wh_req, SDL_WINDOW_FLAGS);
+    let win = SDL_CreateWindow(title.as_ptr(), wx, wy, ww_req, wh_req,
+        if cfg!(feature = "steamdeck") { SDL_WINDOW_FLAGS | 0x1001 } else { SDL_WINDOW_FLAGS });
     if win.is_null() {
         log("CreateWindow failed");
         return Err(1);
@@ -1363,6 +1368,8 @@ pub(crate) unsafe fn construct(
     // mirror, so the boot says what it wants once, here, the moment the tree exists. A `Root` on
     // an empty stack mints the first entry, which is what makes this a hard CUT — there is no
     // outgoing screen to dip.
+    #[cfg(feature = "steamdeck")]
+    let route = if std::env::var_os("PLXNATIVE_START_DOWNLOADS").is_some() { AppArg::Downloads } else { route };
     if controlled {
         app.pages.emit(crate::ui::machine::MachineId::Nav,
             crate::ui::machine::Fx::Nav(crate::ui::machine::NavOp::Root(route)));

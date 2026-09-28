@@ -12,6 +12,8 @@
 mod abr; // client-managed fixed-session HLS controller: estimate, propose, prime, then commit
 mod app; // plex_run — the Rust app core / event loop (the entry inverted from main.c)
 mod aq;
+#[cfg(feature = "steamdeck")]
+mod deck_downloads;
 pub(crate) mod audio_local;
 mod auth; // plex.tv login/boot flow controller (PIN/QR → discovery → who's-watching → install)
 mod browse; // Library browse: per-section paged catalog (sparse store + off-thread page fetches)

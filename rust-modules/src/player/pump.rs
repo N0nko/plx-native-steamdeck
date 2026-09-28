@@ -622,6 +622,8 @@ fn start_original_trial_reload(
 }
 
 pub(crate) fn pump(ps: &mut crate::route::PlaybackSession, pa: &mut super::adapter::PlayerAdapter, now: u32) {
+    #[cfg(feature = "steamdeck")]
+    if cfg!(feature = "steamdeck") { super::deck::pump(pa); return; }
     use super::shared::PlaybackState;
     // ONE `&mut PlayerAdapter`, split into the live session and the seam token. Everything below
     // that replaces the session (`reload_*`) takes `pa` back, which the borrow checker only allows

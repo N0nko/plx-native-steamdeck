@@ -36,6 +36,8 @@ pub(crate) use crate::screens::subtitles::SubtitleArg;
 
 /// The application's effects (spec §3.1). `Store` since phase 4; `Consent` and `Loop` since 5b.
 pub(crate) enum AppFx {
+    #[cfg(feature = "steamdeck")]
+    Deck(crate::deck_downloads::Command),
     Catalog(crate::catalog_action::Request),
     Discovery(crate::discovery::Request),
     Companion(crate::media_companion::Request),
@@ -986,6 +988,8 @@ pub(crate) enum ConsentCmd {
 /// the dispatcher yet. Each names the phase that retires it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum LoopReq {
+    #[cfg(feature = "steamdeck")]
+    Downloads,
     /// BACK at a root the platform owns (Home, the FIRST consent question): hand the screen to
     /// the television. Retires with the Navigation root rule (phase 12).
     BackAtRoot,
@@ -1321,6 +1325,8 @@ mod tests {
 /// `decision-alert`, `settings-*`) never press.
 #[derive(Clone, PartialEq, Eq)]
 pub(crate) enum AppArg {
+    #[cfg(feature = "steamdeck")]
+    Downloads,
     Subtitles(SubtitleArg),
     LibraryMenu(LibraryMenuArg),
     /// The profile menu (`screens::account_menu`), presented on the shared `ModalStack` over
@@ -1404,6 +1410,8 @@ pub(crate) const ARG_SHAPE: &str = "AppArg{Login,Profiles,Onboard,Home,Library,S
 impl LogicalState for AppArg {
     fn write(&self, c: &mut Canon) {
         match self {
+            #[cfg(feature = "steamdeck")]
+            Self::Downloads => { c.u32(15); }
             Self::LibraryMenu(arg) => { c.u32(4); arg.write(c); }
             Self::PlayerOverlay(arg) => { c.u32(5); arg.write(c); }
             Self::AltSources(arg) => { c.u32(6); arg.write(c); }
@@ -1449,6 +1457,8 @@ impl crate::ui::screen::ScreenArg for AppArg {
     /// them fade the bar with the page.
     fn chrome(&self) -> Chrome {
         match self {
+            #[cfg(feature = "steamdeck")]
+            AppArg::Downloads => Chrome::None,
             AppArg::Home | AppArg::Library | AppArg::Search => Chrome::TabBar,
             AppArg::Login
             | AppArg::Profiles
@@ -1472,6 +1482,8 @@ impl crate::ui::screen::ScreenArg for AppArg {
     }
     fn id(&self) -> ScreenId {
         ScreenId(match self {
+            #[cfg(feature = "steamdeck")]
+            AppArg::Downloads => 26,
             AppArg::LibraryMenu(_) => 15,
             // One id for all four panels, exactly as `Settings(_)` collapses its root payload:
             // they are four kinds of ONE screen, and `same_instance` must never let the container
@@ -1613,6 +1625,8 @@ where
             AppArg::LibraryMenu(arg) => Box::new(crate::screens::library::menu::LibraryMenu::new(entry, arg.clone())),
             AppArg::AccountMenu => Box::new(crate::screens::account_menu::AccountMenuScreen::new(entry)),
             AppArg::ItemMenu(arg) => Box::new(crate::screens::item_menu::ItemMenuScreen::new(entry, arg.clone())),
+            #[cfg(feature = "steamdeck")]
+            AppArg::Downloads => Box::new(crate::screens::downloads::DownloadsScreen::new(entry)),
             AppArg::PlayerOverlay(arg) => Box::new(
                 crate::screens::player::overlay::PlayerOverlayScreen::new(H::session(cx), H::metadata(cx), entry, arg.kind),
             ),
@@ -1816,6 +1830,8 @@ pub(crate) fn every_surface_arg() -> Vec<AppArg> {
     ];
     for a in &args {
         match a {
+            #[cfg(feature = "steamdeck")]
+            AppArg::Downloads => panic!("Downloads is a page"),
             AppArg::LibraryMenu(_)
             | AppArg::AccountMenu
             | AppArg::ItemMenu(_)

@@ -396,6 +396,12 @@ pub(super) unsafe fn apply_item_action<R: super::playback::PlaybackResources>(
     // The empty-rk guard the head of this function used to carry is the SURFACE's now
     // (`ItemMenuScreen::activate`): a row with no target never becomes a request at all.
     match act {
+        #[cfg(feature = "steamdeck")]
+        Action::Download(rk) => {
+            let part = item.as_ref().map(|m| m.part.clone()).unwrap_or_default();
+            crate::deck_downloads::start(sid, rk, part);
+            super::bridge::nav_push(pages, crate::screens::registry::AppArg::Downloads);
+        }
         Action::None => {}
         Action::GoToItem(rk) => {
             let _ = from_home; // see the note below `apply_item_action`

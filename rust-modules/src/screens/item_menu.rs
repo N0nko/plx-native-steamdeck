@@ -64,6 +64,8 @@ use crate::ui::{theme, Rect};
 /// here is an index.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Action {
+    #[cfg(feature = "steamdeck")]
+    Download(String),
     None,
     /// open this leaf's own detail page (an episode's page, a movie's page)
     GoToItem(String),
@@ -113,6 +115,8 @@ impl Action {
     /// The ratingKey this action acts on — empty for [`Action::None`].
     pub(crate) fn rk(&self) -> &str {
         match self {
+            #[cfg(feature = "steamdeck")]
+            Action::Download(rk) => rk,
             Action::GoToItem(rk)
             | Action::GoToShow(rk, _)
             | Action::MarkWatched(rk)
@@ -126,6 +130,8 @@ impl Action {
 
     fn write(&self, c: &mut Canon) {
         let tag = match self {
+            #[cfg(feature = "steamdeck")]
+            Action::Download(_) => 8,
             Action::None => 0,
             Action::GoToItem(_) => 1,
             Action::GoToShow(..) => 2,
@@ -334,6 +340,11 @@ fn state_rows(
         acts.push(Some(Action::MarkUnwatched(rk.to_string())));
     }
     if leaf {
+        #[cfg(feature = "steamdeck")]
+        {
+            sec = sec.row(Row::new("Download original"));
+            acts.push(Some(Action::Download(rk.to_string())));
+        }
         sec = sec.row(Row::new(crate::ui::widgets::PLAY_FROM_START_VERB).licon(Icon::PlayStart));
         acts.push(Some(Action::PlayFromStart(rk.to_string())));
     }

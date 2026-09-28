@@ -483,6 +483,8 @@ unsafe fn present_and_swap(
         // of this frame — a read between the page and the surfaces splits its render pass.
         crate::gfx::field_frame_begin();
         let (_vx, _vy, _vw, _vh) = draw(app, fr);
+        #[cfg(feature = "steamdeck")]
+        if fr.player { crate::player::deck::present(&mut app.adapters.player, _vx, _vy, _vw, _vh); }
         app.instr.mark(crate::diag::heartbeat::Phase::Draw); // draw
         // dev capture stream: grab this finished frame before the swap (after the last draw,
         // so the copy's pass-flush is work the swap would submit anyway). One atomic when idle.
@@ -578,6 +580,21 @@ pub(crate) unsafe fn ingest(app: &mut App, fr: &mut Frame) {
 }
 
 unsafe fn drain_sdl(app: &mut App, fr: &mut Frame) {
+    #[cfg(feature = "steamdeck")]
+    for token in crate::player::deck_input::poll() { dispatch_remote_token(&token, &app.player.session); }
+    #[cfg(feature = "steamdeck")]
+    if let Some(session) = app.adapters.player.deck.as_mut() {
+        let keys = session.keys();
+        for key in keys {
+            if let Some((x, y)) = key.strip_prefix("ck:").and_then(|s| s.split_once(','))
+                .and_then(|(x,y)| Some((x.parse::<f32>().ok()?, y.parse::<f32>().ok()?))) {
+                let tick = crate::ui::machine::Tick { ms: fr.now, dt_us: 0 };
+                app.inputs.push(super::bridge::click_input(x, y, tick));
+                app.inputs.push(super::bridge::release_input(tick));
+                crate::ui::idle::invalidate();
+            } else { let _ = ingress_token(app, fr, &key); }
+        }
+    }
     while SDL_PollEvent(app.ev.as_mut_ptr() as *mut c_void) != 0 {
         ingest_sdl_event(app, fr);
     }
@@ -1903,6 +1920,10 @@ fn loop_requests(app: &mut App) {
             crate::screens::registry::LoopReq::AccountSettings => {
                 super::bridge::open_settings(&mut app.pages);
             }
+            #[cfg(feature = "steamdeck")]
+            crate::screens::registry::LoopReq::Downloads => {
+                super::bridge::nav_push(&mut app.pages, AppArg::Downloads);
+            }
             // `ps` is threaded rather than read from a global (lane D's lab gate: `player::diag`
             // has taken a `&PlaybackSession` since phase 9, and `lab::request_upload` with it).
             crate::screens::registry::LoopReq::AccountSendDiagnostics => {
@@ -1916,6 +1937,14 @@ fn loop_requests(app: &mut App) {
 /// dev oscillators, the play landing and the remaining pumps — `tick_drain` on the FRAMEDROP
 /// line.
 pub(crate) unsafe fn update(app: &mut App, fr: &mut Frame) {
+    #[cfg(feature = "steamdeck")]
+    if let Some(entry) = crate::deck_downloads::take_play() {
+        if crate::route::request_download(&mut app.player.session, &entry) {
+            super::bridge::dismiss_surfaces(&mut app.pages);
+            super::playback::start_playback(&mut app.player.session, &mut app.adapters.player, 0,
+                super::playback::Origin::Here, 4500, None, &mut app.pages, &mut app.bridge);
+        }
+    }
 
 
         // `Route::Login`/`Route::Profiles` no longer have a route-gated `update(dt)` call here
@@ -2421,6 +2450,8 @@ pub(crate) unsafe fn report(app: &mut App, fr: &mut Frame) {
         // string the heartbeat prints; the `Screen` beside it is what the probe DISPATCHES on,
         // and its match is exhaustive so a new route cannot fingerprint as nothing.
         let probe_screen = |app: &App| match app.route() {
+            #[cfg(feature = "steamdeck")]
+            AppArg::Downloads => crate::focusprobe::Screen::Home,
                 // The escape/retry/restart control is the screen's only focusable element, and
                 // it appears and disappears on the `ESCAPE_AFTER_MS`/`QR_ESCAPE_AFTER_MS` clocks
                 // with no phase change of its own — `focusprobe::Screen::Login`'s own doc says

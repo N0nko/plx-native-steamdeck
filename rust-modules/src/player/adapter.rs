@@ -29,6 +29,8 @@ use crate::task::MainThread;
 
 /// The `ENGINE` slot and its confinement, as one owned value (`App.adapters.player`).
 pub(crate) struct PlayerAdapter {
+    #[cfg(feature = "steamdeck")]
+    pub(crate) deck: Option<plxnative_deck_core::playback::Session>,
     /// Proof, held rather than passed: see the module doc. It is a ZST, so this costs nothing and
     /// is what makes `&mut PlayerAdapter` mean "the main thread, exclusively".
     mt: MainThread,
@@ -45,6 +47,8 @@ impl PlayerAdapter {
     /// Take the token. `app::boot` calls this once, with the token `plex_run` minted.
     pub(crate) fn new(mt: MainThread) -> Self {
         Self {
+            #[cfg(feature = "steamdeck")]
+            deck: None,
             mt,
             engine: None,
             repair: None,
@@ -88,6 +92,8 @@ impl PlayerAdapter {
     /// the exclusive borrow — `start_bufferfeed`'s double-start guard only needs to ask.
     #[inline]
     pub(crate) fn is_live(&self) -> bool {
+        #[cfg(feature = "steamdeck")]
+        if self.deck.is_some() { return true; }
         self.engine.is_some()
     }
 

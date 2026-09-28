@@ -13,6 +13,8 @@
 //! concrete host and the rig it lends the dispatcher.
 
 pub(crate) mod about_panel;
+#[cfg(feature = "steamdeck")]
+pub(crate) mod downloads;
 pub(crate) mod account_menu;
 pub(crate) mod alt_sources;
 pub(crate) mod versions;

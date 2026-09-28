@@ -25,6 +25,8 @@ use crate::screens::registry::AppArg;
 pub(crate) fn route_word(route: &AppArg) -> &'static str {
     use crate::screens::registry::ContentArg;
     match route {
+        #[cfg(feature = "steamdeck")]
+        AppArg::Downloads => "downloads",
         AppArg::Login => "login",
         AppArg::Profiles => "profiles",
         AppArg::Onboard => "onboard",

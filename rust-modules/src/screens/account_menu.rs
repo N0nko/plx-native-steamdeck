@@ -46,7 +46,9 @@ use crate::ui::Rect;
 /// What the highlighted row does on OK.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum Action {
-    None,
+    #[cfg(feature = "steamdeck")]
+    Downloads = 100,
+    None = 0,
     ChangeProfile,
     SignIn,
     SignOut,
@@ -86,6 +88,12 @@ pub(crate) const SHAPE: &str =
 /// way a server-only session's is — it would open #132's read-out and nothing else. No verdict
 /// (never asked, plex.tv unreachable) keeps the row, because the row is what asks.
 fn rows_for(acc: &Account, switch_refused: bool) -> &'static [Action] {
+    #[cfg(feature = "steamdeck")]
+    if cfg!(feature = "steamdeck") {
+        return if !acc.signed_in { &[Action::SignIn, Action::Downloads, Action::Settings] }
+            else if acc.can_switch && !switch_refused { &[Action::Downloads, Action::ChangeProfile, Action::SignOut, Action::Settings] }
+            else { &[Action::Downloads, Action::SignOut, Action::Settings] };
+    }
     // The lab row is a THIRD axis rather than an append, so every row set stays a `&'static`
     // slice and [`action_at`]'s index mapping keeps working unchanged. Six arms is the price of
     // not allocating a row vector per open; the alternative was a `Vec` in a static.
@@ -134,6 +142,8 @@ pub(crate) fn chip_label(acc: &Account) -> String {
 
 fn label(a: Action) -> &'static str {
     match a {
+        #[cfg(feature = "steamdeck")]
+        Action::Downloads => "Downloads",
         Action::ChangeProfile => "Change profile",
         Action::SignIn => "Sign in",
         Action::SignOut => "Sign out",
@@ -265,6 +275,8 @@ impl AccountMenuScreen {
         // reaches `crate::lab`. None of them is expressible as a `Fx::Nav`, which is why they are
         // requests rather than effects a screen performs itself (§2.1, §14).
         let req = match act {
+            #[cfg(feature = "steamdeck")]
+            Action::Downloads => Some(LoopReq::Downloads),
             Action::ChangeProfile => Some(LoopReq::AccountChangeProfile),
             Action::SignIn => Some(LoopReq::AccountSignIn),
             Action::SignOut => Some(LoopReq::AccountSignOut),

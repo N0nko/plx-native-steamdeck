@@ -181,3 +181,7 @@ tests/fixtures/softfloat/arm.tbl
 
 # Independent native DB8 storage helper (built by Makefile).
 /pkg/plxnative-storage
+
+# Steam Deck device captures (synthetic diagnostics, not source assets).
+/steamdeck/*.png
+/steamdeck/dist/

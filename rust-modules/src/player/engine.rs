@@ -911,6 +911,8 @@ impl BufferfeedStartOutcome {
 }
 
 pub(crate) fn start_bufferfeed(ps: &mut crate::route::PlaybackSession, pa: &mut super::adapter::PlayerAdapter) -> bool {
+    #[cfg(feature = "steamdeck")]
+    if cfg!(feature = "steamdeck") { return super::deck::start(ps, pa); }
     let outcome = start_bufferfeed_tracked(ps, pa);
     ps.jail_load_blocked || outcome.accepted()
 }
@@ -1635,6 +1637,8 @@ pub(crate) fn reload_transcode_tracked(ps: &mut crate::route::PlaybackSession, p
 /// Stop playback: unblock+join threads, unload+destruct the pipeline, release the
 /// video plane, reset all state so a fresh start_bufferfeed() can restart.
 pub(crate) fn stop_bufferfeed(ps: &mut crate::route::PlaybackSession, pa: &mut super::adapter::PlayerAdapter) {
+    #[cfg(feature = "steamdeck")]
+    if cfg!(feature = "steamdeck") { super::deck::stop(pa); crate::route::clear_url(ps); return; }
     teardown(ps, pa, false);
 }
 

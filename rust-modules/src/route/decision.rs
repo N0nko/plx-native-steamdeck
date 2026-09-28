@@ -334,6 +334,17 @@ pub(crate) struct PlaybackSession {
     resolved_as_preview: bool,
 }
 
+#[cfg(feature = "steamdeck")]
+pub(crate) fn request_download(ps: &mut PlaybackSession, entry: &crate::deck_downloads::Entry) -> bool {
+    if entry.identity.profile != crate::deck_downloads::profile() { return false; }
+    let Some(path) = crate::deck_downloads::store().ok().and_then(|s| s.playable(&entry.identity).ok().flatten()) else { return false; };
+    *ps = PlaybackSession::IDLE;
+    ps.url = path.to_string_lossy().into_owned();
+    // Offline playback has no PMS timeline or server-side watch writes.
+    unsafe { set_c(ps.title.as_mut_ptr(), ps.title.len(), &entry.title); }
+    true
+}
+
 impl PlaybackSession {
     /// Nothing playing: what the module holds before the first play, and the value the static is
     /// born as. Every String empty, every id 0 or `UNSET`, both HUD buffers NUL.
@@ -4681,6 +4692,7 @@ use crate::cbuf::set as set_c; // shared fixed-C-buffer write (the session's HUD
 /// What the menu may offer in this build. Original and fixed ceilings are established playback
 /// paths; Auto joins them only when [`auto_quality_ready`] says the adaptive path is complete.
 pub(crate) fn available_quality_ladder() -> &'static [Quality] {
+    if cfg!(feature = "steamdeck") { return &[Quality::Original]; }
     quality_ladder_for(auto_quality_ready())
 }
 
@@ -4743,6 +4755,7 @@ static QUALITY: AtomicU8 = AtomicU8::new(1);
 /// The selected ceiling. Safe from any thread; the resolve worker gets a COPY through
 /// [`ResolveEnv`] rather than reading this, per that struct's own rule.
 pub(crate) fn quality() -> Quality {
+    if cfg!(feature = "steamdeck") { return Quality::Original; }
     Quality::from_index(QUALITY.load(Ordering::Relaxed))
 }
 
@@ -5578,6 +5591,26 @@ fn request_play_inner(
     if part.is_empty() && rk.is_empty() {
         return false;
     }
+    #[cfg(feature = "steamdeck")]
+    if cfg!(feature = "steamdeck") {
+        // mpv consumes original Parts; the LG-specific MDE capabilities do not apply here.
+        if request.preview || part.is_empty() { return false; }
+        let Some(client) = crate::plex::client_for(sid) else { return false; };
+        ps.url = crate::deck_downloads::local_source(&client, rk, part)
+            .unwrap_or_else(|| client.direct_play_url(part, "").to_url());
+        ps.cur_sid = sid;
+        ps.cur_rk = rk.to_string();
+        ps.tsession.clear();
+        ps.play_verdict = None;
+        ps.resolve_failed = false;
+        ps.jail_load_blocked = false;
+        ps.request = Some(request.clone());
+        ps.up_next = None;
+        ps.queue.clear();
+        // SAFETY: both buffers use their actual array lengths.
+        unsafe { set_c(ps.title.as_mut_ptr(), ps.title.len(), title); set_c(ps.ctxline.as_mut_ptr(), ps.ctxline.len(), ctx); }
+        return true;
+    }
     if !begin_playback_request() {
         crate::player::log(
             "playback request: route transition still owns the player; refusing overlapping resolve",
@@ -6350,6 +6383,11 @@ fn retranscode_as(ps: &mut PlaybackSession, expected: &WorkerTicket, offset_secs
 /// direct-playable; else a server re-transcode with that stream selected. `idx` is the
 /// CONTAINER audio ordinal (the menu converts its row via metadata::audio_ordinal).
 pub(crate) fn commit_audio_selection(ps: &mut PlaybackSession, idx: i32, codec: &str, stream_id: i64) {
+    if cfg!(feature = "steamdeck") {
+        ps.cur_audio_sid = stream_id;
+        crate::player::request_audio_track(ps, idx, codec);
+        return;
+    }
     if original_recovery_pending() {
         if let Some(pending) = PLAYER_CONTROL
             .lock()
@@ -6406,6 +6444,11 @@ pub(crate) fn apply_deferred_original_effects(ps: &mut PlaybackSession, mut effe
 /// and select the burn stream for any transcode of the item — refreshing a live transcode so the
 /// server re-burns (or drops) it.
 pub(crate) fn commit_subtitle_selection(ps: &mut PlaybackSession, sub_idx: i32, stream_id: i64) {
+    if cfg!(feature = "steamdeck") {
+        ps.cur_sub_sid = stream_id;
+        crate::player::request_subtitle(sub_idx);
+        return;
+    }
     let transcoding = is_transcoding(ps);
     // Burned subtitles are part of the server/decoder contract, so revoke old worker evidence
     // before changing them. A direct-play subtitle is client-rendered and needs no reload; fencing

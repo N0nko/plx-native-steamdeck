@@ -16,6 +16,10 @@
 //! `threads::load_thread` calls `sf_load` off-main by design (see `ffi`).
 #![allow(non_upper_case_globals)]
 pub(crate) mod adapter;
+#[cfg(feature = "steamdeck")]
+pub(crate) mod deck;
+#[cfg(feature = "steamdeck")]
+pub(crate) mod deck_input;
 pub(crate) mod engine;
 pub(crate) mod machine;
 pub(crate) mod preview;
@@ -234,6 +238,8 @@ pub(crate) use engine::{
 pub(crate) use pump::{pump, recover_failed_foreground_original, ForegroundOriginalRecovery};
 pub(crate) use shared::PlaybackState;
 pub(crate) fn pause(pa: &mut adapter::PlayerAdapter) -> bool {
+    #[cfg(feature = "steamdeck")]
+    if let Some(session) = pa.deck.as_mut() { return session.command(serde_json::json!(["set_property", "pause", true])); }
     match SHARED.prepare_hls_user_pause() {
         Some(HlsUserPause::AlreadyHeld) => {
             TX.commit_paused(true);
@@ -266,6 +272,8 @@ pub(crate) fn pause(pa: &mut adapter::PlayerAdapter) -> bool {
     true
 } // playback_pause
 pub(crate) fn resume(pa: &mut adapter::PlayerAdapter) -> bool {
+    #[cfg(feature = "steamdeck")]
+    if let Some(session) = pa.deck.as_mut() { return session.command(serde_json::json!(["set_property", "pause", false])); }
     let queued_stream = pa.engine().is_some_and(|eng| eng.uses_stream_queues());
     match SHARED.prepare_hls_user_resume(queued_stream) {
         Some(HlsUserResume::Deferred) => {
@@ -411,6 +419,8 @@ pub(crate) fn observe_video_plane(
     pl: &mut machine::Player,
     pa: &mut adapter::PlayerAdapter,
 ) -> Option<bool> {
+    #[cfg(feature = "steamdeck")]
+    if cfg!(feature = "steamdeck") { return pl.set_video_plane_bound(pa.deck.as_ref().is_some_and(|s| s.ready)); }
     let bound = pa.engine().is_some_and(|e| acb_playstate_ready(e.stage));
     pl.set_video_plane_bound(bound)
 }
@@ -1283,6 +1293,7 @@ pub(crate) fn request_audio_switch(ps: &crate::route::PlaybackSession, _sid: i64
 pub(crate) fn request_audio_track(ps: &mut crate::route::PlaybackSession, audio_idx: i32, codec: &str) {
     crate::route::set_stream_acodec(ps, codec); // the reload's Load payload uses this audio codec
     SHARED.desired_audio_idx.store(audio_idx, Relaxed);
+    if cfg!(feature = "steamdeck") { return; }
     crate::route::request_user_route_intent(ps, crate::route::UserRouteIntent::NativeAudioReload);
     SHARED.sub_cues.lock().unwrap().clear();
 }

@@ -37,6 +37,11 @@ required-features = ["hostsim"]
 name = "plxnative-storage"
 path = "src/bin/plxnative-storage.rs"
 
+[[bin]]
+name = "plxnative-deck"
+path = "src/bin/deck.rs"
+required-features = ["steamdeck"]
+
 [features]
 local-audio = []
 # On by default, so every ordinary `make`, every `make test` and every on-device harness run
@@ -114,6 +119,7 @@ lab-diagnostics = []
 # have no host equivalent. Everything else — all of `ui/`, the whole Plex data layer, the demux
 # orchestration — is compiled identically for both.
 hostsim = []
+steamdeck = ["hostsim", "dep:plxnative-deck-core"]
 
 # Warnings are ERRORS, for this crate, in every cargo invocation — build, check, test, clippy, the
 # ARM cross-build and the simulator alike. The tree reached zero warnings in all four
@@ -150,6 +156,7 @@ hostsim = []
 warnings = "deny"
 
 [dependencies]
+plxnative-deck-core = { path = "../steamdeck/core", optional = true }
 # safe pure-Rust JPEG/PNG decoders — replaces vendored stb_image.h (~8k lines C)
 image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
 # raw socket/libc FFI for the stream module (correct constants + struct layouts)
