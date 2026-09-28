@@ -59,6 +59,8 @@ with open(run/'mock.log','w') as log, open(run/'app.log','w') as app_log:
         command('screenshot-to-file',f'/run/user/1000/plxnative-video-{app.pid}/performance.png','window')
         print(json.dumps(result),flush=True)
         print('evidence:',run,flush=True)
+        assert result['hud_uploads_per_second'] <= 5, 'Hidden HUD must not upload continuously'
+        assert result['decoder_drops'] == 0 and result['output_drops'] == 0, 'Synthetic playback dropped frames'
     finally:
         if app:
             app.terminate()

@@ -30,6 +30,11 @@ separate playback adapter. The `plxnative-deck` binary is the shipping entry poi
 `plxnative-sim` with `steamdeck,devtriggers` is used only for fixture testing.
 Default webOS builds keep their Starfish/ACB backend.
 
+The Deck canvas is 1920x1200 logical units, uniformly scaled to the full 1280x800
+display. Shared screen bounds, clipping, bottom controls and pointer coordinates use
+that canvas; media retains its original aspect ratio. Downloads remains in the
+hold-A/OK item menu, as requested.
+
 mpv's gpu-next renderer owns decoding, colour conversion, and HDR presentation.
 Its OSC and default controls are disabled. PlxNative renders its actual native HUD
 into a premultiplied BGRA plane which mpv composites as SDR graphics over HDR video.
@@ -37,6 +42,11 @@ The video never passes through PlxNative's 8-bit UI framebuffer. HUD transfers u
 private tmpfs files and acknowledgement before reuse. IPC carries input, transport
 commands, position, duration and track selection. The sandbox dies with its parent;
 Back sends Quit and reaps the child.
+
+The video presenter runs independently of the UI. Both presentation gates let the
+HUD settle, controller sensor/axis events do not cause redraws, and the covered SDL
+window is not swapped while mpv presents. HUD buffers are reused and read as BGRA
+instead of allocating and converting two full-screen buffers for every update.
 
 Gamescope's Wayland socket and host Vulkan WSI layer allow `x11vk` to negotiate a
 10-bit PQ surface. This matches the host-layer approach in Moonlight's Flatpak.
@@ -62,7 +72,19 @@ The synthetic HEVC Main10 fixture played through the integrated native UI with:
 - HDR mastering metadata passed to Gamescope;
 - PlxNative's native controls composited over video, with OK pausing playback;
 - an original downloaded from the native item menu, verified byte-for-byte, then
-  played from the native Downloads screen after the fixture server was stopped.
+  played from the native Downloads screen after the fixture server was stopped;
+- pause and seek through the native controls, a cold launch into Downloads with
+  the server still stopped, and deletion through the native Downloads screen;
+- inspected 1280x800 captures of Home, detail, library, search, settings/legal and
+  Downloads, with no UI letterbox and bottom content using the taller canvas.
+
+The final synthetic HDR playback sample measured 5.0% of one CPU core in the UI
+process and 2.3 HUD uploads/second, with zero decoder or video-output dropped
+frames. This includes developer status logging and loops the eight-second fixture;
+it is not a whole-device wattage or battery-life measurement. The earlier redraw
+path uploaded roughly 55 full frames/second. `steamdeck/test-performance.py`
+explicitly dismisses the test harness's pinned HUD and guards against continuous
+hidden-HUD uploads.
 
 `steamdeck/test-device.py` checks the download engine and backend directly.
 `steamdeck/test-native.py` checks integrated streaming and controls.
@@ -70,6 +92,18 @@ The synthetic HEVC Main10 fixture played through the integrated native UI with:
 All use synthetic media and a loopback mock server, never household watch state.
 Core tests cover validated resume, an ignored Range, bad ranges, redirect refusal,
 low storage, cancellation, profile isolation, deletion, and credential redaction.
+
+Host verification uses `make check`, the nightly no-default-feature library check,
+and Deck-feature tests for full-height geometry/pointer mapping, presentation gates
+and controller event filtering. On a root WSL runner the permission tests require
+dropping DAC override/search capabilities (`setpriv --bounding-set=-dac_override,-dac_read_search`).
+Shell scripts and the source-audit allowlists use LF endings on Windows checkouts.
+
+Manual FFI review: SDL controller handles remain confined to the UI thread;
+desktop GL BGRA readback uses a reusable buffer of exactly width*height*4 bytes,
+and the in-place row flip uses disjoint slices. No webOS FFI signature changes.
+The documentation claims are scoped to the Deck feature and the observed HDR10
+path; host tests do not establish ARM/webOS device parity.
 
 ## Alpha limits
 
