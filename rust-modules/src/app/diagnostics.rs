@@ -2974,9 +2974,13 @@ mod tests {
         // refused Load/Play — without restoring it. Establish the state this test asserts about,
         // and hand back whatever was there (see `[[test-suite-global-pollution]]`).
         let prev = crate::player::swap_state_for_test(crate::player::PlaybackState::Idle);
+        // A previous seek test may leave the derived seek flag set even though pb_state
+        // is Idle. This firmware-label test requires no pending transport operation.
+        let seeking = crate::player::SHARED.seeking.swap(false, std::sync::atomic::Ordering::Relaxed);
         crate::route::clear_play_verdict_for_test(&mut ps);
         let head = header(&ps, &crate::player::Diag::default(), 1_000);
         crate::player::restore_state_for_test(prev);
+        crate::player::SHARED.seeking.store(seeking, std::sync::atomic::Ordering::Relaxed);
         // The firmware rides the IDENTITY line now (head[0]); head[1] is the verdict, and the two
         // being one array is what stops the firmware taking the verdict's slot again.
         let line = &head[0];
