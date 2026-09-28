@@ -1,2 +1,3 @@
-# Linux build/install scripts must remain executable from Windows checkouts too.
+# Keep Linux tools, source audits and install scripts usable from Windows checkouts.
 *.sh text eol=lf
+ci/allow/*.txt text eol=lf

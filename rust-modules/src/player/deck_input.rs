@@ -1,5 +1,25 @@
 //! SDL controller lifetime and button edges. Background events continue while the video owns focus.
 use std::{cell::RefCell, ffi::c_void, time::{Duration, Instant}};
+
+/// SDL joystick/controller state is consumed by `poll`. Raw axes/sensor samples
+/// (including resting stick noise) are not UI damage; only the synthesized button
+/// edges below may request a frame. SDL has already updated its state before here.
+pub(crate) fn is_polled_controller_event(event: u32) -> bool {
+    matches!(event, 0x600..=0x6ff)
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn controller_noise_does_not_repaint_but_real_ui_events_do() {
+        for event in [0x600, 0x650, 0x651, 0x659] {
+            assert!(super::is_polled_controller_event(event));
+        }
+        for event in [0x100, 0x200, 0x300, 0x301, 0x400, 0x401, 0x402] {
+            assert!(!super::is_polled_controller_event(event));
+        }
+    }
+}
 unsafe extern "C" {
     fn SDL_NumJoysticks() -> i32;
     fn SDL_IsGameController(index: i32) -> i32;

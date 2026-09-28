@@ -11,15 +11,15 @@ pub(crate) struct DownloadsScreen {
     table: TableView,
     entries: Vec<Entry>,
     actions: Vec<Option<Command>>,
-    last_poll: std::time::Instant,
+    last_poll: u32,
     signature: String,
 }
 impl DownloadsScreen {
     pub(crate) fn new(entry: EntryId) -> Self {
-        let mut screen = Self { entry, table: TableView::new(), entries: Vec::new(), actions: Vec::new(), last_poll: std::time::Instant::now(), signature: String::new() };
+        let mut screen = Self { entry, table: TableView::new(), entries: Vec::new(), actions: Vec::new(), last_poll: 0, signature: String::new() };
         screen.refresh(); screen
     }
-    fn frame(&self) -> Rect { Rect::new(120., 130., 1680., 820.) }
+    fn frame(&self) -> Rect { Rect::new(120., 130., crate::ui::consts::SCR_W - 240., crate::ui::consts::SCR_H - 260.) }
     fn refresh(&mut self) -> bool {
         let (entries, message) = crate::deck_downloads::snapshot();
         let signature = format!("{}:{message}", serde_json::to_string(&entries).unwrap_or_default());
@@ -66,8 +66,8 @@ impl<H: AppLike> Machine<H> for DownloadsScreen {
     fn step(&mut self, ev: &Self::Ev, cx: &Cx<'_, H>, fx: &mut Effects<'_, H>) -> Handled {
         match ev {
             ScreenEvent::Tick(tick) => {
-                if self.last_poll.elapsed().as_millis() >= 500 {
-                    self.last_poll = std::time::Instant::now();
+                if tick.ms.wrapping_sub(self.last_poll) >= 500 {
+                    self.last_poll = tick.ms;
                     if self.refresh() { fx.invalidate(crate::ui::present::Provenance::Landing(crate::ui::machine::MachineId::Session)); }
                 }
                 self.table.update(tick.dt(), self.frame().h);

@@ -656,6 +656,8 @@ fn ingest_text(app: &mut App, text: &str, panel: bool, source: crate::ui::machin
 /// One polled event. Shared by ordinary polling and ordered FIFO/replay ingestion.
 unsafe fn ingest_sdl_event(app: &mut App, fr: &mut Frame) {
     let et = rd_u32(&app.ev, 0);
+    #[cfg(feature = "steamdeck")]
+    if crate::player::deck_input::is_polled_controller_event(et) { return; }
     app.window_activity.event(et);
     crate::telemetry::window::lifecycle(et, matches!(app.route(), AppArg::Player));
     // INPUT while a popover holds the page frozen is the POPOVER's: every invalidate
