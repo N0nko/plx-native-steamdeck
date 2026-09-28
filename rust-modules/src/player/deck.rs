@@ -3,7 +3,7 @@ use super::{adapter::PlayerAdapter, PlaybackState, SHARED, TX};
 use std::sync::atomic::Ordering::Relaxed;
 
 pub(crate) fn start(ps: &crate::route::PlaybackSession, pa: &mut PlayerAdapter) -> bool {
-    let resume = TX.seek_to_ns.swap(-1, Relaxed).max(0) as f64 / 1e9;
+    let resume = take_start_position();
     stop(pa);
     let source = crate::route::url(ps).to_string();
     if source.is_empty() { return false; }
@@ -21,6 +21,32 @@ pub(crate) fn start(ps: &crate::route::PlaybackSession, pa: &mut PlayerAdapter) 
             true
         }
         Err(_) => { SHARED.pb_state.store(PlaybackState::Error as u8, Relaxed); false }
+    }
+}
+
+fn take_start_position() -> f64 {
+    // resume_at/arm_seek publishes the first-load offset here. TX is only the
+    // live HUD seek queue. Consume before reset_session clears the startup state.
+    SHARED.seek_to_ns.swap(-1, std::sync::atomic::Ordering::Acquire).max(0) as f64 / 1e9
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn deck_consumes_the_resume_armed_for_the_first_load() {
+        let _serial = crate::testlock::serial();
+        SHARED.reset_session();
+        TX.seek_to_ns.store(-1, Relaxed);
+        super::super::engine::arm_seek(20_250_000_000);
+        let resume = take_start_position();
+        let consumed = SHARED.seek_to_ns.load(Relaxed);
+        SHARED.reset_session();
+        TX.seek_to_ns.store(-1, Relaxed);
+        assert_eq!(resume, 20.25, "Resume must consume the startup seek, not the live seek queue");
+        assert_eq!(consumed, -1, "A later Play from beginning must not reuse this offset");
+        assert_eq!(take_start_position(), 0.);
     }
 }
 

@@ -108,6 +108,9 @@ player, checks panel cadence and missed deadlines, and accepts `--fixture` and
 `steamdeck/test-device.py` checks the download engine and backend directly.
 `steamdeck/test-native.py` checks integrated streaming and controls.
 `steamdeck/test-downloads-ui.py` checks the native download and offline flow.
+`steamdeck/test-resume.py` checks that a mock Plex saved position reaches the real
+Deck player, followed by a fresh item starting at zero. The adapter consumes the
+first-load seek armed by Resume before resetting its session state.
 All use synthetic media and a loopback mock server, never household watch state.
 Core tests cover validated resume, an ignored Range, bad ranges, redirect refusal,
 low storage, cancellation, profile isolation, deletion, and credential redaction.
