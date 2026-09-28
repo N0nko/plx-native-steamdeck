@@ -5,7 +5,8 @@
 //! The UI is authored at a fixed **1920x1080 logical** canvas: every theme token, every layout
 //! constant, every font size on the `theme::size` ladder is in those units, and the text/icon
 //! crispness contract (`gfx::snap`) assumes 1:1 texels. That canvas is not going to change, and
-//! it should not — see [`scale`] for why rendering at panel resolution is the wrong trade.
+//! it should not on televisions — see [`scale`] for why rendering at panel resolution is the
+//! wrong trade. The Deck feature uses 1920x1200 logical units, uniformly scaled to 1280x800.
 //!
 //! What can change is the **drawable**: the pixel buffer GL renders into. Today it is 1920x1080
 //! because that is what `SDL_CreateWindow` asks for and webOS grants, on a 4K panel that composites
@@ -39,7 +40,11 @@ extern "C" {
 /// whole premise is "do not assume the drawable equals the canvas" should not leave four other
 /// answers to what the canvas is. Not a guess about any device.
 pub(crate) const LOGICAL_W: f32 = 1920.0;
+#[cfg(not(feature = "steamdeck"))]
 pub(crate) const LOGICAL_H: f32 = 1080.0;
+/// Deck keeps the same uniform type/control scale and gains the full 16:10 vertical extent.
+#[cfg(feature = "steamdeck")]
+pub(crate) const LOGICAL_H: f32 = 1200.0;
 
 /// The real drawable, in pixels. Starts at the logical size so any reader before [`probe`] gets
 /// today's behaviour rather than a zero.
@@ -468,6 +473,7 @@ mod tests {
     /// The path every real television takes. Must be bit-for-bit the old hardcoded behaviour:
     /// full-surface viewport, unit scale, pointer coords passed straight through.
     #[test]
+    #[cfg(not(feature = "steamdeck"))]
     fn a_1080p_surface_is_the_identity() {
         with_drawable(1920, 1080, || {
             assert_eq!(viewport(), (0, 0, 1920, 1080));
@@ -481,6 +487,7 @@ mod tests {
     /// 8K exactly 4x. This is the answer to "would a 4K canvas scale proportionately": yes, and
     /// by an integer, which is also the best case for the glyph raster.
     #[test]
+    #[cfg(not(feature = "steamdeck"))]
     fn sixteen_by_nine_scales_uniformly_with_no_bars() {
         for (w, h, s) in [
             (3840, 2160, 2.0),
@@ -501,6 +508,7 @@ mod tests {
     /// `dw/1920` scale would do, and it would also silently disagree with `glScissor`, which has
     /// one factor to work with.
     #[test]
+    #[cfg(not(feature = "steamdeck"))]
     fn an_odd_aspect_letterboxes_instead_of_distorting() {
         // Wider than 16:9 -> pillarboxed: height binds, bars left and right.
         with_drawable(2560, 1080, || {
@@ -544,7 +552,7 @@ mod tests {
     fn canvas_corners_map_inside_the_viewport() {
         with_drawable(2560, 1080, || {
             let (vx, vy, vw, vh) = viewport();
-            for (lx, ly) in [(0.0, 0.0), (1920.0, 1080.0)] {
+            for (lx, ly) in [(0.0, 0.0), (LOGICAL_W, LOGICAL_H)] {
                 let (px, py) = to_physical(lx, ly);
                 assert!(
                     px >= vx as f32 && px <= (vx + vw) as f32,
@@ -557,6 +565,18 @@ mod tests {
                     vy + vh
                 );
             }
+        });
+    }
+
+    #[cfg(feature = "steamdeck")]
+    #[test]
+    fn deck_fills_sixteen_by_ten_and_maps_bottom_controls_without_stretching() {
+        with_drawable(1280, 800, || {
+            assert_eq!(viewport(), (0, 0, 1280, 800));
+            assert_eq!(scale(), 2.0 / 3.0);
+            assert_eq!(crate::ui::Rect::FULL.h, 1200.0);
+            assert_eq!(to_logical(640.0, 760.0), (960.0, 1140.0));
+            assert_eq!(to_physical(960.0, 1140.0), (640.0, 760.0));
         });
     }
 }

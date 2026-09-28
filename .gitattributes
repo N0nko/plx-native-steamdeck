@@ -1,0 +1,2 @@
+# Linux build/install scripts must remain executable from Windows checkouts too.
+*.sh text eol=lf

@@ -63,20 +63,22 @@ pub(crate) fn pump(pa: &mut PlayerAdapter) {
 /// Read back only the native UI plane. mpv's premultiplied BGRA overlay is composited as SDR
 /// graphics in gpu-next; HDR video never passes through this 8-bit framebuffer.
 pub(crate) unsafe fn present(pa: &mut PlayerAdapter, x: i32, y: i32, w: i32, h: i32) {
-    let Some(session) = pa.deck.as_mut().filter(|s| s.accepts_overlay()) else { return; };
+    let Some(session) = pa.deck.as_mut() else { return; };
+    if !session.accepts_overlay() {
+        // Preserve the final fade/seek frame when IPC still owns the previous buffer.
+        if session.ready && !session.failed { crate::ui::idle::invalidate(); }
+        return;
+    }
     if w <= 0 || h <= 0 { return; }
     unsafe extern "C" { fn glReadPixels(x: i32, y: i32, w: i32, h: i32, format: u32, kind: u32, data: *mut std::ffi::c_void); }
-    let mut rgba = vec![0u8; w as usize * h as usize * 4];
-    // SAFETY: current main-thread GL context; exactly w*h*4 writable bytes, RGBA unsigned byte.
-    glReadPixels(x, y, w, h, 0x1908, 0x1401, rgba.as_mut_ptr().cast());
+    let bgra = session.overlay_buffer(w, h);
+    // SAFETY: current desktop GL context; exactly w*h*4 writable bytes. GL_BGRA is
+    // supported by desktop OpenGL and avoids a per-pixel CPU channel conversion.
+    glReadPixels(x, y, w, h, 0x80E1, 0x1401, bgra.as_mut_ptr().cast());
     let stride = w as usize * 4;
-    let mut bgra = vec![0u8; rgba.len()];
-    for row in 0..h as usize {
-        for col in 0..w as usize {
-            let src = (h as usize - row - 1) * stride + col * 4;
-            let dst = row * stride + col * 4;
-            bgra[dst..dst+4].copy_from_slice(&[rgba[src+2], rgba[src+1], rgba[src], rgba[src+3]]);
-        }
+    for row in 0..h as usize / 2 {
+        let (top, bottom) = bgra.split_at_mut((h as usize - row - 1) * stride);
+        top[row * stride..(row + 1) * stride].swap_with_slice(&mut bottom[..stride]);
     }
-    session.overlay(x, y, w, h, &bgra);
+    session.overlay(x, y, w, h, (crate::surface::LOGICAL_W as f64, crate::surface::LOGICAL_H as f64));
 }

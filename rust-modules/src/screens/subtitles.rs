@@ -113,7 +113,7 @@ impl SubtitleScreen {
     }
     fn frame(&self) -> Rect {
         let height = self.table.measured_height().clamp(240.0, 800.0);
-        Rect::new(490.0, (1080.0 - height) * 0.5, 940.0, height)
+        Rect::new(490.0, (crate::ui::consts::SCR_H - height) * 0.5, 940.0, height)
     }
     fn rebuild(&mut self) {
         let mut section = Section::new("Download subtitles")

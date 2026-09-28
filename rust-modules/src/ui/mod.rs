@@ -195,8 +195,8 @@ impl Rect {
     pub const FULL: Rect = Rect {
         x: 0.0,
         y: 0.0,
-        w: 1920.0,
-        h: 1080.0,
+        w: crate::surface::LOGICAL_W,
+        h: crate::surface::LOGICAL_H,
     };
     #[inline]
     pub fn cx(&self) -> f32 {

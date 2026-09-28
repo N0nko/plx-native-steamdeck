@@ -13,7 +13,7 @@ pms.lib.items = {990001:item}
 env = dict(os.environ, DISPLAY=':1', XDG_RUNTIME_DIR='/run/user/1000', SDL_VIDEODRIVER='x11',
            LD_LIBRARY_PATH=str(root/'assets'), PLXNATIVE_RUNTIME_DIR=str(run),
            PLXNATIVE_APP_DIR=str(root/'assets'), PLXNATIVE_MPV_TEST_LOG='1')
-for flag, value in [('token','synthetic-token'),('grid','0,0'),('itemmenu',''),('noidle',''),('deck-status','')]:
+for flag, value in [('token','synthetic-token'),('grid','0,0'),('itemmenu',''),('deck-status','')]:
     (run/f'plxnative-{flag}').write_text(value)
 def until(fn, seconds=20):
     end=time.monotonic()+seconds

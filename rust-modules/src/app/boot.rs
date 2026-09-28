@@ -463,7 +463,7 @@ pub(crate) unsafe fn construct(
     SDL_GL_SetSwapInterval(if vsync_enabled { 1 } else { 0 });
     #[cfg(all(feature = "hostsim", target_os = "linux"))]
     let wslg_frame_pacing = vsync_enabled
-        && std::env::var_os("WSL_DISTRO_NAME").is_some()
+        && (cfg!(feature = "steamdeck") || std::env::var_os("WSL_DISTRO_NAME").is_some())
         && std::env::var("SDL_VIDEODRIVER").as_deref() == Ok("x11");
     {
         let r = glGetString(GL_RENDERER);

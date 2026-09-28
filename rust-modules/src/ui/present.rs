@@ -155,7 +155,7 @@ impl Present {
 
     /// Side-effect-free: what `take` would answer (the worker door included, un-consumed).
     pub fn peek(&self, tick_ms: u32) -> bool {
-        self.video_plane
+        (self.video_plane && !cfg!(feature = "steamdeck"))
             || self.dirty
             || self.motion
             || self.door.load(Ordering::Acquire)
@@ -235,6 +235,9 @@ mod tests {
         assert!(!p.take(48));
         assert!(p.take(48 + KEEPALIVE_MS), "the keepalive");
         p.note(PresentEvent::VideoPlane(true));
-        assert!(p.take(3000) && p.take(3016), "bound plane: every frame");
+        assert_eq!(p.take(3000), !cfg!(feature = "steamdeck"));
+        assert_eq!(p.take(3016), !cfg!(feature = "steamdeck"),
+            "only the slaved webOS plane requires every frame");
+        assert!(p.take(6000), "the keepalive still bounds staleness");
     }
 }

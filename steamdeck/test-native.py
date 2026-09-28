@@ -10,7 +10,6 @@ env = dict(os.environ, DISPLAY=':1', XDG_RUNTIME_DIR='/run/user/1000', SDL_VIDEO
 env['PLXNATIVE_MPV_TEST_LOG'] = str(root/'native-mpv-test.log')
 (run/'plxnative-token').write_text('synthetic-token')
 (run/'plxnative-play').write_text('990001')
-(run/'plxnative-noidle').touch()
 (run/'plxnative-deck-status').touch()
 with open(run/'mock.log','w') as log:
     mock = subprocess.Popen(['python3', str(root/'assets/mock_pms.py'), '--port','32499', '--extra-media',str(root/'fixtures/hdr10-av.mkv')], stdout=log, stderr=log)

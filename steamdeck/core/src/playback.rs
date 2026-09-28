@@ -26,6 +26,8 @@ pub struct Session {
     tracks: Vec<(String, i64)>,
     selection: (i32, i32),
     overlay_rect: (i32,i32,i32,i32),
+    overlay_canvas: (f64, f64),
+    overlay_pixels: Vec<u8>,
 }
 
 impl Session {
@@ -52,7 +54,7 @@ impl Session {
         }
         // No URL or token in argv, logs, script or manifest: loadfile goes over private IPC.
         let child = cmd.spawn()?;
-        Ok(Self { child, socket, ipc: None, input: Vec::new(), source: Some(source), resume, created: Instant::now(), position: resume, duration: 0., ready: false, paused: false, ended: false, failed: false, seeking: false, hdr: false, hardware: String::new(), keys: VecDeque::new(), overlay, overlay_pending: false, overlays: 0, tracks: Vec::new(), selection: (-2,-2), overlay_rect: (0,0,1280,720) })
+        Ok(Self { child, socket, ipc: None, input: Vec::new(), source: Some(source), resume, created: Instant::now(), position: resume, duration: 0., ready: false, paused: false, ended: false, failed: false, seeking: false, hdr: false, hardware: String::new(), keys: VecDeque::new(), overlay, overlay_pending: false, overlays: 0, tracks: Vec::new(), selection: (-2,-2), overlay_rect: (0,0,1280,800), overlay_canvas: (1920.,1200.), overlay_pixels: Vec::new() })
     }
 
     pub fn command(&mut self, command: Value) -> bool {
@@ -74,7 +76,9 @@ impl Session {
                 Ok(ipc) => {
                     if ipc.set_nonblocking(true).is_err() { self.failed = true; return; }
                     self.ipc = Some(ipc);
-                    self.command(json!(["request_log_messages", "debug"]));
+                    if std::env::var_os("PLXNATIVE_MPV_TEST_LOG").is_some() {
+                        self.command(json!(["request_log_messages", "debug"]));
+                    }
                     for (id, prop) in ["time-pos", "duration", "pause", "seeking", "hwdec-current", "track-list"].iter().enumerate() {
                         self.command(json!(["observe_property", id + 1, prop]));
                     }
@@ -133,7 +137,7 @@ impl Session {
                 if let (Some(x),Some(y)) = (x,y) {
                     let (ox,oy,w,h) = self.overlay_rect;
                     if x >= ox as f64 && y >= oy as f64 && x < (ox+w) as f64 && y < (oy+h) as f64 && self.keys.len()<32 {
-                        self.keys.push_back(format!("ck:{},{}", ((x-ox as f64)*1920./w as f64) as i32, ((y-oy as f64)*1080./h as f64) as i32));
+                        self.keys.push_back(format!("ck:{},{}", ((x-ox as f64)*self.overlay_canvas.0/w as f64) as i32, ((y-oy as f64)*self.overlay_canvas.1/h as f64) as i32));
                     }
                 }
             }
@@ -155,10 +159,15 @@ impl Session {
         }
     }
     pub fn accepts_overlay(&self) -> bool { self.ready && !self.overlay_pending && !self.failed }
-    pub fn overlay(&mut self, x: i32, y: i32, width: i32, height: i32, bgra: &[u8]) {
-        if !self.accepts_overlay() || width <= 0 || height <= 0 || bgra.len() != width as usize * height as usize * 4 { return; }
+    pub fn overlay_buffer(&mut self, width: i32, height: i32) -> &mut [u8] {
+        self.overlay_pixels.resize(width as usize * height as usize * 4, 0);
+        &mut self.overlay_pixels
+    }
+    pub fn overlay(&mut self, x: i32, y: i32, width: i32, height: i32, canvas: (f64, f64)) {
+        if !self.accepts_overlay() || width <= 0 || height <= 0 || self.overlay_pixels.len() != width as usize * height as usize * 4 { return; }
         self.overlay_rect = (x,y,width,height);
-        if fs::write(&self.overlay, bgra).is_err() { self.failed = true; return; }
+        self.overlay_canvas = canvas;
+        if fs::write(&self.overlay, &self.overlay_pixels).is_err() { self.failed = true; return; }
         self.overlay_pending = self.send(json!({"command": ["overlay-add", 1, x, y, self.overlay, 0, "bgra", width, height, width * 4], "request_id": 100}));
     }
 }

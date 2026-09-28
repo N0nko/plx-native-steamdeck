@@ -567,7 +567,9 @@ pub(crate) fn should_present(now: u32) -> bool {
     // a HUD fade, the failure read-out — were exempted from the gate for no reason the compositor
     // knows about. They are ordinary idle frames now, which is what makes every player-side
     // animator's motion report load-bearing.
-    if changed || VIDEO_PLANE.load(Relaxed) {
+    // webOS needs a continuously committed surface for its slaved video plane. Deck's
+    // separate Vulkan presenter keeps playing independently; unchanged HUDs cost no frame.
+    if changed || (!cfg!(feature = "steamdeck") && VIDEO_PLANE.load(Relaxed)) {
         return true;
     }
     let keepalive = KEEPALIVE_MS != 0 && now.wrapping_sub(LAST_PRESENT.load(Relaxed)) >= KEEPALIVE_MS;
@@ -675,10 +677,8 @@ mod tests {
         player.set_video_plane_bound(true);
         assert!(video_plane_bound(), "the machine's edge is the gate's only input");
         for t in [32u32, 48, 64, 80] {
-            assert!(
-                should_present(t),
-                "while the plane is bound every frame presents, unconditionally — nothing about                  this frame moved",
-            );
+            assert_eq!(should_present(t), !cfg!(feature = "steamdeck"),
+                "only a slaved webOS plane requires unchanged UI frames");
         }
 
         // A LEVEL is not an edge. Writing the same value again must publish nothing: a second
