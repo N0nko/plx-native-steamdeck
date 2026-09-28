@@ -48,11 +48,15 @@ HUD settle, controller sensor/axis events do not cause redraws, and the covered 
 window is not swapped while mpv presents. HUD buffers are reused and read as BGRA
 instead of allocating and converting two full-screen buffers for every update.
 
-Video uses Vulkan FIFO with a one-frame swapchain queue and mpv's
-`display-resample` clock. Oversample interpolation handles film/display cadence
-mismatches such as 23.976 fps on the OLED's 90 Hz panel. A deeper presentation queue
-made the display clock unstable in device probes, even without decoder drops.
-The app does not change Gamescope's refresh rate or Steam's performance settings.
+Video uses Vulkan FIFO with a one-frame queue, audio-clock timing and bilinear
+chroma scaling. Display-resample/interpolation passed a short 720p probe but
+regressed the real 4K stream, so interpolation is disabled. A playback-scoped helper
+uses Gamescope's advertised internal-panel modes to match film cadence (for
+example, 23.976/24 fps at 72 Hz on OLED or 48 Hz on LCD). It changes refresh without
+enabling the frame limiter, restores the prior setting when mpv's IPC closes,
+and yields to user/Steam changes. External displays and unknown frame rates are
+left alone. Python 3 and xprop are needed for this optional Gamescope integration;
+without it, playback uses the existing display mode.
 
 Gamescope's Wayland socket and host Vulkan WSI layer allow `x11vk` to negotiate a
 10-bit PQ surface. This matches the host-layer approach in Moonlight's Flatpak.
@@ -92,12 +96,14 @@ path uploaded roughly 55 full frames/second. `steamdeck/test-performance.py`
 explicitly dismisses the test harness's pinned HUD and guards against continuous
 hidden-HUD uploads.
 
-Fresh-player frame-pacing probes at 90 Hz reproduced output drops with the default
-queue, then measured about 89.99 Hz, zero decoder/output drops and zero late frames
-with FIFO, a one-frame queue and oversample. The native performance test also checks
-display-clock convergence and missed presentation deadlines; zero decoder drops
-alone is not evidence of smooth output. It accepts `--fixture` and `--seconds` for
-longer 4K workloads. Wider codec and real-world motion acceptance remain necessary.
+The real 4K 23.976 fps stream accumulated missed deadlines with display-resample,
+including with the native UI suspended. Audio timing, interpolation off and a
+72 Hz panel held zero additional output drops over several minutes. Bilinear
+chroma scaling reduced the measured fresh-frame GPU work from roughly 8 ms to
+3 ms. This is not a whole-device power measurement or a claim that every visual
+hitch is resolved. The native performance test refuses to run alongside another
+player, checks panel cadence and missed deadlines, and accepts `--fixture` and
+`--seconds` for longer 4K workloads. Zero decoder drops alone is insufficient.
 
 `steamdeck/test-device.py` checks the download engine and backend directly.
 `steamdeck/test-native.py` checks integrated streaming and controls.
@@ -138,3 +144,4 @@ a stopped server as the offline condition; they do not change the Deck's Wi-Fi.
 - [Moonlight Gamescope integration](https://github.com/flathub/com.moonlight_stream.Moonlight/blob/master/com.moonlight_stream.Moonlight.json)
 - [mpv colourspace signalling](https://mpv.io/manual/stable/#options-target-colorspace-hint)
 - [mpv display synchronization](https://mpv.io/manual/stable/#options-video-sync)
+- [Gamescope display control protocol](https://github.com/ValveSoftware/gamescope/blob/master/protocol/gamescope-control.xml)

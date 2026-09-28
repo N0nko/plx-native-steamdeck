@@ -4,6 +4,7 @@ use std::{collections::VecDeque, fs, io::{self, Read, Write}, os::unix::{fs::Per
 
 pub struct Session {
     child: Child,
+    refresh: Option<Child>,
     socket: PathBuf,
     ipc: Option<UnixStream>,
     input: Vec<u8>,
@@ -39,16 +40,16 @@ impl Session {
         let script = root.join("controls.lua");
         fs::write(&script, include_str!("../../controls.lua"))?;
         let mut cmd = Command::new("flatpak");
-        // Gamescope needs a single queued frame for mpv's display clock to stay
-        // stable. Deeper queues produced irregular 55-75 Hz feedback on a 90 Hz
-        // panel. FIFO + display sync also lets oversample remove 24/90 Hz judder.
+        // Keep rendering light and let Gamescope match the panel to the film.
+        // Display-resample/interpolation produced missed deadlines on 4K even
+        // though the decoder was healthy; the audio clock remains robust here.
         cmd.args(["run", "--die-with-parent", "--filesystem=host-os:ro", "--filesystem=xdg-run/gamescope-0"])
             .arg(format!("--filesystem={}", root.display()))
             .args(["--env=GAMESCOPE_WAYLAND_DISPLAY=gamescope-0", "--env=ENABLE_GAMESCOPE_WSI=1", "--env=STEAM_GAMESCOPE_HDR_SUPPORTED=1"])
             .arg(format!("--env=VK_LAYER_PATH={}", std::env::var("PLXNATIVE_VULKAN_DIR").unwrap_or_else(|_| format!("{}/.local/share/plxnative-steamdeck/vulkan", std::env::var("HOME").unwrap_or_default()))))
             .args(["--env=VK_INSTANCE_LAYERS=VK_LAYER_FROG_gamescope_wsi_x86_64", "io.mpv.Mpv", "--no-config", "--idle=yes", "--force-window=yes", "--fullscreen", "--vo=gpu-next", "--gpu-api=vulkan", "--gpu-context=x11vk", "--target-colorspace-hint=yes", "--hwdec=auto", "--osc=no", "--osd-level=0", "--input-default-bindings=no", "--input-terminal=no", "--terminal=no", "--keep-open=no"])
             .arg(format!("--input-ipc-server={}", socket.display()))
-            .args(["--vulkan-swap-mode=fifo", "--swapchain-depth=1", "--video-sync=display-resample", "--interpolation=yes", "--tscale=oversample"])
+            .args(["--vulkan-swap-mode=fifo", "--swapchain-depth=1", "--video-sync=audio", "--interpolation=no", "--cscale=bilinear"])
             .arg(format!("--script={}", script.display()))
             .env("DISPLAY", ":1")
             .stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
@@ -58,7 +59,7 @@ impl Session {
         }
         // No URL or token in argv, logs, script or manifest: loadfile goes over private IPC.
         let child = cmd.spawn()?;
-        Ok(Self { child, socket, ipc: None, input: Vec::new(), source: Some(source), resume, created: Instant::now(), position: resume, duration: 0., ready: false, paused: false, ended: false, failed: false, seeking: false, hdr: false, hardware: String::new(), keys: VecDeque::new(), overlay, overlay_pending: false, overlays: 0, tracks: Vec::new(), selection: (-2,-2), overlay_rect: (0,0,1280,800), overlay_canvas: (1920.,1200.), overlay_pixels: Vec::new() })
+        Ok(Self { child, refresh: None, socket, ipc: None, input: Vec::new(), source: Some(source), resume, created: Instant::now(), position: resume, duration: 0., ready: false, paused: false, ended: false, failed: false, seeking: false, hdr: false, hardware: String::new(), keys: VecDeque::new(), overlay, overlay_pending: false, overlays: 0, tracks: Vec::new(), selection: (-2,-2), overlay_rect: (0,0,1280,800), overlay_canvas: (1920.,1200.), overlay_pixels: Vec::new() })
     }
 
     pub fn command(&mut self, command: Value) -> bool {
@@ -73,6 +74,9 @@ impl Session {
     }
 
     pub fn tick(&mut self) {
+        if self.refresh.as_mut().and_then(|child| child.try_wait().ok()).flatten().is_some() {
+            self.refresh = None;
+        }
         if self.failed { return; }
         if self.child.try_wait().ok().flatten().is_some() { self.failed = !self.ended; return; }
         if self.ipc.is_none() {
@@ -81,7 +85,16 @@ impl Session {
                     if ipc.set_nonblocking(true).is_err() { self.failed = true; return; }
                     self.ipc = Some(ipc);
                     if std::env::var_os("PLXNATIVE_MPV_TEST_LOG").is_some() {
-                        self.command(json!(["request_log_messages", "debug"]));
+                        self.command(json!(["request_log_messages", "v"]));
+                    }
+                    // A separate host helper restores the panel even if this UI
+                    // crashes. It exits when this private mpv connection closes.
+                    if let Some(root) = self.socket.parent() {
+                        let helper = root.join("refresh.py");
+                        if fs::write(&helper, include_str!("../../refresh.py")).is_ok() {
+                            self.refresh = Command::new("python3").arg("-I").arg(helper).arg(&self.socket)
+                                .stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn().ok();
+                        }
                     }
                     for (id, prop) in ["time-pos", "duration", "pause", "seeking", "hwdec-current", "track-list"].iter().enumerate() {
                         self.command(json!(["observe_property", id + 1, prop]));
@@ -186,6 +199,11 @@ impl Drop for Session {
         }
         // Flatpak's die-with-parent also tears down the sandbox if the native UI crashes.
         let _ = self.child.kill(); let _ = self.child.wait();
+        if let Some(mut refresh) = self.refresh.take() {
+            // Closing mpv's socket releases the lease. Reap without blocking UI
+            // navigation on the compositor's refresh-switch acknowledgement.
+            std::thread::spawn(move || { let _ = refresh.wait(); });
+        }
         let _ = fs::remove_file(&self.socket); let _ = fs::remove_file(&self.overlay);
     }
 }

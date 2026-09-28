@@ -6,6 +6,9 @@ parser.add_argument('--fixture', default='hdr10-av.mkv')
 parser.add_argument('--seconds', type=float, default=10)
 args = parser.parse_args()
 
+# Do not compete with a real film and invalidate the timing measurements.
+assert subprocess.run(['pgrep', '-x', 'mpv-bin'], stdout=subprocess.DEVNULL).returncode == 1, 'Stop existing playback before this exclusive device test'
+
 root = pathlib.Path.home()/'.local/share/plxnative-steamdeck'
 run = root/'test-ui'/uuid.uuid4().hex
 run.mkdir(parents=True, mode=0o700)
@@ -67,13 +70,18 @@ with open(run/'mock.log','w') as log, open(run/'app.log','w') as app_log:
                 'display_hz':command('get_property','display-fps'),
                 'estimated_hz':command('get_property','estimated-display-fps'),
                 'timing_delta':{k:command('get_property',k)-initial[k] if initial[k] is not None else None for k in counters}}
-        command('screenshot-to-file',f'/run/user/1000/plxnative-video-{app.pid}/performance.png','window')
         print(json.dumps(result),flush=True)
         print('evidence:',run,flush=True)
         assert result['hud_uploads_per_second'] <= 5, 'Hidden HUD must not upload continuously'
         assert result['decoder_drops'] == 0 and result['output_drops'] == 0, 'Synthetic playback dropped frames'
-        assert result['display_sync'], 'Audio-clock playback does not correct display cadence'
-        assert abs(result['estimated_hz']/result['display_hz']-1) < .02, 'Presentation clock did not settle near the display rate'
+        from refresh import settings, cadence, Control
+        display = Control()
+        try:
+            expected = cadence(command('get_property', 'container-fps'), display.rates)
+            assert settings()[0] == expected, 'Panel refresh does not match film cadence'
+            assert settings()[1] == 0, 'Refresh matching must not enable Gamescope frame limiting'
+        finally:
+            display.socket.close()
         assert result['timing_delta']['vo-delayed-frame-count'] == 0, 'Presenter missed display deadlines'
     finally:
         if app:
